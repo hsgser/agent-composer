@@ -110,10 +110,33 @@ pytest
 
 ## Publish
 
+Releases are published to PyPI automatically by GitHub Actions
+([`.github/workflows/publish.yml`](.github/workflows/publish.yml)) whenever a
+GitHub **Release** is published. It uses PyPI **Trusted Publishing** (OIDC), so no
+API token or secret is stored in the repo.
+
+**One-time PyPI setup** (https://pypi.org/manage/account/publishing/ → "Add a pending publisher"):
+
+| Field | Value |
+|-------|-------|
+| PyPI Project Name | `agent-composer` |
+| Owner | `ngocbh` |
+| Repository name | `agent_compose` |
+| Workflow name | `publish.yml` |
+| Environment name | `pypi` |
+
+**To cut a release:**
+
+1. Bump `version` in `pyproject.toml`, commit, and push to `main`.
+2. Tag and create a GitHub Release (e.g. `v0.0.2`) — the `publish` job builds,
+   tests, and uploads to PyPI.
+
+**Manual publish** (fallback, needs an account-scoped API token):
+
 ```console
 pip install build twine
 python -m build            # wheel + sdist into dist/
-twine upload dist/*        # publish to PyPI
+twine upload dist/*        # TWINE_USERNAME=__token__  TWINE_PASSWORD=pypi-...
 ```
 
 ## License
