@@ -34,21 +34,21 @@ Hello, Ada — it's wonderful to have you here!
 ## Install
 
 ```console
-pip install agent-compose
+pip install agent-composer
 ```
 
 Provider SDKs are optional extras — install the one(s) you use:
 
 ```console
-pip install "agent-compose[anthropic]"   # Claude
-pip install "agent-compose[openai]"      # GPT
-pip install "agent-compose[google]"      # Gemini
-pip install "agent-compose[ollama]"      # local models
-pip install "agent-compose[all]"         # everything
+pip install "agent-composer[anthropic]"   # Claude
+pip install "agent-composer[openai]"      # GPT
+pip install "agent-composer[google]"      # Gemini
+pip install "agent-composer[ollama]"      # local models
+pip install "agent-composer[all]"         # everything
 ```
 
 The core (engine + CLI) installs with no provider SDK; importing a provider you
-haven't installed raises a clear `pip install agent-compose[...]` hint.
+haven't installed raises a clear `pip install agent-composer[...]` hint.
 
 ## The `ac` CLI
 

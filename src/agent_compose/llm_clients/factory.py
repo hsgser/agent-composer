@@ -34,7 +34,7 @@ def _missing_provider(provider: str, exc: ImportError) -> ImportError:
     extra = _PROVIDER_EXTRA.get(provider, provider)
     return ImportError(
         f"LLM provider {provider!r} needs an optional dependency that isn't installed. "
-        f"Install it with:  pip install 'agent-compose[{extra}]'"
+        f"Install it with:  pip install 'agent-composer[{extra}]'"
     )
 
 
@@ -49,7 +49,7 @@ def create_llm_client(
     Provider client classes (and their langchain provider packages) are imported
     lazily here, in the matched branch only — so the core package installs without
     any provider extra, and importing a provider whose extra is missing raises a
-    clear `pip install 'agent-compose[<extra>]'` hint rather than a bare ImportError.
+    clear `pip install 'agent-composer[<extra>]'` hint rather than a bare ImportError.
 
     Args:
         provider: LLM provider name
