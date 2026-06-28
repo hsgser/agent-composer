@@ -55,6 +55,7 @@ class ModelNode(Node):
         self.runtime_name = runtime
 
     def run(self, inputs: dict) -> Output:
+        """Always raises — the ML-serving seam was removed as dead plumbing (see the class docstring)."""
         raise NotImplementedError(
             f"MODEL node {self.id!r}: ML serving is not wired yet — the model_runtime "
             f"seam was removed as dead plumbing; re-add it when real ML serving lands"

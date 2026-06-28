@@ -42,7 +42,7 @@ def create_llm_client(
     provider: str,
     model: str,
     base_url: Optional[str] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> BaseLLMClient:
     """Create an LLM client for the specified provider.
 

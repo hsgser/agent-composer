@@ -72,10 +72,12 @@ class EndNode(Node):
     @classmethod
     def record(cls, node_id: str, *, output_names: list[str],
                title: Optional[str] = None) -> "EndNode":
+        """Build a RECORD-mode terminal — one param per declared flow `output:` name."""
         return cls(node_id, output_names=output_names, title=title)
 
     @classmethod
     def list_(cls, node_id: str, *, n: int, title: Optional[str] = None) -> "EndNode":
+        """Build a LIST-mode terminal — `n` params (`e0..e{n-1}`) joined as a MAP fan-in."""
         return cls(node_id, n=n, title=title)
 
     def run(self, inputs: dict) -> Output:

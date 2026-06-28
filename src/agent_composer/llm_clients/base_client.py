@@ -41,7 +41,7 @@ class BaseLLMClient(ABC):
             Extra provider-specific arguments, stashed on `self.kwargs` for `get_llm`.
     """
 
-    def __init__(self, model: str, base_url: Optional[str] = None, **kwargs):
+    def __init__(self, model: str, base_url: Optional[str] = None, **kwargs: Any):
         self.model = model
         self.base_url = base_url
         self.kwargs = kwargs
