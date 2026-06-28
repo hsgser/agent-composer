@@ -32,6 +32,3 @@ htmlcov/
 
 # MkDocs build output
 site/
-
-# Local working notes (engine backlog)
-todos/

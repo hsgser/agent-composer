@@ -5,9 +5,9 @@ repo_url: https://github.com/ngocbh/agent-composer
 repo_name: ngocbh/agent-composer
 edit_uri: edit/main/docs/
 
-# This config lives in docs/; the paths below are resolved relative to it.
-docs_dir: .
-site_dir: ../site
+# This config lives at the repo root; docs sources are in docs/.
+docs_dir: docs
+site_dir: site
 
 theme:
   name: material
@@ -43,7 +43,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [../src]
+          paths: [src]
           options:
             show_root_heading: true
             show_symbol_type_heading: true
@@ -76,3 +76,7 @@ nav:
   - Examples: examples.md
   - Python API: api.md
   - API Reference: reference.md
+  - Roadmap:
+    - TODO: backlog/TODO.md
+    - Deferred: backlog/DEFER.md
+    - Future: backlog/FUTURE.md

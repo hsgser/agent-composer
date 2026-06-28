@@ -87,7 +87,7 @@ Copy `test_node.py.template`. At minimum: a direct `run()` unit test and one
 PYTHONPATH=src pytest tests/engine/test_xxx.py -q
 ```
 
-## 7. `todos/TODO.md` + docs
+## 7. `docs/backlog/TODO.md` + docs
 
 Tick any backlog item with the exact commit hash (CLAUDE.md "Zeroth rule"). If the
 kind is part of the authoring surface, add it to `docs/syntax.md` and the
@@ -105,4 +105,4 @@ kind is part of the authoring surface, add it to `docs/syntax.md` and the
 | Build branch | `compose/build.py` | the `isinstance(desc, ...)` chain |
 | Re-export | `compose/__init__.py` | imports + `__all__` |
 | Test | `tests/engine/test_xxx.py` | new file |
-| Backlog/docs | `todos/TODO.md`, `docs/syntax.md` | — |
+| Backlog/docs | `docs/backlog/TODO.md`, `docs/syntax.md` | — |
