@@ -15,26 +15,65 @@ two of you together. You can see exactly what runs, inspect it for bugs, and ref
 after an error; so can the model. The human owns the graph; the LLMs only fill the leaf
 boxes — they never rewrite the structure at runtime.
 
-A flow is a function: a typed `input:`, a body, and an `output:`. The smallest flow
-is a single node, written inline (below). As a flow grows into a graph of `nodes:`,
-the edges between them are *inferred* from the `${...}` references — you never draw
+A flow is a function: it has a typed `input:`, a graph of `nodes:`, and an `output:`.
+The graph between nodes is *inferred* from the `${...}` references — you never draw
 edges by hand.
 
 ```yaml
-# hello.yaml — compact form: the flow IS one node (no nodes: map, no output wiring)
-id: hello
-name: hello
+# debate.yaml — frame a question, argue both sides in parallel, then decide
+id: debate
+name: debate
 input:
-  name: str
-output: str
-kind: agent
-prompt: |-
-  Write a short, warm one-sentence greeting addressed to ${name}.
+  question: str
+nodes:
+  frame:
+    kind: agent
+    input:
+      question: ${input.question}
+    output: str
+    prompt: "Restate '${question}' and list the 2-3 criteria that should drive it."
+  for_case:
+    kind: agent
+    input:
+      brief: ${frame.output}            # edge: frame -> for_case
+    output: str
+    prompt: "Make the strongest case FOR, against these criteria: ${brief}"
+  against_case:
+    kind: agent
+    input:
+      brief: ${frame.output}            # frame -> against_case (runs parallel to for_case)
+    output: str
+    prompt: "Make the strongest case AGAINST, against these criteria: ${brief}"
+  verdict:
+    kind: agent
+    input:
+      for_case: ${for_case.output}      # fan-in: verdict waits for BOTH sides
+      against_case: ${against_case.output}
+    output: str
+    prompt: |-
+      Weigh both sides and recommend in 2-3 sentences, with the key reason.
+      For: ${for_case}
+      Against: ${against_case}
+output: ${verdict.output}
 ```
 
+The four nodes form a **diamond**, inferred entirely from the `${...}` references —
+no edges are drawn by hand:
+
+```
+        ┌─> for_case ────┐
+frame ──┤                ├──> verdict
+        └─> against_case ┘
+```
+
+`for_case` and `against_case` both read `${frame.output}` but never reference each
+other, so the engine runs them **in parallel**; `verdict` reads both, so it **waits
+for both** before it runs. The structure is fixed by the author: every run argues
+both sides before deciding — you can read that guarantee straight off the file.
+
 ```console
-$ ac run hello.yaml --input name=Ada
-Hello, Ada — it's wonderful to have you here!
+$ ac run debate.yaml --input question="Should a small team adopt a monorepo?"
+Adopt the monorepo. For a small team the simpler cross-project refactors and single ...
 ```
 
 ## Why this shape
