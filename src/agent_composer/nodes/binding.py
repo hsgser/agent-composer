@@ -22,6 +22,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from agent_composer.events import SourceSpan
 from agent_composer.expr import (
     ExpressionError,
     RequiredError,
@@ -34,7 +35,13 @@ from agent_composer.state.pool import TypedVariablePool
 
 
 class BindingError(ValueError):
-    """A node's declared input could not be bound (missing-required or type mismatch)."""
+    """A node's declared input could not be bound (missing-required or type mismatch).
+
+    Carries an optional `locator` — a `SourceSpan(None, "input", <param>)` naming the
+    failing input. `bind_params` stamps it; eval_node's funnel fills in the node id.
+    """
+
+    locator: object = None  # Optional[SourceSpan]
 
 
 @dataclass(frozen=True)
@@ -119,33 +126,40 @@ def bind_params(
     """
     record: dict[str, Any] = {}
     for p in params:
-        present = p.name in wiring  # an absent edge (caller OMITTED) vs a present one (incl. bound-null)
-        source = wiring.get(p.name)
-        value = _resolve_source(source, pool, item)
-        if value is None:
-            # Distinguish an OMITTED input (no wiring edge) from one BOUND-TO-NULL (an edge that
-            # resolves to None): only an omitted input fills its declared default / fails when
-            # required — a caller's explicit null SHADOWS the child default (`f(x=None)` semantics,
-            # the apply_defaults contract). In practice only START_ID's params carry default/required
-            # (every other kind builds bare ParamDecls), so this refinement is inert elsewhere; it
-            # is what lets the spliced child START_ID own omitted-input defaulting.
-            if not present and p.default is not None:
-                value = p.default
-            elif not present and p.required:
-                raise BindingError(f"required input {p.name!r} is unbound (from={source!r})")
-            else:
-                record[p.name] = None
-                continue
-        shape = p.shape
-        if shape is None and p.type is not None:
-            try:
-                shape = shape_for(p.type, {})
-            except SegmentError:
-                shape = None
-        if shape is not None:
-            try:
-                value = build_segment_with_type(shape, value).to_object()
-            except SegmentError as exc:
-                raise BindingError(f"input {p.name!r}: {exc}") from exc
-        record[p.name] = copy.deepcopy(value)
+        try:
+            present = p.name in wiring  # an absent edge (caller OMITTED) vs a present one (incl. bound-null)
+            source = wiring.get(p.name)
+            value = _resolve_source(source, pool, item)
+            if value is None:
+                # Distinguish an OMITTED input (no wiring edge) from one BOUND-TO-NULL (an edge that
+                # resolves to None): only an omitted input fills its declared default / fails when
+                # required — a caller's explicit null SHADOWS the child default (`f(x=None)` semantics,
+                # the apply_defaults contract). In practice only START_ID's params carry default/required
+                # (every other kind builds bare ParamDecls), so this refinement is inert elsewhere; it
+                # is what lets the spliced child START_ID own omitted-input defaulting.
+                if not present and p.default is not None:
+                    value = p.default
+                elif not present and p.required:
+                    raise BindingError(f"required input {p.name!r} is unbound (from={source!r})")
+                else:
+                    record[p.name] = None
+                    continue
+            shape = p.shape
+            if shape is None and p.type is not None:
+                try:
+                    shape = shape_for(p.type, {})
+                except SegmentError:
+                    shape = None
+            if shape is not None:
+                try:
+                    value = build_segment_with_type(shape, value).to_object()
+                except SegmentError as exc:
+                    raise BindingError(f"input {p.name!r}: {exc}") from exc
+            record[p.name] = copy.deepcopy(value)
+        except BindingError as exc:
+            # Name the failing input for precise error framing; node id is stamped by
+            # eval_node's funnel (binding has no node identity here).
+            if exc.locator is None:
+                exc.locator = SourceSpan(node=None, kind="input", key=p.name)
+            raise
     return record
