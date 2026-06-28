@@ -79,8 +79,7 @@ Adopt the monorepo. For a small team the simpler cross-project refactors and sin
 ## Install
 
 > **Early stage.** Agent Composer is under active development and not yet on PyPI.
-> The API, YAML surface, and CLI may move or change quickly between commits — pin to a
-> commit if you need stability.
+> The API, YAML surface, and CLI may move or change quickly between commits.
 
 Install directly from the repository:
 

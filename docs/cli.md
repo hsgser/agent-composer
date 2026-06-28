@@ -55,9 +55,12 @@ input's declared type:
 
 Each prompt's label carries the input's declared **type**, a required (`*`) /
 `optional` mark, and any **default** — e.g. `topic (str) *`,
-`as_of (Optional[date]) [optional]`, `window (int) [default: 30]`. An optional
-input left blank is skipped (its default applies). Cancelling a prompt
-(Ctrl-C / Esc) cancels the run.
+`as_of (Optional[date]) [optional]`, `window (int) [default: 30]`. For the
+ISO-8601 `date` / `datetime` scalars — whose accepted string form isn't obvious —
+a label with no default also shows an **example** value (`e.g. 2026-05-21`,
+`e.g. 2026-05-21T14:30`); when a default is present it already shows the format,
+so the example is dropped. An optional input left blank is skipped (its default
+applies). Cancelling a prompt (Ctrl-C / Esc) cancels the run.
 
 !!! note
     The prompt needs a real terminal (TTY). In a non-interactive context
@@ -176,6 +179,32 @@ flow has a cycle involving ['a', 'b']; flows must be acyclic
   ↳ a depends on b (a.input.x)
   ↳ b depends on a (b.input.y)
 ```
+
+## Runtime errors
+
+A failure that happens **while the flow runs** — a node raises, a `code` node
+returns the wrong type, an `:?` required reference is missing at its use site —
+is shown the same way: a boxed `.yaml` frame pointed at the **node that failed**
+(via its source line), with the message below. So a runtime error reads like a
+compile error — you see *where* in the flow it broke, not an engine traceback:
+
+```console
+$ ac run e07-required-missing.yaml --input topic=climate   # as_of omitted
+╭─ e07-required-missing.yaml:19 ───────────────────────────────╮
+│   17                                                         │
+│   18 nodes:                                                  │
+│ ❱ 19   report:                                               │
+│   20     kind: agent                                         │
+│   21     input:                                              │
+│   22       topic: ${input.topic}                             │
+│   23       as_of:  ${input.as_of:?as_of is required ...}     │
+╰──────────────────────────────────────────────────────────────╯
+as_of is required for the report
+```
+
+A failure with **no node behind it** — a false boundary/post `assert:`, or an
+input that can't be coerced to its declared type at the run boundary — has no
+node line to point at, so it prints the plain `run failed: <message>` line.
 
 ## Next
 

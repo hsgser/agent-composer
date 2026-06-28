@@ -27,7 +27,9 @@ from rich.text import Text
 from agent_composer.compile.model import END_ID, START_ID
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.loader import load_flow
+from agent_composer.compose.parser import node_lines
 from agent_composer.compose.run import RunResult, resume_command, resume_flow, run_flow
+from agent_composer.events import NodeFailed
 from agent_composer.state.segments import SegmentType
 
 console = Console()
@@ -38,26 +40,19 @@ err_console = Console(stderr=True)
 _ERR_CONTEXT = 5
 
 
-def _render_load_error(err: LoadError, flow: Path, text: str) -> None:
-    """Print a located compile error for the author as a boxed `.yaml` source frame.
+def _render_source_frame(text: str, marks, title: str, message: str) -> None:
+    """Print an error as a boxed `.yaml` source frame — shared by compile and runtime errors.
 
-    Surfaces `LoadError.line`/`.lines` (the loader's source-line tracking) at the CLI boundary
-    so a failed compile points at WHERE in the `.yaml` it broke — a Rich panel showing the source
-    with line numbers and every offending line highlighted (like a Python traceback's code box),
-    titled `file:line[,line...]`, with the message below. A multi-line error (e.g. a cycle, which
-    implicates several nodes) highlights ALL of them and the window stretches to cover them, so the
-    context is as wide as the error spans. When no line is known (or all are out of range), prints
-    `file: <message>` with no frame.
-    """
-    msg = str(err)
+    `marks` are the 1-based offending lines: the panel shows the source around them with line
+    numbers and each mark highlighted (like a Python traceback's code box), titled
+    `title:line[,line...]`, with `message` in red below. The window stretches from the first to
+    the last mark (+ padding), so a multi-point error shows every implicated line. When no mark
+    is in range, prints a plain `title: message` line (no box)."""
     lines = text.splitlines()
-    marks = sorted({m for m in (err.lines or ([err.line] if err.line else [])) if 1 <= m <= len(lines)})
+    marks = sorted({m for m in marks if 1 <= m <= len(lines)})
     if not marks:
-        err_console.print(Text(f"{flow.name}: ", style="red bold") + Text(msg, style="red"))
-        _render_notes(err)
+        err_console.print(Text(f"{title}: ", style="red bold") + Text(message, style="red"))
         return
-    # The window stretches from the first to the last offending line (+ padding), so a
-    # multi-node error shows every implicated line; a single-point error is just ±context.
     start = max(1, marks[0] - _ERR_CONTEXT)
     end = min(len(lines), marks[-1] + _ERR_CONTEXT)
     frame = Syntax(
@@ -68,10 +63,40 @@ def _render_load_error(err: LoadError, flow: Path, text: str) -> None:
         highlight_lines=set(marks),
         word_wrap=True,
     )
-    title = f"{flow.name}:{','.join(str(m) for m in marks)}"
-    err_console.print(Panel(frame, title=title, title_align="left", border_style="red"))
-    err_console.print(Text(msg, style="red"))
+    panel_title = f"{title}:{','.join(str(m) for m in marks)}"
+    err_console.print(Panel(frame, title=panel_title, title_align="left", border_style="red"))
+    err_console.print(Text(message, style="red"))
+
+
+def _render_load_error(err: LoadError, flow: Path, text: str) -> None:
+    """Print a located compile error for the author as a boxed `.yaml` source frame.
+
+    Surfaces `LoadError.line`/`.lines` (the loader's source-line tracking) at the CLI boundary
+    so a failed compile points at WHERE in the `.yaml` it broke. A multi-line error (e.g. a cycle,
+    which implicates several nodes) highlights ALL of them. When no line is known (or all are out
+    of range), prints `file: <message>` with no frame. The "why" legend (`.notes`) follows.
+    """
+    marks = err.lines or ([err.line] if err.line is not None else [])
+    _render_source_frame(text, marks, flow.name, str(err))
     _render_notes(err)
+
+
+def _render_run_error(result: RunResult, flow: Path, text: str) -> None:
+    """Print a runtime failure as a located `.yaml` frame at the node that raised.
+
+    A node failure carries the offending node id (the last `NodeFailed` event); map it to its
+    source line (`node_lines`) and box the frame there, mirroring the compile-error UX. A failure
+    with no node behind it — a false boundary/post assert, or an input-coercion error at the run
+    boundary — has no node line to point at, so it falls back to a plain `run <status>: <message>`
+    line."""
+    failed = [e for e in result.events if isinstance(e, NodeFailed)]
+    node_id = failed[-1].node_id if failed else None
+    line = node_lines(text).get(node_id) if node_id else None
+    message = result.error or "(no detail)"
+    if line is None:
+        err_console.print(f"[red]run {result.status}: {message}[/red]")
+        return
+    _render_source_frame(text, [line], flow.name, message)
 
 
 def _render_notes(err: LoadError) -> None:
@@ -177,25 +202,50 @@ def _parse_kv(pairs: List[str]) -> Dict[str, Any]:
     return out
 
 
+# Example value for the scalars whose accepted string form isn't self-evident from the
+# type name — the ISO-8601 date/datetime, which the engine parses with
+# `date.fromisoformat` / `datetime.fromisoformat` (a bare date is not a valid datetime).
+_FORMAT_EXAMPLE: Dict[Any, str] = {
+    SegmentType.DATE: "2026-05-21",
+    SegmentType.DATETIME: "2026-05-21T14:30",
+}
+
+
+def _format_hint(shape: Any) -> Optional[str]:
+    """An `e.g. <value>` example for an input whose string format isn't obvious, or
+    `None` when none is needed. Keyed off the shape's scalar `seg_type`, so it fires for
+    `Optional[date]` too (the resolved shape stays `DATE`, just nullable)."""
+    example = _FORMAT_EXAMPLE.get(getattr(shape, "seg_type", None))
+    return f"e.g. {example}" if example else None
+
+
 def _input_label(decl: Any) -> str:
     """The questionary prompt label for one declared input.
 
-    Carries the input's name, declared `type`, a required (`*`) / `optional` mark, and
-    any default — so an author at the prompt sees what is expected without reading the
-    `.yaml`. Shapes:
-        `topic (str) *`                       (required)
-        `as_of (Optional[date]) [optional]`   (optional, no default)
-        `window (int) [default: 30]`          (optional, has a default)
+    Carries the input's name, declared `type`, a required (`*`) / `optional` mark,
+    any default, and — for an ISO-8601 scalar with no default — an example value (a
+    default already shows the format, so the example is dropped there). So an author at
+    the prompt sees what is expected without reading the `.yaml`. Shapes:
+        `topic (str) *`                                      (required)
+        `as_of (Optional[date]) [optional] e.g. 2026-05-21`  (date: example shown)
+        `as_of (Optional[date]) [default: 2026-05-21]`       (default shows the format)
+        `window (int) [default: 30]`                         (optional, has a default)
     """
     parts = [decl.name]
     if getattr(decl, "type", None):
         parts.append(f"({decl.type})")
+    hint = _format_hint(decl.shape)
     if decl.required:
         parts.append("*")
+        if hint:
+            parts.append(hint)
     elif decl.default is not None:
+        # The default value itself shows the accepted format, so skip the example.
         parts.append(f"[default: {decl.default}]")
     else:
         parts.append("[optional]")
+        if hint:
+            parts.append(hint)
     return " ".join(parts)
 
 
@@ -388,5 +438,7 @@ def run(
         err_console.print("[yellow]run paused (resume cancelled)[/yellow]")
         raise typer.Exit(code=1)
     else:
-        err_console.print(f"[red]run {result.status}: {result.error or '(no detail)'}[/red]")
+        # A node failure points at WHERE in the `.yaml` it raised (boxed frame), mirroring a
+        # compile error; a node-less failure (assert/input-coercion) prints the plain message.
+        _render_run_error(result, flow, text)
         raise typer.Exit(code=1)
