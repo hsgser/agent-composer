@@ -599,6 +599,129 @@ def node_lines(text: str) -> dict[str, int]:
     Mirrors `_top_level_lines`: composes the document, descends into the `nodes:`
     mapping, and records each node-key's line. Returns {} if PyYAML can't compose.
     """
+    nodes = _nodes_mapping(text)
+    if nodes is None:
+        return {}
+    return {
+        k.value: k.start_mark.line + 1
+        for k, _ in nodes.value
+        if isinstance(k, yaml.ScalarNode)
+    }
+
+
+def _nodes_mapping(text: str):
+    """The `nodes:` MappingNode of a composed flow, or None (best-effort).
+
+    Shared by the sub-line maps below; returns None when PyYAML can't compose the
+    document, the root isn't a mapping, or there is no `nodes:` mapping (a compact
+    single-node flow has its node desugared in-memory, not in source).
+    """
+    try:
+        root = yaml.compose(text)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(root, yaml.MappingNode):
+        return None
+    for key_node, value_node in root.value:
+        if (
+            isinstance(key_node, yaml.ScalarNode)
+            and key_node.value == "nodes"
+            and isinstance(value_node, yaml.MappingNode)
+        ):
+            return value_node
+    return None
+
+
+def _section_mapping(text: str, *names: str):
+    """The first top-level `<name>:` MappingNode among `names`, or None (best-effort).
+
+    Used for `input:`/`inputs:` (the singular/plural spelling pair). Returns None when
+    the document can't be composed or no listed section is a mapping.
+    """
+    try:
+        root = yaml.compose(text)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(root, yaml.MappingNode):
+        return None
+    for name in names:
+        for key_node, value_node in root.value:
+            if (
+                isinstance(key_node, yaml.ScalarNode)
+                and key_node.value == name
+                and isinstance(value_node, yaml.MappingNode)
+            ):
+                return value_node
+    return None
+
+
+def node_input_lines(text: str) -> dict[str, dict[str, int]]:
+    """Map node id -> {input key -> 1-based source line} for each node's `input:` mapping.
+
+    Locates a specific input *binding* line (e.g. a `:?` ref that fired). Reads both
+    the `input:` and legacy `inputs:` spelling. Best-effort: {} when uncomposable, and
+    a node with no input mapping is simply absent.
+    """
+    nodes = _nodes_mapping(text)
+    if nodes is None:
+        return {}
+    out: dict[str, dict[str, int]] = {}
+    for nid, body in nodes.value:
+        if not (isinstance(nid, yaml.ScalarNode) and isinstance(body, yaml.MappingNode)):
+            continue
+        for fk, fv in body.value:
+            if (
+                isinstance(fk, yaml.ScalarNode)
+                and fk.value in ("input", "inputs")
+                and isinstance(fv, yaml.MappingNode)
+            ):
+                out[nid.value] = {
+                    ik.value: ik.start_mark.line + 1
+                    for ik, _ in fv.value
+                    if isinstance(ik, yaml.ScalarNode)
+                }
+    return out
+
+
+def node_field_lines(text: str) -> dict[str, dict[str, int]]:
+    """Map node id -> {field name -> 1-based source line} for each node's direct fields.
+
+    The kind-fallback source: when no precise sub-line is determinable the CLI points
+    at the node's best field (e.g. `code:` for a CODE node). Best-effort: {} when
+    uncomposable.
+    """
+    nodes = _nodes_mapping(text)
+    if nodes is None:
+        return {}
+    out: dict[str, dict[str, int]] = {}
+    for nid, body in nodes.value:
+        if not (isinstance(nid, yaml.ScalarNode) and isinstance(body, yaml.MappingNode)):
+            continue
+        out[nid.value] = {
+            fk.value: fk.start_mark.line + 1
+            for fk, _ in body.value
+            if isinstance(fk, yaml.ScalarNode)
+        }
+    return out
+
+
+def assert_lines(text: str) -> dict[tuple[Optional[str], str], int]:
+    """Map (node id | None, assert expr) -> 1-based source line.
+
+    Covers BOTH the flow top-level `asserts:` list (key `(None, expr)`) and each
+    node's `asserts:` list (key `(node_id, expr)`). There is no singular `assert:`
+    surface; the key is the `(node, expr)` pair so identical assert strings on
+    different nodes resolve distinctly. Best-effort: {} when uncomposable.
+    """
+    out: dict[tuple[Optional[str], str], int] = {}
+
+    def _scan(seq, node_id: Optional[str]) -> None:
+        if not isinstance(seq, yaml.SequenceNode):
+            return
+        for item in seq.value:
+            if isinstance(item, yaml.ScalarNode):
+                out[(node_id, item.value)] = item.start_mark.line + 1
+
     try:
         root = yaml.compose(text)
     except yaml.YAMLError:
@@ -606,14 +729,30 @@ def node_lines(text: str) -> dict[str, int]:
     if not isinstance(root, yaml.MappingNode):
         return {}
     for key_node, value_node in root.value:
-        if (
-            isinstance(key_node, yaml.ScalarNode)
-            and key_node.value == "nodes"
-            and isinstance(value_node, yaml.MappingNode)
-        ):
-            return {
-                k.value: k.start_mark.line + 1
-                for k, _ in value_node.value
-                if isinstance(k, yaml.ScalarNode)
-            }
-    return {}
+        if isinstance(key_node, yaml.ScalarNode) and key_node.value == "asserts":
+            _scan(value_node, None)
+    nodes = _nodes_mapping(text)
+    if nodes is not None:
+        for nid, body in nodes.value:
+            if not (isinstance(nid, yaml.ScalarNode) and isinstance(body, yaml.MappingNode)):
+                continue
+            for fk, fv in body.value:
+                if isinstance(fk, yaml.ScalarNode) and fk.value == "asserts":
+                    _scan(fv, nid.value)
+    return out
+
+
+def input_decl_lines(text: str) -> dict[str, int]:
+    """Map flow input name -> 1-based source line for the top-level `input:` mapping.
+
+    Locates the declaration of an input that failed coercion at the run boundary
+    (e08). Reads both `input:` and legacy `inputs:`. Best-effort: {} when uncomposable.
+    """
+    m = _section_mapping(text, "input", "inputs")
+    if m is None:
+        return {}
+    return {
+        k.value: k.start_mark.line + 1
+        for k, _ in m.value
+        if isinstance(k, yaml.ScalarNode)
+    }
