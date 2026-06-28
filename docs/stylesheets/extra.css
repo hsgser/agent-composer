@@ -1,0 +1,14 @@
+/* Yale blue brand color, applied to both light and dark schemes. */
+:root {
+  --md-primary-fg-color:        #00356b;
+  --md-primary-fg-color--light: #00356b;
+  --md-primary-fg-color--dark:  #00264d;
+  --md-accent-fg-color:         #286dc0;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #00356b;
+  --md-primary-fg-color--light: #00356b;
+  --md-primary-fg-color--dark:  #00264d;
+  --md-accent-fg-color:         #4f8fd6;
+}
