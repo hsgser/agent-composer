@@ -18,6 +18,7 @@ Layer: nodes — imports `state` (Shape/SegmentType) + `pydantic`; no engine/run
 
 from __future__ import annotations
 
+import json
 from typing import Any, List, Literal, Optional
 
 from langchain_core.messages import HumanMessage
@@ -106,6 +107,27 @@ def _unwrap(obj: BaseModel, shape: Shape) -> Any:
     return data["value"]
 
 
+def _supports_native_structured(llm_config: dict) -> bool:
+    """Whether the node's effective `(provider, model)` can use native structured output.
+
+    Reads `provider`/`model` off the effective `llm_config`; an unset field falls back to the
+    package env defaults (the same source `model_from_config` uses), so the gate matches the
+    model the node actually built. Delegates the decision to the capability catalog.
+    """
+    from agent_composer._settings import default_llm_model, default_llm_provider
+    from agent_composer.llm_clients.capabilities import supports_native_structured
+
+    provider = llm_config.get("provider") or default_llm_provider()
+    model = llm_config.get("model") or default_llm_model()
+    return supports_native_structured(provider, model)
+
+
+def _text_of(reply: Any) -> str:
+    """The text content of a model reply (a langchain message or a bare string)."""
+    content = getattr(reply, "content", reply)
+    return content if isinstance(content, str) else str(content)
+
+
 def generate_structured(
     model: Any,
     messages: list,
@@ -116,17 +138,27 @@ def generate_structured(
 ) -> Any:
     """Generate a value conforming to `shape`, retrying on provider deviation up to a cap.
 
-    Derives the pydantic schema from `shape`, binds it via `with_structured_output`, and
-    invokes the model. A provider may emit output the schema rejects (bad JSON, a missing
-    field); on any `Exception` we append a corrective `HumanMessage` naming the error and
-    retry, up to `max_retries` extra attempts (so `max_retries + 1` total invocations).
-    The last error is re-raised once the cap is exhausted.
+    Derives the pydantic schema from `shape` and picks a generation path by capability gate
+    (`_supports_native_structured` on the node's effective `llm_config`):
 
-    `llm_config` is the node's effective model config (provider/model). It is accepted now
-    for the capability gate added later; today only the native `with_structured_output`
-    path is taken.
+    - **native** — bind the schema via `with_structured_output` and invoke.
+    - **fallback** — the provider has no native structured output: render the JSON schema into
+      the prompt, invoke for free text, then `json.loads` + `schema.model_validate` it.
+
+    Either way a deviation (schema rejection, unparseable JSON) appends a corrective
+    `HumanMessage` naming the error and retries, up to `max_retries` extra attempts
+    (`max_retries + 1` total invocations). The last error is re-raised once the cap is spent.
     """
     schema = shape_to_schema(shape)
+    if _supports_native_structured(llm_config or {}):
+        return _generate_native(model, messages, shape, schema, max_retries)
+    return _generate_fallback(model, messages, shape, schema, max_retries)
+
+
+def _generate_native(
+    model: Any, messages: list, shape: Shape, schema: type[BaseModel], max_retries: int
+) -> Any:
+    """Native path: `with_structured_output(schema)` + capped self-correction retry."""
     msgs = list(messages)
     last_err: Optional[Exception] = None
     for _ in range(max_retries + 1):
@@ -140,6 +172,37 @@ def generate_structured(
                     content=(
                         f"Your previous output was invalid: {err}. "
                         "Respond with valid data matching the schema."
+                    )
+                )
+            ]
+    raise last_err  # type: ignore[misc]
+
+
+def _generate_fallback(
+    model: Any, messages: list, shape: Shape, schema: type[BaseModel], max_retries: int
+) -> Any:
+    """Prompt-injection path for a provider with no native structured output: ask for JSON
+    matching the schema, parse + validate the free-text reply, capped self-correction retry."""
+    instruction = HumanMessage(
+        content=(
+            "Respond with ONLY a JSON object matching this JSON schema (no prose, no code "
+            f"fences):\n{json.dumps(schema.model_json_schema())}"
+        )
+    )
+    msgs = list(messages) + [instruction]
+    last_err: Optional[Exception] = None
+    for _ in range(max_retries + 1):
+        try:
+            text = _text_of(model.invoke(msgs))
+            obj = schema.model_validate(json.loads(text))
+            return _unwrap(obj, shape)
+        except Exception as err:  # unparseable / non-conforming; correct and retry
+            last_err = err
+            msgs = msgs + [
+                HumanMessage(
+                    content=(
+                        f"Your previous output was invalid: {err}. Respond with ONLY a JSON "
+                        "object matching the schema."
                     )
                 )
             ]
