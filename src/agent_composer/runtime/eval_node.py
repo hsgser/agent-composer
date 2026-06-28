@@ -26,9 +26,17 @@ bad `over`/binding surfaces the over/bind error before the not-baked guard (load
 
 import copy
 import inspect
+from dataclasses import replace
 from typing import Any
 
-from agent_composer.events import NodeExpanded, NodeFailed, NodeStarted, NodeSucceeded, PauseRequested
+from agent_composer.events import (
+    NodeExpanded,
+    NodeFailed,
+    NodeStarted,
+    NodeSucceeded,
+    PauseRequested,
+    SourceSpan,
+)
 from agent_composer.expr import eval_binding, parse_binding, resolve_reference
 from agent_composer.expr.expressions import _evaluate, _resolve_in_record
 from agent_composer.nodes.base import Enqueue, NodeKind, Output, Pause
@@ -76,7 +84,8 @@ def eval_node(node, flow, pool: TypedVariablePool):
         for a in node.pre_asserts:
             if not node._assert_holds(a, record):
                 yield NodeFailed(node.id, error=f"node {node.id!r} pre-assert failed: {a}",
-                                 error_type="NodeAssertFailed")
+                                 error_type="NodeAssertFailed",
+                                 locator=SourceSpan(node.id, "assert", a))
                 return
         # Per-kind narrow caps, built by the engine — never the pool itself.
         # HUMAN_INPUT/WAIT are deliver-as-Output: they always Pause and the engine
@@ -113,7 +122,13 @@ def eval_node(node, flow, pool: TypedVariablePool):
             yield NodeExpanded(node.id, enqueues)
             return
     except Exception as exc:  # noqa: BLE001 — boundary: any node error -> NodeFailed (both engines)
-        yield NodeFailed(node.id, error=str(exc), error_type=type(exc).__name__)
+        # A failure may carry a `locator` (BindingError stamps a node-less input SourceSpan;
+        # the binding layer has no node identity). Fill the node id here — this funnel is the
+        # single point that knows it.
+        loc = getattr(exc, "locator", None)
+        if loc is not None and loc.node is None:
+            loc = replace(loc, node=node.id)
+        yield NodeFailed(node.id, error=str(exc), error_type=type(exc).__name__, locator=loc)
         return
 
     if isinstance(result, Pause):
@@ -145,13 +160,15 @@ def eval_node(node, flow, pool: TypedVariablePool):
                     holds = False
                 if not holds:
                     yield NodeFailed(node.id, error=f"node {node.id!r} post-assert failed: {a}",
-                                     error_type="NodeAssertFailed")
+                                     error_type="NodeAssertFailed",
+                                     locator=SourceSpan(node.id, "assert", a))
                     return
         else:
             post_record = {**post_input, "output": result.value}
             for a in node.post_asserts:
                 if not node._assert_holds(a, post_record):
                     yield NodeFailed(node.id, error=f"node {node.id!r} post-assert failed: {a}",
-                                     error_type="NodeAssertFailed")
+                                     error_type="NodeAssertFailed",
+                                     locator=SourceSpan(node.id, "assert", a))
                     return
     yield NodeSucceeded(node.id, output=result.value, edge_source_handle=result.handle)
