@@ -1,0 +1,37 @@
+# LLM config cascade — per-field fill-the-gap, most-specific wins.
+#
+# A flow-level `llm_config:` sets defaults for every agent below it. Each agent fills only
+# the fields it leaves unset from the flow layer (then the parent flow, then the CLI
+# `--provider`/`--model`, then env defaults in model_from_config). An agent's own field
+# always wins. `inherit: false` opts a node out of the whole cascade — its own dict only.
+#
+# Try the CLI layer (fills the gaps nothing else set):
+#   ac run llm-config-cascade.yaml --provider anthropic --model claude-opus-4-8
+
+id: llm-config-cascade
+name: llm_config_cascade
+description: Show the llm_config cascade — flow default, per-node override, inherit:false.
+
+llm_config:                       # the flow layer: every agent inherits these by default
+  provider: anthropic
+  temperature: 0.2
+
+nodes:
+  drafter:                        # inherits provider+temperature; overrides only model
+    kind: agent
+    mode: plain
+    prompt: Draft a one-line summary.
+    llm_config:
+      model: claude-opus-4-8
+
+  grader:                         # opts out entirely — its own dict, no flow/CLI layer
+    kind: agent
+    mode: plain
+    depends_on: [drafter]
+    prompt: Grade the draft pass/fail.
+    llm_config:
+      provider: openai
+      model: gpt-5.5
+      inherit: false
+
+output: ${grader.output}

@@ -85,6 +85,13 @@ model made enforceable.
 - **Dependency-light core** — no DB / heavy frameworks; external capabilities enter
   through injected seams (plain callables). *Exception:* the AGENT node imports
   langchain + `llm_clients` and builds its model via `model_from_config`.
+- **`llm_config` cascade resolved once at run start** — `resolve_llm_cascade`
+  (`compile/`) walks the static call tree top-down, per-field fill-the-gap
+  (most-specific wins), deep-copying each CALL/MAP child for per-callsite isolation,
+  and bakes the effective dict onto every `AgentNode`. The CLI config is the outermost
+  layer; env defaults stay in `model_from_config` (applied last). On a **durable resume
+  it must run BEFORE `FlowEngine.restore`** — restore's replay re-clones children from
+  the static graph, so the effective configs must be baked on first.
 - **Closed `NodeKind` + explicit `match`**; **single-writer** (workers are pure
   executors, the dispatcher is the only mutator); **single-process CLI target**.
 

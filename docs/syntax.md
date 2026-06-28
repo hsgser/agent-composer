@@ -106,6 +106,46 @@ classify:
 A node can pin its own provider/model; otherwise the environment defaults apply
 (see [Installation](installation.md)).
 
+#### `llm_config` — the model-selection cascade
+
+Model selection cascades **per field, most-specific wins**. Each field (provider,
+model, temperature, …) is resolved independently: an agent fills only the fields
+it leaves unset from the layer outside it. Precedence, most specific first:
+
+1. the agent's own `llm_config:`
+2. the enclosing (sub)flow's `llm_config:`, then each parent flow outward
+3. the CLI `--provider` / `--model` flags (`ac run … --provider anthropic`)
+4. the environment defaults baked in by `model_from_config`
+
+A flow can set defaults for every agent under it with a top-level `llm_config:`:
+
+```yaml
+llm_config:                     # flow layer — every agent inherits these
+  provider: anthropic
+  temperature: 0.2
+nodes:
+  drafter:
+    kind: agent
+    prompt: Draft a summary.
+    llm_config:
+      model: claude-opus-4-8    # fills the one field the flow leaves unset
+```
+
+The CLI flags are the *outermost* layer — they fill gaps, they do **not** override
+an agent or flow that set the field. To take a node out of the cascade entirely,
+set `inherit: false` in its `llm_config:` — the node then uses its own dict only,
+ignoring all outer layers:
+
+```yaml
+  grader:
+    kind: agent
+    prompt: Grade it.
+    llm_config:
+      provider: openai
+      model: gpt-5.5
+      inherit: false            # own dict only — no flow/CLI layers
+```
+
 ### `code` / `model` / `tool` — the other leaves
 
 These are the non-LLM computational leaves — a Python callable, an ML model, or
