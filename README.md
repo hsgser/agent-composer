@@ -1,11 +1,21 @@
-# Agent Composer
+# The Agent Composer
 
-**Deterministic workflows of agents.** Agent Composer is a small engine for composing
-LLM agents, plain Python code, ML models, and tools into a single runnable *flow*,
-described in a Docker-Compose-shaped YAML file. You decide the structure; the LLMs
-fill the leaf boxes.
+**Bridging the trust gap between humans and agents.**
 
-A flow is a function: it has typed `input:`, a graph of `nodes:`, and an `output:`.
+Hand an agent a complex task and it improvises a plan on the fly — calling tools,
+branching, looping — in whatever shape the context happens to produce. That flexibility
+is also the problem: the workflow is *opaque*. You don't see the plan the agent chose,
+you can't tell whether it has a bug, and the next run might quietly do something else.
+When the stakes are real, "it usually works" isn't trust.
+
+The Agent Composer makes the workflow a **first-class artifact that both you and the
+model can read**. Instead of the agent inventing its plan at runtime, the flow is
+written out as a small Docker-Compose-shaped YAML file — by you, by an LLM, or by the
+two of you together. You can see exactly what runs, inspect it for bugs, and refine it
+after an error; so can the model. The human owns the graph; the LLMs only fill the leaf
+boxes — they never rewrite the structure at runtime.
+
+A flow is a function: it has a typed `input:`, a graph of `nodes:`, and an `output:`.
 The graph between nodes is *inferred* from the `${...}` references — you never draw
 edges by hand.
 
@@ -33,19 +43,35 @@ Hello, Ada — it's wonderful to have you here!
 
 ## Install
 
+> **Early stage.** Agent Composer is under active development and not yet on PyPI.
+> The API, YAML surface, and CLI may move or change quickly between commits — pin to a
+> commit if you need stability.
+
+Install directly from the repository:
+
 ```console
-pip install agent-composer
+pip install "git+https://github.com/ngocbh/agent-composer.git"
+```
+
+Or clone and install in editable mode:
+
+```console
+git clone https://github.com/ngocbh/agent-composer.git
+cd agent-composer
+pip install -e .
 ```
 
 Provider SDKs are optional extras — install the one(s) you use:
 
 ```console
-pip install "agent-composer[anthropic]"   # Claude
-pip install "agent-composer[openai]"      # GPT
-pip install "agent-composer[google]"      # Gemini
-pip install "agent-composer[ollama]"      # local models
-pip install "agent-composer[all]"         # everything
+pip install "agent-composer[anthropic] @ git+https://github.com/ngocbh/agent-composer.git"   # Claude
+pip install "agent-composer[openai]    @ git+https://github.com/ngocbh/agent-composer.git"   # GPT
+pip install "agent-composer[google]    @ git+https://github.com/ngocbh/agent-composer.git"   # Gemini
+pip install "agent-composer[ollama]    @ git+https://github.com/ngocbh/agent-composer.git"   # local models
+pip install "agent-composer[all]       @ git+https://github.com/ngocbh/agent-composer.git"   # everything
 ```
+
+From a clone, the extras are simply `pip install -e ".[anthropic]"`, `".[all]"`, etc.
 
 The core (engine + CLI) installs with no provider SDK; importing a provider you
 haven't installed raises a clear `pip install agent-composer[...]` hint.
@@ -90,6 +116,9 @@ The [`examples/`](examples/) directory ships a few generic flows:
 - `hello.yaml` — the smallest agent flow (one AGENT, string in/out).
 - `summarize.yaml` — condense a block of text into one sentence.
 - `classify.yaml` — label text with a constrained `Literal[...]` output.
+- `triage-ticket.yaml` — extract a structured record from a support message, then draft a reply.
+- `decision-brief.yaml` — fan-out to three angles, pick a verdict, route, and finalize.
+- `ask-user.yaml` / `human-approval.yaml` — the model-chosen vs. always-on human-in-the-loop pauses.
 
 ## Use it as a library
 
@@ -106,37 +135,6 @@ print(result.status, result.output)
 ```console
 pip install -e ".[all,dev]"
 pytest
-```
-
-## Publish
-
-Releases are published to PyPI automatically by GitHub Actions
-([`.github/workflows/publish.yml`](.github/workflows/publish.yml)) whenever a
-GitHub **Release** is published. It uses PyPI **Trusted Publishing** (OIDC), so no
-API token or secret is stored in the repo.
-
-**One-time PyPI setup** (https://pypi.org/manage/account/publishing/ → "Add a pending publisher"):
-
-| Field | Value |
-|-------|-------|
-| PyPI Project Name | `agent-composer` |
-| Owner | `ngocbh` |
-| Repository name | `agent-composer` |
-| Workflow name | `publish.yml` |
-| Environment name | `pypi` |
-
-**To cut a release:**
-
-1. Bump `version` in `pyproject.toml`, commit, and push to `main`.
-2. Tag and create a GitHub Release (e.g. `v0.0.2`) — the `publish` job builds,
-   tests, and uploads to PyPI.
-
-**Manual publish** (fallback, needs an account-scoped API token):
-
-```console
-pip install build twine
-python -m build            # wheel + sdist into dist/
-twine upload dist/*        # TWINE_USERNAME=__token__  TWINE_PASSWORD=pypi-...
 ```
 
 ## License

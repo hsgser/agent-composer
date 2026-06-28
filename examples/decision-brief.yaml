@@ -12,10 +12,10 @@
 # downstream node, multi-output, and asserts — all with AGENT nodes, so it runs against
 # any provider/model with no extra Python.
 #
-# Note on typed outputs: AGENT nodes return text, so their declared `output:` must be a
-# string-shaped type — `str` or a `Literal[...]` enum (the model answers with one tag).
-# Record/number outputs need a CODE/MODEL producer, so the verdict here is an enum, not
-# a {decision, confidence} record.
+# Note on typed outputs: an AGENT can declare any `output:` shape — `str`, a `Literal[...]`
+# enum, or a record/number/list (the engine constrains generation to it; see
+# triage-ticket.yaml). The verdict here is an enum on purpose: `case ... on` routes on a
+# single tag, so a one-tag answer is exactly what this flow needs.
 #
 # Run it with:
 #   ac run examples/decision-brief.yaml --input question="Should a small team adopt a monorepo?"

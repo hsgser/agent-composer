@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-composer"
 version = "0.0.1"
-description = "Deterministic workflows of agents — a Docker-Compose-shaped YAML for composing LLM / code / model / tool nodes into a runnable flow."
+description = "Bridging the trust gap between humans and agents — a readable, Docker-Compose-shaped YAML surface where both people and LLMs compose, inspect, and refine agent workflows."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

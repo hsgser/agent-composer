@@ -1,9 +1,19 @@
-# Agent Composer
+# The Agent Composer
 
-**Deterministic workflows of agents.** Agent Composer is a small engine for composing
-LLM agents, plain Python code, ML models, and tools into a single runnable *flow*,
-described in a Docker-Compose-shaped YAML file. **You decide the structure; the LLMs
-fill the leaf boxes** — the human owns the graph, the model never rewrites it at runtime.
+**Bridging the trust gap between humans and agents.**
+
+Hand an agent a complex task and it improvises a plan on the fly — calling tools,
+branching, looping — in whatever shape the context happens to produce. That flexibility
+is also the problem: the workflow is *opaque*. You don't see the plan the agent chose,
+you can't tell whether it has a bug, and the next run might quietly do something else.
+When the stakes are real, "it usually works" isn't trust.
+
+The Agent Composer makes the workflow a **first-class artifact that both you and the
+model can read**. Instead of the agent inventing its plan at runtime, the flow is
+written out as a small Docker-Compose-shaped YAML file — by you, by an LLM, or by the
+two of you together. You can see exactly what runs, inspect it for bugs, and refine it
+after an error; so can the model. The human owns the graph; the LLMs only fill the leaf
+boxes — they never rewrite the structure at runtime.
 
 A flow is a function: it has a typed `input:`, a graph of `nodes:`, and an `output:`.
 The graph between nodes is *inferred* from the `${...}` references — you never draw
@@ -33,14 +43,18 @@ Hello, Ada — it's wonderful to have you here!
 
 ## Why this shape
 
+- **The workflow is readable** — the flow *is* the plan, in plain YAML. You can review
+  it before it runs, spot a bug in the structure, and refine it after an error — and an
+  LLM can do the same, because the surface is small and explicit.
+- **The structure is fixed by the author** — the LLM fills leaf boxes; it does not
+  rewrite the graph. The same flow runs the same way every time, so a fix stays fixed.
 - **A flow is a function** — typed inputs in, typed outputs out, nothing hidden. An
   agent is just a flow whose leaf computation happens to be an LLM loop.
 - **Flows compose** — a node can *be* another flow, nested to any depth.
 - **Pure at the boundary** — a node *returns* its output and the engine *binds* it; a
   node never mutates shared state. Outputs are immutable, typed, serializable values.
-- **The structure is fixed by the author** — the LLM fills leaf boxes; it does not
-  rewrite the graph. That referential transparency is what makes runs reproducible,
-  checkpointable, and resumable.
+  That referential transparency is what makes runs reproducible, checkpointable, and
+  resumable.
 
 ## Where to go next
 
