@@ -95,6 +95,30 @@ aren't sure after the answer, **ask again** — don't fill gaps from inference.
   Mark them `in_progress` when you start, `completed` only when the test passes.
 - **Commit at green.** Each "code + test + green" cycle gets its own commit.
 
+### Keep docs and skills current as the engine changes
+
+The docs and the Claude skills **are part of the engine's contract** — a stale doc
+is a bug, not a chore. When a change touches a surface someone reads, update its
+documentation **in the same change** (same commit/PR), never "later":
+
+- **Authoring surface** (a node kind, `${...}` syntax, `typedefs`, a new field) →
+  update [`docs/syntax.md`](docs/syntax.md) and the **`composing-agents`** skill
+  (`.claude/skills/composing-agents/` — `SKILL.md`, `reference.md`, and a
+  `templates/` flow when the shape is new). Re-validate any touched template still
+  loads (`load_flow`).
+- **Engine internals / invariants / layers** (the node contract, `NodeKind`,
+  suspend-resume, the layer ladder, a seam) → update
+  [`src/agent_composer/README.md`](src/agent_composer/README.md) and the
+  **`engine`** skill (incl. its `reference.md` and `templates/node_kind/WIRING.md`).
+- **Package structure** (a new package, a moved responsibility, an import rule) →
+  the affected `__init__.py` charter and the **`structure`** skill.
+- **CLI / public API** → [`README.md`](README.md) and the docstrings the `docs/`
+  API reference renders.
+
+If you change behavior and can't say which doc/skill it affects, that's a signal to
+check all four. A reviewer who reads a skill should never be taught something the
+code no longer does.
+
 ### Verify before claiming
 
 - **Run tests before claiming they pass.** Engine tests live in `tests/engine/`;
