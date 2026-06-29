@@ -28,6 +28,7 @@ from agent_composer.expr import (
     binding_refs,
     parse_binding,
 )
+from agent_composer.expr.template import prompt_refs
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node, NodeKind
 from agent_composer.nodes.binding import ParamDecl
@@ -138,6 +139,38 @@ def _validate_llm_config(
     return cfg, inherit
 
 
+def _build_human_input(desc: HumanInputDescriptor) -> HumanInputNode:
+    """Build a `human_input` gate, carrying its `questions:` config in one of three forms.
+
+    - `desc.questions` is a **list** (static/literal form): carried verbatim as
+      `questions` (`questions_input=None`).
+    - `desc.questions` is a **string** (a bare `"${name}"` input ref): the named INPUT
+      param is recorded as `questions_input` (`questions=None`), so the gate resolves the
+      list from its bound input at run time. The ref must name a single declared input —
+      exactly one ref, no dots (a pool ref like `"${a.output}"` is rejected; deeper
+      pool-ref validation is a later pass).
+    - `desc.questions` is `None` (legacy form): a plain prompt gate with no questions.
+    """
+    questions = desc.questions
+    if isinstance(questions, list):
+        return HumanInputNode(
+            desc.id, prompt=desc.prompt or "", questions=questions,
+            questions_input=None, title=desc.node_name,
+        )
+    if isinstance(questions, str):
+        refs = prompt_refs(questions)
+        if len(refs) != 1 or "." in refs[0]:
+            raise LoadError(
+                f"node {desc.id!r}: questions ref must be a single bare input name "
+                f"(e.g. ${{qs}}), got {questions!r}"
+            )
+        return HumanInputNode(
+            desc.id, prompt=desc.prompt or "", questions=None,
+            questions_input=refs[0], title=desc.node_name,
+        )
+    return HumanInputNode(desc.id, prompt=desc.prompt or "", title=desc.node_name)
+
+
 def build_leaf_node(
     desc: NodeDescriptor,
     registry: TypeRegistry,
@@ -186,7 +219,7 @@ def build_leaf_node(
     elif isinstance(desc, ToolDescriptor):
         node = ToolNode(desc.id, tool_id=desc.tool_id, title=desc.node_name)
     elif isinstance(desc, HumanInputDescriptor):
-        node = HumanInputNode(desc.id, prompt=desc.prompt or "", title=desc.node_name)
+        node = _build_human_input(desc)
     elif isinstance(desc, WaitDescriptor):
         node = WaitNode(desc.id, is_timed=desc.until is not None, title=desc.node_name)
     else:
@@ -209,6 +242,13 @@ def build_leaf_node(
         node.params = _sink_params(desc.inputs)
         wiring = _sink_wiring(desc.inputs)
         if isinstance(node, HumanInputNode):
+            # A questions gate with no explicit `outputs:` defaults to a bare open OBJECT
+            # (the host returns a free-form answer record). Legacy gates derive their
+            # answer schema from the (possibly absent) declared output shape.
+            if node.output_shape is None and (
+                node.questions is not None or node.questions_input is not None
+            ):
+                node.output_shape = Shape.scalar(SegmentType.OBJECT)
             node.answer_schema = _answer_schema(node.output_shape)
     return node, wiring
 

@@ -79,3 +79,10 @@ def wrong_type(rec: Dict[str, Any]) -> str:
 def echo_value(rec: Dict[str, Any]) -> Any:
     """Return the single bound input value (a passthrough leaf)."""
     return next(iter(rec.values()), None)
+
+
+# --- human_input questions ref source -------------------------------------- #
+def questions_seed(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """`{seed}` -> a one-element `list[object]` of question records (a gate's `questions:` ref)."""
+    return [{"question": inputs["seed"], "header": "H",
+             "options": [{"label": "A"}, {"label": "B"}]}]
