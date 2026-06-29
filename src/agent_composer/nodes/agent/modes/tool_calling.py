@@ -15,6 +15,7 @@ resume_agent via the bare `${<hi>.output}` forward-ref edge.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from langchain_core.messages import (
@@ -36,6 +37,15 @@ from agent_composer.nodes.agent.modes.utils import text_of
 from agent_composer.nodes.base import Enqueue, Output
 
 MAX_TOOL_ITERATIONS = 8
+
+
+def _slug_call_id(call_id: str) -> str:
+    """Path-safe slug for a tool-call id embedded in a node id / `${...}` ref.
+    `_PATH_RE` (expr/template.py) allows `_ # /` but not `-`; provider call ids may be
+    uuids (Ollama) containing dashes, which break ref parsing on resume. Map every
+    non-[A-Za-z0-9_] char to `_`. The REAL id is kept verbatim in `pending["call_id"]`
+    and the human-input `slot` for the ToolMessage / resume-id match."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", call_id)
 
 
 def run_tool(name: str, args: dict[str, Any]) -> str:
@@ -118,17 +128,18 @@ def agent_step(
                 )
             call = control_calls[0]
             call_id = call.get("id") or ""
+            slug = _slug_call_id(call_id)
             pending = {
                 "name": call["name"],
-                "call_id": call_id,
+                "call_id": call_id,  # REAL id: matched to the ToolMessage tool_call_id on resume
                 "args": call.get("args") or {},
             }
-            hi_id = f"__ask#{call_id}"
+            hi_id = f"__ask#{slug}"  # slug keeps the node id / answer ref `_PATH_RE`-safe
             human_input = {
                 "kind": "human_input",
                 "node_id": hi_id,
                 "prompt": str(call.get("args", {}).get("question", "")),
-                "slot": call_id,
+                "slot": call_id,  # REAL id: mints the resume-node id, never parsed by _PATH_RE
             }
             resume = {
                 "kind": "resume_agent",

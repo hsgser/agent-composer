@@ -12,6 +12,7 @@ depth UNCHANGED — it is bounded by MAX_TOOL_ITERATIONS / MAX_TOTAL_NODES).
 """
 
 import agent_composer.llm_clients as llm
+import pytest
 from langchain_core.messages import AIMessage
 
 from agent_composer import load_flow
@@ -61,8 +62,15 @@ def _record_from(engine, evs):
     return SimpleNamespace(engine=engine, status=status, output=output, pause_reasons=reasons)
 
 
-def test_ask_user_pauses_resumes_finishes(monkeypatch):
-    chat = _chat([_ask({"question": "ok?"}), AIMessage(content="FINAL")])
+@pytest.mark.parametrize(
+    "cid",
+    [
+        "q1",  # dashless (Anthropic/OpenAI-style) — must keep passing
+        "adebc542-e4a3-4b7c-8f12-deadbeef0000",  # dashed uuid (Ollama) — slug-sanitized
+    ],
+)
+def test_ask_user_pauses_resumes_finishes(monkeypatch, cid):
+    chat = _chat([_ask({"question": "ok?"}, cid), AIMessage(content="FINAL")])
     monkeypatch.setattr(llm, "model_from_config", lambda cfg: chat)
     loaded = load_flow(ASK)
     rec = run_flow(loaded, {})
@@ -75,6 +83,15 @@ def test_ask_user_pauses_resumes_finishes(monkeypatch):
     evs = list(rec.engine.resume(commands=[cmd]))
     assert isinstance(evs[-1], RunSucceeded) and evs[-1].output == "FINAL"
     assert type(chat).calls == 2  # turn 1 NOT re-invoked (replayed from carried memo)
+
+
+def test_slugged_hi_id_is_path_safe():
+    # The minted human-input node id must satisfy `_PATH_RE` so the resume answer ref
+    # `${__ask#<slug>.output}` parses — a raw dashed uuid would not.
+    from agent_composer.expr.template import _PATH_RE
+    from agent_composer.nodes.agent.modes.tool_calling import _slug_call_id
+
+    assert _PATH_RE.match("__ask#" + _slug_call_id("adebc542-e4a3-4b7c-8f12-deadbeef0000"))
 
 
 def test_two_pause_agent_does_not_deadlock(monkeypatch):
