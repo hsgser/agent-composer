@@ -81,7 +81,13 @@ model made enforceable.
 - **Node never writes the pool** (purity); **typed, losslessly-serializable state**
   (`Segment` / `TypedVariablePool` — the basis for checkpoints + `${...}` refs).
 - **Durable suspend/resume** — a node performs a pause; the run serializes to a
-  `RunCheckpoint`; an external scheduler resumes (re-run-on-resume).
+  `RunCheckpoint`; an external scheduler resumes (re-run-on-resume). The checkpoint
+  carries `num_workers` (the drive mode), and both `run()` and `resume()` drive
+  through the shared `_drive_to_terminal` — so `resume()` is drive-mode-aware:
+  `FlowEngine.restore(flow, ckpt)` rebuilds at the checkpointed count, and
+  `restore(..., num_workers=N)` (also `resume_flow(..., num_workers=N)`) overrides it.
+  A run checkpointed serial can resume pooled and vice-versa (correctness is
+  worker-count-independent).
 - **Dependency-light core** — no DB / heavy frameworks; external capabilities enter
   through injected seams (plain callables). *Exception:* the AGENT node imports
   langchain + `llm_clients` and builds its model via `model_from_config`.

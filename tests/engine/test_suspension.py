@@ -359,11 +359,11 @@ def test_checkpoint_v6_is_current_version():
 
 
 def test_checkpoint_v4_blob_rejected_by_loads():
-    # breaking blob migration: a 4.0 checkpoint predates the `expansions` field
-    # (the descriptor tree for runtime-grown subgraphs), so it is not loadable.
+    # breaking blob migration: a 4.0 checkpoint predates both the `expansions` field
+    # (5.0) and the `num_workers` drive-mode field (6.0), so it is not loadable.
     blob = RunCheckpoint(pool=TypedVariablePool()).dumps()
     tampered = json.dumps({**json.loads(blob), "version": "4.0"})
-    with pytest.raises(ValueError, match=r"incompatible checkpoint version '4\.0'.*expansions descriptor tree"):
+    with pytest.raises(ValueError, match=r"incompatible checkpoint version '4\.0'.*num_workers drive-mode field"):
         RunCheckpoint.loads(tampered)
 
 

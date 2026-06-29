@@ -366,7 +366,8 @@ class FlowEngine:
         pooled and vice-versa (workers are pure executors; correctness is
         worker-count-independent).
 
-        Order: build a serial engine on the pool → replay the expansions descriptor tree
+        Order: build the engine on the pool (at the resolved drive mode) → replay the
+        expansions descriptor tree
         (re-grows flow + sm, re-derives alias/depth/_spawner_expansion) → OVERWRITE
         node_state/edge_state from the checkpoint (now covers the re-grown nodes too) →
         re-seed paused/deferred/ready. Order matters: replay must register the cloned nodes
@@ -385,7 +386,7 @@ class FlowEngine:
         if getattr(checkpoint, "version", None) != CHECKPOINT_VERSION:
             raise ValueError(
                 f"incompatible checkpoint version {getattr(checkpoint, 'version', None)!r}; "
-                f"this build reads {CHECKPOINT_VERSION!r} (adds the expansions descriptor tree)"
+                f"this build reads {CHECKPOINT_VERSION!r} (adds the num_workers drive-mode field)"
             )
         # Clean-flow guard (BEFORE replay): a cloned id carries `/` or `#`, so a flow that
         # already has any is a re-grown one — replaying onto it duplicates the overlay.

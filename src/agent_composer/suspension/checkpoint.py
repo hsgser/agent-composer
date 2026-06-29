@@ -116,6 +116,6 @@ class RunCheckpoint(BaseModel):
         if raw_version != CHECKPOINT_VERSION:
             raise ValueError(
                 f"incompatible checkpoint version {raw_version!r}; this build reads "
-                f"{CHECKPOINT_VERSION!r} (adds the expansions descriptor tree)"
+                f"{CHECKPOINT_VERSION!r} (adds the num_workers drive-mode field)"
             )
         return cls.model_validate_json(blob)
