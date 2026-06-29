@@ -8,6 +8,8 @@ the engine's authoring constraints (1..4 questions, unique headers).
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from agent_composer.state.segments import Shape, SegmentType
+
 
 class OptionSpec(BaseModel):
     """One selectable choice within a question.
@@ -93,3 +95,44 @@ def parse_questions(raw) -> list[QuestionSpec]:
         raise QuestionSpecError(f"question headers must be unique, got {headers}")
 
     return questions
+
+
+def question_list_shape() -> Shape:
+    """Build the typed `Shape` a synthesized compose-agent generates questions against.
+
+    Mirrors `QuestionSpec`/`OptionSpec` in the engine's Shape vocabulary so the
+    structured-output model emits a `list` of question records:
+
+        LIST_OBJECT element = OBJECT{
+          question: str (required),
+          header:   str (required),
+          options:  LIST_OBJECT element = OBJECT{ label: str (req), description: str (req) },
+          multi_select: bool,
+        }
+
+    `description` is kept required on the option record so the model always emits
+    it (rather than dropping the helper text).
+
+    Returns:
+        `Shape`:
+            A `LIST_OBJECT` shape whose `element` is the question record above.
+    """
+    option_record = Shape(
+        seg_type=SegmentType.OBJECT,
+        fields={
+            "label": Shape.scalar(SegmentType.STRING),
+            "description": Shape.scalar(SegmentType.STRING),
+        },
+        required=frozenset({"label", "description"}),
+    )
+    question_record = Shape(
+        seg_type=SegmentType.OBJECT,
+        fields={
+            "question": Shape.scalar(SegmentType.STRING),
+            "header": Shape.scalar(SegmentType.STRING),
+            "options": Shape(seg_type=SegmentType.LIST_OBJECT, element=option_record),
+            "multi_select": Shape.scalar(SegmentType.BOOLEAN),
+        },
+        required=frozenset({"question", "header"}),
+    )
+    return Shape(seg_type=SegmentType.LIST_OBJECT, element=question_record)
