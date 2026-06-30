@@ -361,3 +361,18 @@ def test_run_error_single_frame_when_loaded_absent(monkeypatch):
     assert "e24-nested-code-raise.yaml:27" in out    # the owning call node, single box
 
 
+# --- _ensure_cwd_importable: a flow's `code:` refs to repo-local packages resolve ---- #
+def test_ensure_cwd_importable_prepends_cwd(monkeypatch, tmp_path):
+    # Without the repo root on sys.path a flow's `code: tests.seeds.fns:fn` fails to import;
+    # the CLI prepends the cwd so such refs resolve as `python script.py` would. Run from a
+    # dir NOT already on the path and assert it lands at sys.path[0], idempotently.
+    import agent_composer.cli.run as cli
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != str(tmp_path)])
+    cli._ensure_cwd_importable()
+    assert sys.path[0] == str(tmp_path)
+    cli._ensure_cwd_importable()                      # idempotent: no duplicate entry
+    assert sys.path.count(str(tmp_path)) == 1
+
+

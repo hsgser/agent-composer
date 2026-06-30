@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,6 +44,20 @@ from agent_composer.state.segments import SegmentType
 
 console = Console()
 err_console = Console(stderr=True)
+
+
+def _ensure_cwd_importable() -> None:
+    """Put the current working directory on `sys.path` so a flow's `code: module:function`
+    refs to repo-local packages resolve without the caller exporting `PYTHONPATH=$PWD`.
+
+    Mirrors how `python script.py` makes things importable from the invocation dir, and
+    matches the documented "run from the repo root" convention (e.g. a seed's
+    `tests.seeds.fns:fn` or `examples.trading_fns:fn`). Prepended and idempotent. Trade-off:
+    a flow can then import any package under the cwd — acceptable for a local dev CLI."""
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
+
 
 # Lines of `.yaml` context shown above and below the offending line in the error panel
 # (a window, so a large flow doesn't dump in full — mirrors a Python traceback's code frame).
@@ -738,6 +754,7 @@ def run(
     ),
 ) -> None:
     """Run a flow to completion and print its output."""
+    _ensure_cwd_importable()  # so `code: pkg.mod:fn` refs to repo-local packages resolve
     text = flow.read_text()
     try:
         loaded = load_flow(text, search_paths=[flow.parent])

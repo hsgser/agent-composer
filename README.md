@@ -132,6 +132,9 @@ ac run FLOW.yaml [--input k=v]... [--inputs inputs.json] [--quiet] [--verbose] [
 - `--num-workers`/`-w N` — engine worker pool size. `0` (default) is the
   single-threaded, deterministic drain; `>=1` runs independent ready nodes (a
   fan-out) concurrently. The output is the same either way.
+- The **current working directory is added to `sys.path`** for the run, so a flow's
+  `code: pkg.mod:fn` refs to packages under the dir you invoke `ac` from resolve
+  without exporting `PYTHONPATH` (like `python script.py` makes its dir importable).
 - A flow that fails to **compile** prints a **located** error — a boxed `.yaml`
   source frame (line numbers, the offending line(s) highlighted; a multi-node error
   like a cycle highlights every implicated node and prints a legend of the dependency
