@@ -196,6 +196,11 @@ pip install -e ".[all,dev]"
 pytest
 ```
 
+For a per-directory dev environment — a `.env` you can `source` (or auto-load
+with direnv) plus venv activation — copy `.env.example` to `.env` and see
+[Local development environment](docs/installation.md#local-development-environment).
+Note that `ac` does not read `.env` automatically; you source it or let direnv load it.
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).

@@ -66,6 +66,53 @@ pip install -e ".[all,dev]"
 pytest
 ```
 
+## Local development environment
+
+The provider/model/key variables above are read from the **shell environment**.
+`ac` does **not** auto-load a `.env` file — it only reads variables already
+present in the environment. A `.env` is therefore just a convenient place to
+keep them; you make it take effect by *sourcing* it (or having direnv do that
+for you).
+
+Copy the checked-in template and edit it for your provider:
+
+```console
+cp .env.example .env      # then edit; .env is gitignored
+```
+
+The template keeps an `export` prefix on each line, so a plain source exports
+them into your current shell:
+
+```console
+source .env               # once per shell, in the project directory
+ac run examples/hello.yaml --input name=Ada
+```
+
+### Optional: auto-load with direnv
+
+[direnv](https://direnv.net) loads/unloads the environment automatically as you
+`cd` in and out of the project — no manual `source`. After
+[installing direnv](https://direnv.net/docs/installation.html) and adding its
+shell hook (e.g. `eval "$(direnv hook zsh)"` in `~/.zshrc`), drop an `.envrc`
+in the project root:
+
+```bash
+# .envrc — activate the project venv and load .env on entry
+export VIRTUAL_ENV="$(expand_path .venv)"
+PATH_add "$VIRTUAL_ENV/bin"
+dotenv
+```
+
+Then authorize it once (direnv never runs an unreviewed `.envrc`):
+
+```console
+direnv allow
+```
+
+Now `cd`-ing into the directory activates `.venv` (so `ac`, `pytest`, `python`
+resolve from it) and loads `.env`; leaving unloads them again. `.env` and
+`.envrc` are gitignored — keep secrets out of version control.
+
 ## Next
 
 - [The `ac` CLI](cli.md) — run flows from the terminal.

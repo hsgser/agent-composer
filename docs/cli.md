@@ -139,18 +139,17 @@ fault with line numbers, the offending line highlighted (`❱`), the panel title
 `file:line`, and the message below. (Same shape as a Python traceback's code box.)
 
 ```console
-$ ac run broken.yaml
-╭─ broken.yaml:7 ──────────────────────────────────────────────╮
-│    4   a:                                                     │
-│    5     kind: agent                                          │
-│    6     prompt: hi                                           │
-│ ❱  7   b:                                                     │
-│    8     kind: agent                                          │
-│    9     input:                                               │
-│   10       brief: ${frame_typo.output}                        │
-╰──────────────────────────────────────────────────────────────╯
+$ ac run tests/seeds/errors/e01-undeclared-ref.yaml
+╭─ e01-undeclared-ref.yaml:19 ─────────────────────────────────────────────────────────────────────╮
+│   14     input:                                                                                  │
+│   15       topic: ${input.topic}                                                                 │
+│   16     output: float                                                                           │
+│   17     prompt: "Rate ${topic} in [-1, 1]; output only the number."                             │
+│   18                                                                                             │
+│ ❱ 19 output: ${scor.output}     # <-- typo: no node named `scor` (it's `score`)                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 flow has unresolved references:
-  node 'b' input 'brief' from: reference ${frame_typo.output} uses unknown namespace 'frame_typo'
+  flow output from: reference ${scor.output} uses unknown namespace 'scor'
 ```
 
 Pass `--engine-trace` to **also** print the engine's Python traceback under the
@@ -162,22 +161,29 @@ in the loop) highlights *all* of them, widens the frame to cover both ends, and 
 *which* nodes form the cycle but *which references* create it:
 
 ```console
-$ ac run cycle.yaml
-╭─ cycle.yaml:4,9 ─────────────────────────────────────────────╮
-│    3 nodes:                                                   │
-│ ❱  4   a:                                                     │
-│    5     kind: agent                                          │
-│    6     input:                                               │
-│    7       x: ${b.output}                                     │
-│    8     prompt: use ${x}                                     │
-│ ❱  9   b:                                                     │
-│   10     kind: agent                                          │
-│   11     input:                                               │
-│   12       y: ${a.output}                                     │
-╰──────────────────────────────────────────────────────────────╯
+$ ac run tests/seeds/errors/e02-cycle.yaml
+╭─ e02-cycle.yaml:12,18 ───────────────────────────────────────────────────────────────────────────╮
+│    7                                                                                             │
+│    8 input:                                                                                      │
+│    9   seed: str                                                                                 │
+│   10                                                                                             │
+│   11 nodes:                                                                                      │
+│ ❱ 12   a:                                                                                        │
+│   13     kind: agent                                                                             │
+│   14     input:                                                                                  │
+│   15       x: ${b.output}          # a depends on b ...                                          │
+│   16     output: str                                                                             │
+│   17     prompt: "Echo ${x}."                                                                    │
+│ ❱ 18   b:                                                                                        │
+│   19     kind: agent                                                                             │
+│   20     input:                                                                                  │
+│   21       x: ${a.output}          # ... and b depends on a -> cycle                             │
+│   22     output: str                                                                             │
+│   23     prompt: "Echo ${x}."                                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 flow has a cycle involving ['a', 'b']; flows must be acyclic
   ↳ a depends on b (a.input.x)
-  ↳ b depends on a (b.input.y)
+  ↳ b depends on a (b.input.x)
 ```
 
 ## Runtime errors
@@ -191,7 +197,7 @@ declaration — not just the node header. So a runtime error reads like a compil
 the flow it broke, not an engine traceback:
 
 ```console
-$ ac run e07-required-missing.yaml --input topic=climate   # as_of omitted
+$ ac run tests/seeds/errors/e07-required-missing.yaml --input topic=climate   # as_of omitted
 ╭─ e07-required-missing.yaml:23 ───────────────────────────────╮
 │   18 nodes:                                                  │
 │   19   report:                                               │
