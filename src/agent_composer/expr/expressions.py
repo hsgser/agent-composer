@@ -664,3 +664,70 @@ def eval_expr(
             When a `head :? message` required atom's head misses / is None.
     """
     return _EvalExpr(resolve, item, mode).eval(tree)
+
+
+# --------------------------------------------------------------------------- #
+# The ONE unified compile-time ref-walk — collects every reference-leaf path a
+# `parse_expr` tree reads. This SUPERSEDES the three divergent ref collectors
+# (`template.binding_refs`, `template.prompt_refs`, the condition `_Evaluator`
+# REF walk). Added ALONGSIDE the legacy paths; later steps swap the call sites.
+# --------------------------------------------------------------------------- #
+
+
+def expr_refs(tree: "Tree | Token") -> list[str]:
+    """
+    Collect every reference-leaf PATH a unified `${...}` expression tree reads.
+
+    The single compile-time ref-walk over a tree from
+    [`parse_expr`][agent_composer.expr.grammar.parse_expr]. A `refcall` WITHOUT a
+    `call_suffix` is a reference — its dotted path (leading NAME joined with each
+    `trailer` segment) is collected. A `refcall` WITH a `call_suffix` is a builtin
+    CALL: the callee name contributes NO ref, but each `arg` VALUE's refs ARE
+    collected (recursively). Literals contribute nothing. Coalesce / default /
+    required refs are all collected, including the nested-default ref.
+
+    `item`-headed refs ARE collected here — matching the evaluator, which resolves
+    them from the MAP-body-local scope. The CALLER (compose `_ref_producer`,
+    `compose/build.py`) is responsible for skipping `item`-headed refs when minting
+    edges; that rule is unchanged and stays at the caller.
+
+    Args:
+        tree (`Tree | Token`):
+            The parsed expression. A lone atom (`${a}`, a bare literal) inlines to a
+            top-level `Token`; every other construct is a `Tree` — both are handled.
+
+    Returns:
+        `list[str]`:
+            The reference paths (dotted, `#` / `/` preserved) in source/traversal
+            order. NOT deduped — matching legacy `binding_refs` / `prompt_refs`, so
+            later caller-swaps are drop-in.
+    """
+    refs: list[str] = []
+    _collect_expr_refs(tree, refs)
+    return refs
+
+
+def _collect_expr_refs(node: "Tree | Token", refs: list[str]) -> None:
+    """Recursive walk collecting reference paths into `refs` (source order, no dedupe)."""
+    if isinstance(node, Token):
+        # A lone atom that inlined to a top-level token: only a `${...}` wrapped-ref
+        # names a reference; a bare NUMBER / STRING / BOOL / NULL contributes nothing.
+        if node.type == "WRAPPED_REF":
+            refs.append(str(node)[2:-1])
+        return
+    if node.data == "refcall":
+        children = node.children
+        call_suffix = next(
+            (c for c in children if isinstance(c, Tree) and c.data == "call_suffix"), None
+        )
+        if call_suffix is None:  # a reference: leading NAME + each trailer's NAME
+            segments = [str(c.children[0]) for c in children[1:]]
+            refs.append(".".join([str(children[0]), *segments]))
+            return
+        # a builtin call: the callee contributes NO ref; walk each arg VALUE only.
+        for arg in call_suffix.children:  # each child is an `arg` subtree
+            # a kwarg carries a leading NAME token; the value expr is the last child.
+            _collect_expr_refs(arg.children[-1], refs)
+        return
+    for child in node.children:
+        _collect_expr_refs(child, refs)
