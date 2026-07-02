@@ -49,13 +49,18 @@ The keyword terminals (`and` `or` `not` `in` `not in` `true` `false` `null`
 `expressions.py`), so `and` / `in` win the tie and do not lex as ordinary refs.
 """
 
-from lark import Lark, Tree
+from lark import Lark, Token, Tree
 from lark.exceptions import LarkError
 
 # Reuse the existing expression error — `expressions.ExpressionError` is already
 # the base of `template.RequiredError`, so parse failures here stay in one family.
 from agent_composer.expr.expressions import ExpressionError
 
+# This grammar started from `expressions._GRAMMAR` (the legacy `when:` dialect)
+# and adds the power, refcall (ref-or-call), coalesce, and default/required
+# layers on top. Whoever deletes the legacy grammar later can diff the two to
+# confirm nothing from `expressions._GRAMMAR` was dropped here.
+#
 # The unified grammar. Precedence, lowest to highest:
 #   coalesce (`|`) -> default/required (`:-`/`:?`) -> or -> and -> not
 #   -> comparison (incl. in / not in) -> sum -> product -> unary minus
@@ -64,8 +69,11 @@ from agent_composer.expr.expressions import ExpressionError
 _GRAMMAR = r"""
 ?start: coalesce
 
-// coalesce (`|`) — lowest precedence. `a :- b | c` => `(a:-b) | c`.
-?coalesce: default_expr ("|" default_expr)*   -> coalesce
+// coalesce (`|`) — lowest precedence. `a :- b | c` => `(a:-b) | c`. The two
+// alternatives keep the `?` inline effective: a lone operand stays its own tree
+// (no wrapper), and a `coalesce` node appears ONLY when a `|` is actually present.
+?coalesce: default_expr
+         | default_expr ("|" default_expr)+   -> coalesce
 
 // default / required bind tighter than `|`, looser than boolean/arithmetic.
 ?default_expr: or_expr
@@ -143,7 +151,7 @@ NULL.3: /null\b/ | /none\b/
 _PARSER = Lark(_GRAMMAR, parser="lalr", maybe_placeholders=False)
 
 
-def _reject_dotted_callee(tree: Tree) -> None:
+def _reject_dotted_callee(tree: Tree | Token) -> None:
     """Raise if any `refcall` is a call (`call_suffix`) with a leading `trailer`.
 
     Builtins are bare-callee only: `a.b(x)` — a dotted head applied like a call —
@@ -152,7 +160,13 @@ def _reject_dotted_callee(tree: Tree) -> None:
     access on the result) is fine; those trailers are parsed after `call_suffix`,
     so the guard checks for a trailer appearing BEFORE the suffix in the child
     order.
+
+    A lone atom (e.g. `${a}`, a bare `NUMBER`/`STRING`) inlines all the way up to
+    a top-level `Token` now that no spurious `coalesce` wraps it — such a top has
+    no subtrees to check, so it is trivially accepted.
     """
+    if not isinstance(tree, Tree):
+        return
     for node in tree.iter_subtrees():
         if node.data != "refcall":
             continue
@@ -170,7 +184,7 @@ def _reject_dotted_callee(tree: Tree) -> None:
             )
 
 
-def parse_expr(text: str) -> Tree:
+def parse_expr(text: str) -> Tree | Token:
     """
     Parse one unified `${...}` expression into a Lark tree (PARSE ONLY).
 
@@ -184,10 +198,14 @@ def parse_expr(text: str) -> Tree:
             expression). May be any construct the grammar accepts.
 
     Returns:
-        `Tree`:
+        `Tree | Token`:
             The Lark parse tree. Its shape is the grammar above: `refcall` for a
-            ref-or-call, `call_suffix` marking a call, `coalesce` / `default_expr`
-            / `required_expr` at the top, and the arithmetic/boolean chain below.
+            ref-or-call, `call_suffix` marking a call, `coalesce` (present ONLY
+            when a `|` actually appears) / `default_expr` / `required_expr` at the
+            top, and the arithmetic/boolean chain below. A LONE atom — a bare
+            `${a}` wrapped-ref, or a bare `NUMBER` / `STRING` — inlines all the
+            way up and comes back as a top-level `Token` (no wrapper node), since
+            no spurious one-child `coalesce` is inserted.
 
     Raises:
         `ExpressionError`:

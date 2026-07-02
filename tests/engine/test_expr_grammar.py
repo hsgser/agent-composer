@@ -9,7 +9,7 @@ fix under test is ONE shared `NAME` terminal with an optional call-suffix.
 """
 
 import pytest
-from lark import Tree
+from lark import Token, Tree
 
 from agent_composer.expr.expressions import ExpressionError
 from agent_composer.expr.grammar import parse_expr
@@ -22,9 +22,9 @@ def _tree(text: str) -> Tree:
     return result
 
 
-def _kinds(tree: Tree) -> set:
+def _kinds(tree: Tree) -> set[str]:
     """The set of rule/data names anywhere in `tree` — the coarse shape probe."""
-    names = set()
+    names: set[str] = set()
     for node in tree.iter_subtrees():
         names.add(node.data)
     return names
@@ -37,6 +37,15 @@ def _kinds(tree: Tree) -> set:
 
 def test_bare_ref():
     assert "refcall" in _kinds(_tree("a"))
+
+
+def test_lone_expr_not_coalesce_wrapped():
+    # A single operand (no `|`) must NOT be wrapped in a spurious `coalesce`
+    # node: the top of a lone ref is the ref itself, and arithmetic stays bare.
+    assert _tree("a").data == "refcall"
+    assert _tree("a").data != "coalesce"
+    assert _tree("1 + 2").data == "add"
+    assert _tree("1 + 2").data != "coalesce"
 
 
 def test_dotted_ref():
@@ -56,8 +65,11 @@ def test_ref_with_slash():
 
 
 def test_wrapped_ref():
-    # `${a}` back-compat form must still parse.
-    _tree("${a}")
+    # `${a}` back-compat form must still parse. It is a lone atom, so with no
+    # spurious wrapper it inlines up to a bare WRAPPED_REF token (not a Tree).
+    result = parse_expr("${a}")
+    assert isinstance(result, Token)
+    assert result.type == "WRAPPED_REF"
 
 
 def test_item_ref():
@@ -139,6 +151,33 @@ def test_dotted_callee_rejected():
         parse_expr("a.b(x)")
 
 
+def test_empty_arg_call():
+    # `fn()` — a call with no args — must parse: a `call_suffix` with no `arg`.
+    tree = _tree("fn()")
+    assert "call_suffix" in _kinds(tree)
+    assert "arg" not in _kinds(tree)
+
+
+def test_kwarg_distinguishable_from_positional():
+    # A kwarg `foo(a=1)` and a positional `foo(1)` both parse, and their `arg`
+    # nodes are distinguishable by shape: a kwarg carries a leading NAME token
+    # (2 children), a positional does not (1 child, the expression) — the future
+    # evaluator relies on this to tell keyword from positional arguments.
+    kw_arg = next(n for n in _tree("foo(a=1)").iter_subtrees() if n.data == "arg")
+    pos_arg = next(n for n in _tree("foo(1)").iter_subtrees() if n.data == "arg")
+
+    # kwarg: 2 children, leading NAME token naming the parameter.
+    assert len(kw_arg.children) == 2
+    assert isinstance(kw_arg.children[0], Token)
+    assert kw_arg.children[0].type == "NAME"
+    assert str(kw_arg.children[0]) == "a"
+
+    # positional: a single child (the value expr) with no leading NAME marker.
+    assert len(pos_arg.children) == 1
+    only = pos_arg.children[0]
+    assert not (isinstance(only, Token) and only.type == "NAME")
+
+
 # --------------------------------------------------------------------------- #
 # Coalesce / default / required
 # --------------------------------------------------------------------------- #
@@ -146,7 +185,23 @@ def test_dotted_callee_rejected():
 
 def test_coalesce():
     tree = _tree("a | b | c")
+    # `a | b | c` DOES build a `coalesce` node (multiple `|` operands) — and it
+    # is the top node, since coalesce is lowest precedence.
     assert "coalesce" in _kinds(tree)
+    assert tree.data == "coalesce"
+
+
+def test_default_non_chaining():
+    # `:-` takes a SINGLE default only — multi-fallback is what `|` is for. A
+    # chained `a :- b :- c` must be a parse error.
+    with pytest.raises(ExpressionError):
+        parse_expr("a :- b :- c")
+
+
+def test_required_non_chaining():
+    # `:?` is likewise single-only (same reasoning as `:-`).
+    with pytest.raises(ExpressionError):
+        parse_expr("a :? b :? c")
 
 
 def test_default():
