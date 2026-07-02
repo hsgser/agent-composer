@@ -35,6 +35,7 @@ from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.code import CodeNode
 from agent_composer.nodes.map import MapNode
+from agent_composer.nodes.loop import LoopNode
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.human_input import HumanInputNode
 from agent_composer.nodes.model import ModelNode
@@ -53,6 +54,7 @@ from agent_composer.compose.parser import (
     HumanInputDescriptor,
     ModelDescriptor,
     NodeDescriptor,
+    LoopDescriptor,
     ToolDescriptor,
     WaitDescriptor,
 )
@@ -733,6 +735,87 @@ def build_call_node(desc: CallDescriptor, resolver: ChildResolver) -> tuple[Node
     return node, wiring
 
 
+def _shape_field_names(shape: Optional[Shape]) -> Optional[set[str]]:
+    """The per-field NAMES of a record `Shape`, or `None` when `shape` is not a
+    closed record (no `fields:` — a scalar/list/opaque codomain). Used for the
+    body-output field-NAME-set half of the loop's `'a -> 'a` contract."""
+    if shape is None or shape.fields is None:
+        return None
+    return set(shape.fields.keys())
+
+
+def build_loop_node(desc: LoopDescriptor, resolver: ChildResolver) -> tuple[Node, dict[str, Any]]:
+    """Build a `kind: loop` node — a `('a -> 'a) -> 'a -> 'a` driver — resolve-and-bake.
+
+    `loop` is a higher-order driver: the body subflow (`call:`) reads a subset of the
+    carried record (`inputs:`) and returns the WHOLE next carried record. Returns
+    `(node, wiring)` (the split): the node carries `params`; the flow owns the carried-record
+    seed sources in `wiring`. Mirrors `build_call_node` — resolves the callable, derives its
+    `ChildSignature`, bakes the compiled child + input decls, stamps `output_shape` (the body
+    codomain, which IS the carried record shape), and enforces the FIELD-NAME half of the
+    contract + slice legality (`while:` present, `max:` present). The deep TYPE-level half
+    (body output Shape == carried record Shape) is the loader pass `check_loop_shape_contract`,
+    which needs the assembled parent producers/flow-input shapes.
+    """
+    child = _resolve_child(desc.id, desc.call, resolver)
+    sig = child_signature(child)
+    # Stamp the child's AssertSet onto its compiled flow (the Enqueue target), exactly as
+    # build_call_node — clone_child reads child_asserts off the cloned body child.
+    child.compiled.child_asserts = child.asserts
+    node = LoopNode(
+        desc.id,
+        flow_id=desc.call,
+        flow_version=None,
+        child=child.compiled,
+        child_inputs=child.input,
+        child_asserts=child.asserts,
+        child_source=child.source,        # render-only; the CLI nested-error traceback
+        predicate_kind="while",
+        predicate=desc.while_,
+        max_iters=desc.max,
+        title=desc.node_name,
+    )
+    node.params = _sink_params(desc.inputs)
+    wiring = _sink_wiring(desc.inputs)
+    node.output_shape = sig.output          # the body codomain == the carried record shape
+
+    errors: list[str] = []
+    # Slice legality: `while:` selects the slice this build supports; `max:` is the
+    # required runaway guard for a while/until loop.
+    if desc.while_ is None:
+        errors.append(f"loop node {desc.id!r}: slice requires `while:`")
+    if desc.max is None:
+        errors.append(f"loop node {desc.id!r}: `max:` is required (runaway guard)")
+
+    # The `'a -> 'a` FIELD-NAME contract (types are the loader pass). The carried record's
+    # keys are the seed `inputs:` names. The body OUTPUT field NAMES must equal them (the
+    # whole next state threads back); the body INPUT NAMES must be a subset (it reads a
+    # slice of the carried record). A non-record body output (no fields) can't match a
+    # multi-field carried record — flag it too.
+    carried = set(desc.inputs or {})
+    out_names = _shape_field_names(sig.output)
+    if out_names is None:
+        errors.append(
+            f"loop node {desc.id!r}: body callable {desc.call!r} must declare a record "
+            f"output whose field names equal the carried record {sorted(carried)}"
+        )
+    elif out_names != carried:
+        errors.append(
+            f"loop node {desc.id!r}: body output fields {sorted(out_names)} must equal the "
+            f"carried record fields {sorted(carried)} (the whole next state threads back)"
+        )
+    body_inputs = {d.name for d in sig.inputs}
+    extra = body_inputs - carried
+    if extra:
+        errors.append(
+            f"loop node {desc.id!r}: body input(s) {sorted(extra)} are not carried record "
+            f"fields {sorted(carried)} (the body reads a subset of the carried record)"
+        )
+    if errors:
+        raise LoadError("\n  ".join(errors))
+    return node, wiring
+
+
 def check_ref_map_types(
     nodes: dict,
     producers: dict[str, Shape],
@@ -777,6 +860,48 @@ def check_ref_map_types(
                 raise LoadError(
                     f"call node {nid!r}: binding {param!r} — child expects "
                     f"{decl.shape.seg_type.value!r}, source is {source.seg_type.value!r}",
+                    line=(node_lines or {}).get(nid),
+                )
+
+
+def check_loop_shape_contract(
+    nodes: dict,
+    producers: dict[str, Shape],
+    flow_input_shapes: dict[str, Shape],
+    flow_wiring: dict[str, dict[str, Any]],
+    node_lines: Optional[dict] = None,
+) -> None:
+    """The TYPE-level half of a `loop`'s `'a -> 'a` contract (a loader post-build pass).
+
+    `build_loop_node` checked only the field-NAME sets (it lacks the resolved carried-record
+    Shapes — the seed sources' types depend on the parent producers/flow inputs assembled
+    LATER). This pass, run after `check_ref_map_types`, resolves each carried field's Shape
+    from its bound seed source (`${<id>.output}`/`${input.X}` over the parent producers +
+    flow-input shapes, exactly as `check_ref_map_types` via `_output_value_shape`) and checks
+    it is structurally compatible (`shapes_compatible`, C-EQUIV) with the body OUTPUT's
+    same-named field Shape (the body `output_shape`). A literal/coalesce/opaque seed source,
+    or an opaque body output field, stays lenient (skipped). Loud + located at the loop
+    node's `.yaml` line on a same-names/different-TYPES mismatch."""
+    for nid, node in nodes.items():
+        if node.kind != NodeKind.LOOP:
+            continue
+        body_out = node.output_shape
+        # A non-record / absent body output was already caught by the field-name half in
+        # build_loop_node; nothing typed to compare against here.
+        if body_out is None or body_out.fields is None:
+            continue
+        for field_name, src in flow_wiring.get(nid, {}).items():
+            body_field = body_out.fields.get(field_name)
+            if body_field is None:
+                continue  # name mismatch caught in build; nothing to type-check
+            source = _output_value_shape(src, producers, flow_input_shapes)
+            if source is None:
+                continue  # literal/coalesce/opaque seed source -> lenient
+            if not shapes_compatible(source, body_field):
+                raise LoadError(
+                    f"loop node {nid!r}: carried field {field_name!r} — body output is "
+                    f"{body_field.seg_type.value!r}, carried source is "
+                    f"{source.seg_type.value!r} (the body must return the same 'a it reads)",
                     line=(node_lines or {}).get(nid),
                 )
 

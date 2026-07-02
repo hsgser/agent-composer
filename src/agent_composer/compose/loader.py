@@ -44,6 +44,8 @@ from agent_composer.compose.build import (
     ChildResolver,
     build_call_node,
     build_leaf_node,
+    build_loop_node,
+    check_loop_shape_contract,
     check_ref_map_types,
     check_wiring_parity,
     infer_data_edges,
@@ -64,6 +66,7 @@ from agent_composer.compose.uses import parse_uses_ref
 from agent_composer.compose.parser import (
     CallDescriptor,
     CaseDescriptor,
+    LoopDescriptor,
     def_node_field_lines,
     def_node_lines,
     node_field_lines,
@@ -680,6 +683,15 @@ def _assemble(
                 raise
             leaf[nid] = node
             flow_wiring[nid] = wiring
+        elif isinstance(desc, LoopDescriptor):
+            try:
+                node, wiring = build_loop_node(desc, resolver)
+            except LoadError as exc:  # locate a resolver / name-set / legality failure at the loop node's line
+                if exc.line is None:
+                    exc.line = n_lines.get(nid)
+                raise
+            leaf[nid] = node
+            flow_wiring[nid] = wiring
         else:
             try:
                 node, wiring = build_leaf_node(desc, registry)
@@ -701,6 +713,9 @@ def _assemble(
     # input shape (needs producers, so it runs after all leaf/call nodes are built).
     flow_input_shapes = {decl.name: decl.shape for decl in inputs}
     check_ref_map_types(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
+    # loop `'a -> 'a` shape contract (types): each carried field's seed-source Shape vs the
+    # body output's same-named field Shape (needs producers, so it runs alongside e06).
+    check_loop_shape_contract(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
 
     # Desugar each `case` to an CaseNode + its data/control edges.
     desugars: dict[str, CaseDesugar] = {}
