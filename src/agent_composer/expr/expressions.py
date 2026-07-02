@@ -716,6 +716,8 @@ def _collect_expr_refs(node: "Tree | Token", refs: list[str]) -> None:
             refs.append(str(node)[2:-1])
         return
     if node.data == "refcall":
+        # KEEP IN SYNC with `_do_refcall`'s refcall decomposition — both duplicate this
+        # call_suffix-finding + path-join (leading NAME + trailer segments) logic.
         children = node.children
         call_suffix = next(
             (c for c in children if isinstance(c, Tree) and c.data == "call_suffix"), None
@@ -725,7 +727,7 @@ def _collect_expr_refs(node: "Tree | Token", refs: list[str]) -> None:
             refs.append(".".join([str(children[0]), *segments]))
             return
         # a builtin call: the callee contributes NO ref; walk each arg VALUE only.
-        for arg in call_suffix.children:  # each child is an `arg` subtree
+        for arg in call_suffix.children:  # each child is an `arg` subtree; empty `fn()` -> no children -> skipped
             # a kwarg carries a leading NAME token; the value expr is the last child.
             _collect_expr_refs(arg.children[-1], refs)
         return

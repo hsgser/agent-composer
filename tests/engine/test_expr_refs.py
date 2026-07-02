@@ -58,3 +58,20 @@ def test_coalesce_collects_all_operands():
 def test_required_collects_head():
     # `p :? "msg"`: the head `p` (the string message contributes nothing).
     assert _refs('p :? "msg"') == ["p"]
+
+
+def test_call_with_only_literal_args_has_no_refs():
+    # `upper("hi")`: callee + literal arg contribute nothing (no zero-arg builtin exists).
+    assert _refs('upper("hi")') == []
+
+
+def test_ref_inside_list_literal():
+    assert _refs("[a, b]") == ["a", "b"]
+
+
+def test_ref_inside_parens():
+    assert _refs("(a + b)") == ["a", "b"]
+
+
+def test_nested_call_collects_inner_ref():
+    assert _refs("join(upper(x))") == ["x"]
