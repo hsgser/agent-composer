@@ -367,3 +367,51 @@ def test_prune_iteration_drops_all_live_overlay_traces():
     # The spawner id itself (no `#i` prefix) is NOT pruned — live loop bookkeeping stays.
     assert engine.loop_iter[spawner] == 0
 
+
+# A `times: 20` countdown far exceeds a lowered 40-node budget when NOTHING is pruned
+# (each iteration adds ~3 nodes off a small base). With committed-iteration pruning wired
+# into `_loop_step`, only ~one iteration is resident at a time, so the run stays bounded and
+# reaches its terminal. Drives `FlowEngine` directly because `run_flow(...).engine` is None on
+# a succeeded result (mirrors `test_durable_replay.py`).
+TIMES_20 = """
+id: t20
+name: t20
+defs:
+  countdown:
+    input:
+      n: int
+    nodes:
+      step:
+        kind: code
+        code: tests.engine._compose_codefns:loop_countdown
+        input:
+          n: ${input.n}
+        output:
+          n: int
+    output: ${step.output}
+nodes:
+  loop:
+    kind: loop
+    call: countdown
+    input:
+      n: 30
+    times: 20
+output: ${loop.output}
+"""
+
+
+def test_long_loop_stays_within_node_budget(monkeypatch):
+    import agent_composer.runtime.engine as eng
+    from agent_composer.runtime.engine import FlowEngine
+
+    monkeypatch.setattr(eng, "MAX_TOTAL_NODES", 40)   # a 20-iteration loop blows this un-pruned
+    engine = FlowEngine(load_flow(TIMES_20).compiled, run_inputs={})
+    terminal = list(engine.run())[-1]
+    from agent_composer.events import RunSucceeded
+
+    assert isinstance(terminal, RunSucceeded)
+    # 20 body runs from n=30 -> n=10, and only ~one iteration resident at the end:
+    assert engine.flow.nodes                          # sanity
+    assert len(engine.flow.nodes) < 40                # bounded; un-pruned this would exceed 40
+    assert terminal.output == {"n": 10}               # 30 - 20 body runs = 10
+

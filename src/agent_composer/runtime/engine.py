@@ -889,7 +889,8 @@ class FlowEngine:
             # while: continue on TRUE; until (do-while): continue on FALSE, stop on TRUE.
             cont = truth if loop.predicate_kind == "while" else not truth
         if cont:
-            nxt = self.loop_iter[spawner_id] + 1
+            finished = self.loop_iter[spawner_id]   # the iteration whose body END just fired
+            nxt = finished + 1
             if nxt >= loop.max_iters:
                 raise NodeExecutionError(
                     spawner_id, f"loop {spawner_id!r} exceeded max ({loop.max_iters})",
@@ -903,6 +904,12 @@ class FlowEngine:
                 raise
             except Exception as exc:  # noqa: BLE001 — boundary: any grow error -> RunFailed
                 raise NodeExecutionError(spawner_id, str(exc), type(exc).__name__)
+            # `next_record` is now threaded into the freshly grown `#nxt` seed, so the just-
+            # finished `#finished` iteration is dead overlay — prune it to bound the node budget.
+            # ONLY after the grow succeeds: a budget/predicate raise above must leave `#finished`
+            # intact for the located failure, and pruning before the grow would drop the carried
+            # record's predecessor before it threads forward.
+            self._prune_iteration(spawner_id, finished)
             return
         # Predicate false: terminate. Commit the final carried record under the spawner id
         # (same SegmentError -> NodeExecutionError guard the alias-commit tail uses) and fire
@@ -914,6 +921,12 @@ class FlowEngine:
                 spawner_id, str(exc), type(exc).__name__,
                 locator=SourceSpan(node=spawner_id, kind="field", key="output"),
             )
+        # The carried record now lives under the bare `spawner_id`, so the just-finished final
+        # iteration is dead overlay — prune it. `loop_iter[spawner_id]` is that index (no grow
+        # happened on terminate). ONLY after the commit succeeds: a SegmentError above must leave
+        # the iteration intact for the located failure, and `#finished`'s record has already
+        # threaded to the spawner id, so the downstream `_advance` reads the committed value.
+        self._prune_iteration(spawner_id, self.loop_iter[spawner_id])
         for nid in self._advance(spawner_id):
             self._schedule(nid)
 
