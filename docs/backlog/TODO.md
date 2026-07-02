@@ -42,17 +42,11 @@ under "Roadmap".
 
 The core structured-output work (declare → generate → enforce → retry) shipped; see
 [DONE.md](DONE.md). The **tool** typed-output half stays in DEFER ("Contract gaps") — same theme,
-separate node kind. These non-blocking follow-ups from the code review remain (the resume-drop fix
-landed at 9867b04):
+separate node kind.
 
-- [ ] **(low) Fallback JSON code-fence tolerance** — the prompt-injection fallback
-  (`nodes/agent/structured.py:_generate_fallback`) does a bare `json.loads` on the model's text;
-  models often wrap JSON in a ```json … ``` fence, which fails the parse and burns a retry. Strip a
-  leading/trailing code fence before `json.loads`.
-- [ ] **(low) `tool_calling` final turn double-invokes the model** — the terminal turn already called
-  the model to discover there were no tool calls, then `generate_structured` invokes it again to emit
-  the shape (`nodes/agent/modes/tool_calling.py`). One redundant call per structured final answer.
-  Reuse the terminal message or skip the discovery call when a shape is declared.
+_None currently open — the fallback JSON code-fence tolerance shipped (see [DONE.md](DONE.md)); the
+`tool_calling` final-turn double-invoke moved to [DEFER.md](DEFER.md) ("Engine bugs surfaced but
+deferred") as largely inherent for the common native path._
 
 ## CLI
 

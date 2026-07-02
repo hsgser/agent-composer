@@ -9,6 +9,17 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 ## Engine bugs surfaced but deferred
 
+- [ ] **`tool_calling` structured final turn double-invokes the model** — on the final turn the loop
+  calls the model to discover there are no more tool calls (`nodes/agent/modes/tool_calling.py:89`),
+  which returns *prose*; `generate_structured` then invokes again to emit the declared shape. Two calls
+  per structured final answer. **Largely inherent, not a clean fix:** for native providers
+  (Anthropic/OpenAI — the common case) `with_structured_output` *must* do its own schema-bound invoke;
+  there is no API to convert already-returned prose into a validated typed value without another call.
+  The only real wins are narrow — the degenerate no-tools `tool_calling` config (skip discovery, go
+  straight to `generate_structured`) and the fallback path when the prose happens to already be valid
+  JSON. Revisit only if a provider gains combined tools+structured binding, or the no-tools case proves
+  common enough to special-case.
+
 - [ ] **A control-call id containing `.` breaks producer parsing / re-homing.** An AGENT control-call
   (or any node) whose id contains `.` is mis-split by `.output`-based producer parsing, minting a
   malformed `Edge(from_=None)`. Bites the live single-level agent pause. Decide: sanitize/assert

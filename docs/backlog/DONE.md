@@ -124,6 +124,11 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
 - [x] ~~**Tests** — schema derivation per shape; `plain` native path; boundary-retry on a bad emit;
   prompt-injection fallback for a no-native-support provider; `tool_calling` structured final answer;
   bare-`str` still passes through untouched.~~ -- e4504ce
+- [x] ~~**(low) Fallback JSON code-fence tolerance** — the prompt-injection fallback
+  (`nodes/agent/structured.py:_generate_fallback`) did a bare `json.loads` on the model's text; models
+  often wrap JSON in a ```json … ``` (or bare ``` … ```) fence despite the "no fences" instruction,
+  which failed the parse and burned a retry. `_strip_code_fence` strips a single wrapping fence before
+  `json.loads`.~~ -- 80f90c6
 
 ## CLI
 
