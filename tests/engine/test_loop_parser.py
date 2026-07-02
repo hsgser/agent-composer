@@ -58,3 +58,7 @@ def test_parser_accepts_until_and_times_keys():
     cf = parse_file(UNTIL_TIMES_YAML)
     desc = parse_nodes(cf.nodes)["L"]
     assert desc.until_ == "${n} <= 0"
+    # `times:` is also an accepted loop key (exactly-one-of is a later build check, not the
+    # parser's job) — a node declaring it parses into `LoopDescriptor.times`.
+    times_desc = parse_nodes(parse_file(UNTIL_TIMES_YAML.replace("until: ${n} <= 0", "times: 4")).nodes)["L"]
+    assert times_desc.times == 4
