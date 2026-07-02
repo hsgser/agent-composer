@@ -815,9 +815,11 @@ class FlowEngine:
 
     def _loop_step(self, filler_id: str, next_record: dict) -> None:
         """A loop body END (`filler_id`) fired with `next_record` (the body's output = the next
-        carried record). Evaluate the loop's `while:` predicate on it and either CONTINUE (clone
-        the next iteration) or STOP (commit the final carried record under the loop spawner and
-        advance its out-edges). Hitting `max_iters` is a located run failure.
+        carried record). Decide CONTINUE (clone the next iteration) vs STOP (commit the final
+        carried record under the loop spawner and advance its out-edges) per the loop kind:
+        `while` continues while its predicate is true, `until` (do-while) continues while its
+        predicate is false, `times` continues while fewer than N bodies have run (no predicate).
+        Hitting `max_iters` on a while/until continue is a located run failure.
 
         Raises:
             NodeExecutionError: on the runaway guard (`"LoopMaxExceeded"`, next iteration would
@@ -835,15 +837,27 @@ class FlowEngine:
         # predicate ExpressionError (a runtime type error on the carried record) and the
         # _grow_loop budget RuntimeError become NodeExecutionError -> RunFailed. The
         # intentional located raises (max guard, commit SegmentError) pass straight through.
-        try:
-            cont = evaluate_when_record(loop.predicate, next_record)
-        except NodeExecutionError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — boundary: any predicate error -> RunFailed
-            raise NodeExecutionError(
-                spawner_id, str(exc), type(exc).__name__,
-                locator=SourceSpan(node=spawner_id, kind="field", key="while"),
-            )
+        #
+        # The continue decision `cont` branches on the loop kind (mirrors the turn-0 arm):
+        #   while  — continue while the predicate is TRUE on the next carried record.
+        #   until  — DO-WHILE: continue while the predicate is FALSE; stop once it is TRUE.
+        #   times  — fixed count: continue while fewer than N bodies have run. `loop_iter`
+        #            holds the JUST-FINISHED iteration index i (0-based), so i+1 bodies have
+        #            run; continue iff `(i + 1) < max_iters` (max_iters == N). No predicate.
+        if loop.predicate_kind == "times":
+            cont = (self.loop_iter[spawner_id] + 1) < loop.max_iters
+        else:
+            try:
+                truth = evaluate_when_record(loop.predicate, next_record)
+            except NodeExecutionError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — boundary: any predicate error -> RunFailed
+                raise NodeExecutionError(
+                    spawner_id, str(exc), type(exc).__name__,
+                    locator=SourceSpan(node=spawner_id, kind="field", key=loop.predicate_kind),
+                )
+            # while: continue on TRUE; until (do-while): continue on FALSE, stop on TRUE.
+            cont = truth if loop.predicate_kind == "while" else not truth
         if cont:
             nxt = self.loop_iter[spawner_id] + 1
             if nxt >= loop.max_iters:

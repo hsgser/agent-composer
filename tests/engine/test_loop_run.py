@@ -190,13 +190,10 @@ def test_while_loop_predicate_runtime_error_fails_run():
 
 
 # `until:` is a DO-WHILE: the body must run AT LEAST once before the predicate is ever
-# consulted. Here the seed n=0 does NOT satisfy `until: ${n} > 0`, so a `while`-style turn-0
-# pre-check would run the body 0 times and commit the seed unchanged ({n: 0}). Correct
-# `until` grows #0 unconditionally: the body runs (n -> -1), then the post-check finds the
-# `until:` boolean false on {n:-1} and terminates at {n:-1}. The assertion `output != {n:0}`
-# isolates the A4 seed pre-check (body ran >= once, seed not committed as-is) and holds under
-# both the A4-alone regime (old `while`-style `_loop_step` also stops on `-1 > 0` = False ->
-# {n:-1}) and the A5 do-while regime ({n:-1}).
+# consulted. Here the seed n=1 does NOT yet satisfy `until: ${n} <= 0`, so a `while`-style
+# turn-0 pre-check would commit the seed unchanged with 0 runs ({n: 1}). Correct `until` grows
+# #0 unconditionally: the body counts down 1 -> 0, then the post-check `${n} <= 0` on {n:0} is
+# true and terminates at {n:0} after exactly one run.
 UNTIL_SEED_TRUE = """
 id: ust
 name: ust
@@ -218,20 +215,20 @@ nodes:
     kind: loop
     call: countdown
     input:
-      n: 0
-    until: ${n} > 0
+      n: 1
+    until: ${n} <= 0
     max: 5
 output: ${loop.output}
 """
 
 
 def test_until_runs_body_at_least_once():
-    # A4 alone: turn-0 grows #0 unconditionally for `until:`. The seed n=0 does NOT satisfy
-    # `until: ${n} > 0`, so a `while`-style pre-check would commit {n:0} with 0 runs. Correct
-    # `until` runs the body -> {n:-1}. Asserting `output != {n:0}` proves the body ran and the
-    # seed was not committed unchanged; it holds in the A4-alone and A5 regimes alike.
+    # `until` is do-while: turn-0 grows #0 unconditionally even though the seed n=1 does NOT yet
+    # satisfy `until: ${n} <= 0`. Body counts down 1 -> 0, post-check `${n} <= 0` on {n:0} is
+    # true -> stop after exactly one run. (A `while`-style pre-check would have committed the seed
+    # with 0 runs, giving {n:1}.)
     result = run_flow(load_flow(UNTIL_SEED_TRUE), {})
-    assert result.output != {"n": 0}   # seed was not committed unchanged; body ran >= once
+    assert result.output == {"n": 0}
 
 
 def test_loop_budget_exceeded_in_step_fails_run(monkeypatch):
@@ -246,4 +243,73 @@ def test_loop_budget_exceeded_in_step_fails_run(monkeypatch):
     result = run_flow(load_flow(COUNTER), {})
     assert result.status != "succeeded"
     assert "node budget" in (result.error or "")
+
+
+# `times: N` is a fixed count: exactly N body runs, no predicate. Seed n=10, times 3 ->
+# 10 -> 9 -> 8 -> 7 (three body runs), then the loop-back's count-based `cont` stops.
+TIMES_3 = """
+id: t3
+name: t3
+defs:
+  countdown:
+    input:
+      n: int
+    nodes:
+      step:
+        kind: code
+        code: tests.engine._compose_codefns:loop_countdown
+        input:
+          n: ${input.n}
+        output:
+          n: int
+    output: ${step.output}
+nodes:
+  loop:
+    kind: loop
+    call: countdown
+    input:
+      n: 10
+    times: 3
+output: ${loop.output}
+"""
+
+
+# `until:` do-while over a countdown: seed n=3, stop once `${n} <= 0` is true. The body runs
+# 3 -> 2 -> 1 -> 0, then the post-check `${n} <= 0` on {n:0} is true and terminates at {n:0}.
+UNTIL_COUNTDOWN = """
+id: uc
+name: uc
+defs:
+  countdown:
+    input:
+      n: int
+    nodes:
+      step:
+        kind: code
+        code: tests.engine._compose_codefns:loop_countdown
+        input:
+          n: ${input.n}
+        output:
+          n: int
+    output: ${step.output}
+nodes:
+  loop:
+    kind: loop
+    call: countdown
+    input:
+      n: 3
+    until: ${n} <= 0
+    max: 10
+output: ${loop.output}
+"""
+
+
+def test_times_runs_exactly_n():
+    result = run_flow(load_flow(TIMES_3), {})   # {n: 10}, times: 3
+    assert result.output == {"n": 7}            # 10 -> 9 -> 8 -> 7 (exactly 3 body runs)
+
+
+def test_until_stops_when_predicate_becomes_true():
+    result = run_flow(load_flow(UNTIL_COUNTDOWN), {})   # {n: 3}, until: ${n} <= 0, max: 10
+    assert result.output == {"n": 0}            # 3 -> 2 -> 1 -> 0, then n<=0 true -> stop
 
