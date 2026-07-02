@@ -784,7 +784,7 @@ class FlowEngine:
 
         Closed `Expansion` sum — exhaustive dispatch on `type`, `else: raise` (loud)."""
         from agent_composer.suspension.expansions import (
-            AgentExpansion, CallExpansion, MapExpansion,
+            AgentExpansion, CallExpansion, LoopExpansion, MapExpansion,
         )
 
         for desc in expansions:
@@ -816,6 +816,12 @@ class FlowEngine:
                     self._replay_expansions(segment.children, parent_depth=parent_depth,
                                             is_top_level=False)
                     current = cloned.out_node_id
+            elif isinstance(desc, LoopExpansion):
+                # Durable replay of a live loop (re-grow #0..#i from the recorded seeds) is
+                # deferred (slice 1 is in-process only). Kept as a closed-sum member so this
+                # match stays exhaustive; a snapshot/restore of a paused loop fails loudly
+                # here rather than silently hitting the generic `else`.
+                raise NotImplementedError("durable loop replay deferred")
             else:
                 raise ValueError(f"unknown Expansion descriptor {type(desc).__name__!r}")
 
