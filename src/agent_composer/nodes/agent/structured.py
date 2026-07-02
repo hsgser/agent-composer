@@ -134,6 +134,26 @@ def _text_of(reply: Any) -> str:
     return content if isinstance(content, str) else str(content)
 
 
+def _strip_code_fence(text: str) -> str:
+    """Strip a single wrapping Markdown code fence from `text`, returning the inner text.
+
+    Models often wrap JSON in a ```json … ``` (or bare ``` … ```) fence despite the
+    "no code fences" instruction; a bare `json.loads` then fails and burns a retry. If
+    `text` opens with a ``` fence line, drop that line and a matching trailing ```;
+    text without a fence is returned unchanged (surrounding whitespace trimmed).
+    """
+    s = text.strip()
+    if not s.startswith("```"):
+        return s
+    newline = s.find("\n")
+    if newline == -1:
+        return s  # a lone ``` with no body — leave it for json.loads to reject
+    inner = s[newline + 1 :]
+    if inner.rstrip().endswith("```"):
+        inner = inner.rstrip()[:-3]
+    return inner.strip()
+
+
 def generate_structured(
     model: Any,
     messages: list,
@@ -188,7 +208,9 @@ def _generate_fallback(
     model: Any, messages: list, shape: Shape, schema: type[BaseModel], max_retries: int
 ) -> Any:
     """Prompt-injection path for a provider with no native structured output: ask for JSON
-    matching the schema, parse + validate the free-text reply, capped self-correction retry."""
+    matching the schema, parse + validate the free-text reply, capped self-correction retry.
+    A wrapping ```json … ``` code fence is stripped before parsing (`_strip_code_fence`) so a
+    fenced-but-valid reply doesn't burn a retry."""
     instruction = HumanMessage(
         content=(
             "Respond with ONLY a JSON object matching this JSON schema (no prose, no code "
@@ -200,7 +222,7 @@ def _generate_fallback(
     for _ in range(max_retries + 1):
         try:
             text = _text_of(model.invoke(msgs))
-            obj = schema.model_validate(json.loads(text))
+            obj = schema.model_validate(json.loads(_strip_code_fence(text)))
             return _unwrap(obj, shape)
         except Exception as err:  # unparseable / non-conforming; correct and retry
             last_err = err
