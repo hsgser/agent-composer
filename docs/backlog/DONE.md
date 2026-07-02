@@ -117,6 +117,12 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
 
 ## CLI
 
+- [x] ~~**`cli/utils.py` helpers** referenced by `llm_clients` comments but not built: `ensure_api_key`
+  (interactive key prompt) + `confirm_ollama_endpoint`.~~ -- fab705c: both helpers built (TTY-aware;
+  keyless/unknown providers skipped), and `ensure_api_key` wired into `ac run` via a pre-flight
+  `_ensure_provider_keys` walk that resolves each agent's effective provider through the llm_config
+  cascade. `confirm_ollama_endpoint` stays built-but-uncalled for the future provider-selection picker.
+
 - [x] ~~**Box runtime node failures + traceback under `--engine-trace`** — a runtime `NodeFailed` with a
   RUNTIME-NAMESPACED id (a node inside a called child, e.g. `run/boom`) printed a bare `run failed:`
   line because the parser only indexes top-level nodes; it now falls back to the owning top-level call

@@ -64,8 +64,7 @@ landed at 9867b04):
 
 ## CLI
 
-- [ ] **`cli/utils.py` helpers** referenced by `llm_clients` comments but not built: `ensure_api_key`
-  (interactive key prompt) + `confirm_ollama_endpoint`.
+_None currently open — recently shipped CLI items are archived in [DONE.md](DONE.md)._
 
 ## Tooling
 

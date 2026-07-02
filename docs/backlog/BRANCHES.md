@@ -22,4 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/cli/utils-helpers` | `main` | `cli/utils.py` — `ensure_api_key` + `confirm_ollama_endpoint` | 2026-07-02 |
+| _(none open)_ | | | |
