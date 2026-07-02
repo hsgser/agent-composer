@@ -124,3 +124,24 @@ def test_loop_body_pauses_and_resumes_each_turn():
                      commands=[resume_command(loaded, r2.pause_reasons[0], "bye")])
     assert r3.status == "succeeded", r3.error
     assert r3.output == {"messages": ["hi", "bye"], "exited": True}
+
+
+# A loop that is NOT the terminal node: its committed record feeds a downstream code node.
+# Guards that `_loop_step` commits under the spawner id AND fires the spawner's out-edges
+# (the terminate -> commit -> advance tail), not just that a terminal loop returns a value.
+DOWNSTREAM = COUNTER.replace(
+    "output: ${loop.output}",
+    """  after:
+    kind: code
+    code: tests.engine._compose_codefns:double
+    input:
+      n: ${loop.output.n}
+    output: int
+output: ${after.output}""",
+)
+
+
+def test_loop_feeding_downstream_node_commits_and_advances():
+    result = run_flow(load_flow(DOWNSTREAM), {})
+    assert result.status == "succeeded", result.error
+    assert result.output == 6          # loop ends at n=3; double(3) = 6

@@ -157,8 +157,20 @@ def test_body_output_types_must_equal_carried():
     assert e.value.line is not None
 
 
+# A runaway guard below 1 (`max: 0`) is nonsensical — the guard bounds the iteration
+# count, so it must permit at least one body run. Rejected at build.
+BAD_MAX = GOOD.replace("    max: 5\n", "    max: 0\n")
+
+
 def test_unsupported_predicate_is_rejected():
     with pytest.raises(LoadError) as e:
         load_flow(BAD_UNSUPPORTED)
     assert "until" in str(e.value)
     assert "while" in str(e.value)
+
+
+def test_max_below_one_is_rejected():
+    with pytest.raises(LoadError) as e:
+        load_flow(BAD_MAX)
+    assert "max" in str(e.value).lower()
+    assert ">= 1" in str(e.value)

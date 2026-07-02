@@ -795,6 +795,11 @@ def build_loop_node(desc: LoopDescriptor, resolver: ChildResolver) -> tuple[Node
         errors.append(f"loop node {desc.id!r}: slice requires `while:`")
     if desc.max is None:
         errors.append(f"loop node {desc.id!r}: `max:` is required (runaway guard)")
+    elif desc.max < 1:
+        # A runaway guard below 1 is nonsensical: the guard bounds the iteration COUNT, so it
+        # must permit at least one body run. Reject at the boundary rather than letting `max: 0`
+        # run one iteration and then fail with a confusing "exceeded max (0)".
+        errors.append(f"loop node {desc.id!r}: `max:` must be >= 1 (got {desc.max})")
 
     # The `'a -> 'a` FIELD-NAME contract (types are the loader pass). The carried record's
     # keys are the seed `inputs:` names. The body OUTPUT field NAMES must equal them (the
