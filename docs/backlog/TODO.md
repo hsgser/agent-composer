@@ -33,7 +33,12 @@ under "Roadmap".
 
 - [ ] nested flow definition. or inline definition for MAP, LOOP etc? so instead of defining a flow and then call, we just define it inside MAP node definition directly instead of defining it outside and then call later? it's just a surface, we desugar it to a new flow behind the scene?
 
-- [ ] list append, add, operation etc is now impossible via our flow design. We should be able to support simple function/operations inside ${}. There should be a way to make it general
+- [ ] **Unify `${...}` into one expression grammar** — collapse the three divergent `${}`
+  grammars (binding / condition / prompt) into one pure-expression grammar; support arithmetic /
+  string / list ops inside `${}`; move flow-invocation out of `${}` into a compile-time `call(...)`
+  directive. Design final (review-1 + review-2 addressed): [`docs/plans/2026-07-02-expr-unification-design-final.md`](../plans/2026-07-02-expr-unification-design-final.md);
+  implementation plan: [`docs/plans/2026-07-02-expr-unification-plan-final.md`](../plans/2026-07-02-expr-unification-plan-final.md).
+  Next: execute (branch `dev/engine/expr-unification`).
 
 - [ ] sometimes I see Shape sometimes I see Segment. What are the differences among them? should we unify them?
 
