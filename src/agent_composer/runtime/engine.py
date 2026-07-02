@@ -773,13 +773,16 @@ class FlowEngine:
                 self._schedule(root)
         return cloned
 
-    def _grow_loop(self, spawner_id: str, child, record: dict, iteration: int, desc):
+    def _grow_loop(self, spawner_id: str, child, record: dict, iteration: int, desc,
+                   schedule: bool = True):
         """Clone+register ONE loop iteration at callsite `f"{spawner_id}#{iteration}"` (the
         per-iteration namespace, mirroring MAP's `#i`) and schedule its roots. Unlike
         `_grow_call`/`_grow_map`, the body END filler is registered in `self.loop_alias`
         (routes to `_loop_step` — predicate re-clone/commit) rather than `self.alias`
         (commit-and-advance). Records the iteration's seed on the LoopExpansion so a future
-        durable replay can re-grow `#0..#i` (replay itself is deferred).
+        durable replay can re-grow `#0..#i` (replay itself is deferred). `schedule=False`
+        suppresses the budget guard + root scheduling (the deferred replay path), mirroring
+        `_grow_call`/`_grow_map`.
 
         NOTE (slice-1 limitation): does NOT stamp `_spawner_expansion`/`depth` on cloned
         spawner-eligible subnodes — slice-1 bodies are leaf-only (a `human_input` pause is a
@@ -795,7 +798,7 @@ class FlowEngine:
         with self.sm.lock:                               # append + register atomically
             self.flow.add_subgraph(cloned.nodes, cloned.edges, cloned.wiring)
             self.sm.register(list(cloned.nodes), cloned.edges)
-            if len(self.flow.nodes) > MAX_TOTAL_NODES:
+            if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
                 raise RuntimeError(
                     f"loop expansion exceeded node budget ({MAX_TOTAL_NODES}) at {spawner_id!r}"
                 )
@@ -809,8 +812,9 @@ class FlowEngine:
         while len(desc.records) <= iteration:
             desc.records.append(dict(record))
             desc.children_per_iter.append([])
-        for root in cloned.roots:
-            self._schedule(root)                         # respects suspend (deferred)
+        if schedule:
+            for root in cloned.roots:
+                self._schedule(root)                     # respects suspend (deferred)
         return cloned
 
     def _prune_iteration(self, spawner_id: str, iteration: int) -> None:

@@ -590,6 +590,30 @@ def test_replay_does_not_promote_a_top_level_agent_segment_child(monkeypatch):
     assert e.expansions == [top]                               # NOT [top, inner]
 
 
+def test_grow_loop_schedule_false_registers_without_scheduling():
+    """`_grow_loop(..., schedule=False)` rebuilds the iteration overlay (clones + registers the
+    `#0/` namespace, records the seed on the LoopExpansion) but schedules NOTHING and does not
+    trip the node-budget guard — the suppressed replay path, mirroring `_grow_call`/`_grow_map`."""
+    from agent_composer.compose.loader import load_flow
+    from agent_composer.suspension.expansions import LoopExpansion
+    from tests.engine.test_loop_run import COUNTER
+
+    engine = FlowEngine(load_flow(COUNTER).compiled, run_inputs={})
+    spawner_id = "loop"
+    child = engine.flow.nodes[spawner_id].child
+    record = {"n": 0, "exited": False}
+    desc = LoopExpansion(spawner_id=spawner_id, records=[], children_per_iter=[])
+
+    engine._grow_loop(spawner_id, child, record, 0, desc, schedule=False)
+
+    # Registered: the iteration's namespaced nodes are present and the seed is on the ledger.
+    assert any(n.startswith(f"{spawner_id}#0/") for n in engine.flow.nodes)
+    assert len(desc.records) == 1
+
+    # Scheduled: nothing — the serial ready queue is empty right after the suppressed grow.
+    assert list(engine.ready) == []
+
+
 def test_snapshot_captures_num_workers():
     from agent_composer.runtime.engine import FlowEngine
     from tests.engine.test_engine_expansions_ledger import call_with_inner_pause
