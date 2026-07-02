@@ -29,14 +29,6 @@ under "Roadmap".
   the first paused node's reasons surface. Rare (needs two nodes pausing in one step). Fix when a real
   multi-node pause flow exists.
 
-- [ ] **Locate the unknown AGENT mode/control `LoadError`.** `build_leaf_node` surfaces an invalid
-  `mode:`/`controls:` as `LoadError(f"node {desc.id!r}: {exc}")` (`compose/build.py:167`) with **no
-  `.line`**, so the error can't point the author at the offending YAML line. Thread the node's source
-  line onto the raised `LoadError` (the descriptor knows its node id; the parser has the line). Narrower
-  and easier than the general "defs-internal error line-mapping" item in DEFER.
-
-- [x] ~~\ngoc{add options to human input so claude can compose question and also options similar to claude. claude we should have an option to let the agent to redesign or write the question/options depending on the inputs/context. Do human input node should have an option to receive context and option to ask LLM to redesign the questions/options. There are should me multiple questions as well.~~ -- shipped across `5a7a574..7eefc16`: static `questions:` list (AskUserQuestion-shaped), `adaptive_questions:` LLM-compose block (desugars to a synth compose-agent + pure gate), and manual `questions: ${ref}` form; answer is a record keyed by header.
-
 - [ ] add isinstance(${var}, Shape) type check builtin function so the assert can check the shape again if needed @ngocbh
 
 - [ ] nested flow definition. or inline definition for MAP, LOOP etc? so instead of defining a flow and then call, we just define it inside MAP node definition directly instead of defining it outside and then call later? it's just a surface, we desugar it to a new flow behind the scene?

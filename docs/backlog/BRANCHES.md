@@ -22,4 +22,5 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/compose/mode-loaderror-line` | `main` | regression test: bad `mode:`/`controls:` LoadError carries the node source line | 2026-07-02 |
+
+_None open._

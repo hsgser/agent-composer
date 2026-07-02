@@ -15,6 +15,16 @@ This backlog is split four ways:
 
 ## Engine
 
+- [x] ~~**Locate the unknown AGENT mode/control `LoadError`.** `build_leaf_node` surfaces an invalid
+  `mode:`/`controls:` as `LoadError(f"node {desc.id!r}: {exc}")` with no `.line`, so the error can't
+  point the author at the offending YAML line. Thread the node's source line onto the raised
+  `LoadError`.~~ -- ccaf3cf: already located — the loader's generic `except LoadError` around
+  `build_leaf_node` stamps `exc.line = n_lines.get(nid)` (added by the later line-mapping work); this
+  commit adds the missing regression test through the full `load_flow` path (bad `mode:` and bad
+  `controls:` both assert `.line`).
+
+- [x] ~~\ngoc{add options to human input so claude can compose question and also options similar to claude. claude we should have an option to let the agent to redesign or write the question/options depending on the inputs/context. Do human input node should have an option to receive context and option to ask LLM to redesign the questions/options. There are should me multiple questions as well.~~ -- shipped across `5a7a574..7eefc16`: static `questions:` list (AskUserQuestion-shaped), `adaptive_questions:` LLM-compose block (desugars to a synth compose-agent + pure gate), and manual `questions: ${ref}` form; answer is a record keyed by header.
+
 - [x] ~~rename ifelsenode to CaseNode for consistency~~ -- b5004a2
   Internal-only rename: `IfElseNode` -> `CaseNode`, `NodeKind.IF_ELSE` -> `NodeKind.CASE` (value
   `"if_else"` -> `"case"`), module `nodes/if_else/` -> `nodes/case/`. The YAML authoring surface was
