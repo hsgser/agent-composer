@@ -723,6 +723,72 @@ def test_durable_loop_resumes_on_fresh_flow():
     assert dur3.output == live_output                       # durable == live (same terminal)
 
 
+def test_loop_multi_hop_resnapshot_ledger_matches_live():
+    """run->snapshot->restore(fresh)->resume-past-a-mid-loop-pause->RE-snapshot. The re-snapshot's
+    LoopExpansion ledger must equal the live engine's at the SAME (2nd) pause: ONE LoopExpansion
+    whose `records` reflect the CURRENT live iteration (grown+pruned once), NOT a truncated
+    1-record tree stale from hop 1, nor a duplicated one. Then a 3rd process restores the
+    re-snapshot and finishes to `succeeded`.
+
+    Mirrors `test_two_hop_agent_resnapshot_ledger_matches_live` for the loop: the durable hop
+    must continue growing the ONE re-attached descriptor object (`loop_desc[spawner]` is the
+    deserialized `expansions[0]`), so `_loop_step`'s continue-branch append lands on the ledger
+    the re-snapshot serializes."""
+    from agent_composer.compose.loader import load_flow
+    from agent_composer.compose.run import resume_command, resume_flow, run_flow
+    from agent_composer.suspension.expansions import LoopExpansion
+    from tests.engine.test_loop_run import LOOP_CHAT
+
+    # --- Live oracle: drive LOOP_CHAT to the SECOND pause (turn 2) in-process; capture its
+    # ledger shape. Turn 1 grows iter #0 (records=[seed]); delivering "a" runs the loop-back,
+    # which grows iter #1 (records=[seed, {messages:["a"], exited:false}]) and prunes #0.
+    loaded = load_flow(LOOP_CHAT)
+    live1 = run_flow(loaded, {})
+    assert live1.status == "paused"
+    live2 = resume_flow(loaded, engine=live1.engine,
+                        commands=[resume_command(loaded, live1.pause_reasons[0], "a")])
+    assert live2.status == "paused"
+    live_tree = live2.engine.snapshot().expansions
+    assert len(live_tree) == 1 and isinstance(live_tree[0], LoopExpansion)
+    live_records = live_tree[0].records
+    assert live_records[-1] == {"messages": ["a"], "exited": False}   # the live iteration seed
+    live_len = len(live_records)                                       # the oracle ledger shape
+
+    # --- Durable sequence: 3 simulated processes. proc1 parks at pause 1, persists, round-trips.
+    proc1 = run_flow(load_flow(LOOP_CHAT), {})
+    assert proc1.status == "paused"
+    ckpt1 = RunCheckpoint.loads(proc1.checkpoint.dumps())             # cross-process round-trip
+    hop1_descs = [e for e in ckpt1.expansions if isinstance(e, LoopExpansion)]
+    assert len(hop1_descs) == 1 and hop1_descs[0].records             # pause-1 ledger: len 1
+
+    # hop 1: restore on a FRESH recompiled flow, resume past pause 1 delivering "a" -> pause 2.
+    hop1 = FlowEngine.restore(load_flow(LOOP_CHAT).compiled, ckpt1)
+    dur2 = resume_flow(loaded, engine=hop1,
+                       commands=[resume_command(loaded, ckpt1.pause_reasons[0], "a")])
+    assert dur2.status == "paused", dur2.error
+
+    # CORE regression: the re-snapshot after a durable hop is the CURRENT live ledger, not a
+    # truncated/duplicated/stale one. It must equal the live oracle shape (ONE LoopExpansion,
+    # same records length, same live iteration seed).
+    hop1_tree = hop1.snapshot().expansions
+    assert len(hop1_tree) == 1 and isinstance(hop1_tree[0], LoopExpansion)
+    assert len(hop1_tree[0].records) == live_len
+    assert hop1_tree[0].records[-1] == live_records[-1]
+
+    # Pruning invariant survives the hop: exactly ONE `loop#*/` iteration is resident.
+    ckpt2 = RunCheckpoint.loads(hop1.snapshot().dumps())
+    live_iters = {k.split("/", 1)[0] for k in ckpt2.node_state if k.startswith("loop#")}
+    assert len(live_iters) == 1
+
+    # --- hop 2: a 3rd process restores the re-snapshot and finishes. Deliver "bye" -> fold sets
+    # exited=true -> predicate false -> succeeds. Two messages delivered total: "a" then "bye".
+    hop2 = FlowEngine.restore(load_flow(LOOP_CHAT).compiled, ckpt2)
+    dur3 = resume_flow(loaded, engine=hop2,
+                       commands=[resume_command(loaded, ckpt2.pause_reasons[0], "bye")])
+    assert dur3.status == "succeeded", dur3.error
+    assert dur3.output == {"messages": ["a", "bye"], "exited": True}
+
+
 def test_snapshot_captures_num_workers():
     from agent_composer.runtime.engine import FlowEngine
     from tests.engine.test_engine_expansions_ledger import call_with_inner_pause
