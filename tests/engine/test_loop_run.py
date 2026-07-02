@@ -7,7 +7,7 @@ runaway guard.
 """
 
 from agent_composer.compose.loader import load_flow
-from agent_composer.compose.run import run_flow
+from agent_composer.compose.run import resume_command, resume_flow, run_flow
 
 
 COUNTER = """
@@ -69,3 +69,58 @@ def test_while_loop_max_exceeded_fails_run():
     # And confirm the located error type reaches the RunFailed event.
     error_types = {getattr(e, "error_type", None) for e in result.events}
     assert "LoopMaxExceeded" in error_types
+
+
+# The chat-shaped slice: a body that PAUSES each turn on a `human_input` leaf, folds the
+# delivered message into the carried {messages, exited} record, and loops until the human
+# types "bye". Drives run() -> paused -> resume -> paused -> ... -> succeeded in-process.
+LOOP_CHAT = """
+id: chat
+name: chat
+defs:
+  chat_turn:
+    input:
+      messages: list[str]
+    nodes:
+      ask:
+        kind: human_input
+        prompt: "your message"
+        output: str
+      fold:
+        kind: code
+        code: tests.engine._compose_codefns:chat_fold
+        input:
+          messages: ${input.messages}
+          msg: ${ask.output}
+        output:
+          messages: list[str]
+          exited: bool
+    output: ${fold.output}
+nodes:
+  loop:
+    kind: loop
+    call: chat_turn
+    input:
+      messages: []
+      exited: false
+    while: not ${exited}
+    max: 100
+output: ${loop.output}
+"""
+
+
+def test_loop_body_pauses_and_resumes_each_turn():
+    loaded = load_flow(LOOP_CHAT)
+    # Turn 1: the body's human_input leaf parks the run.
+    r1 = run_flow(loaded, {})
+    assert r1.status == "paused"
+    assert len(r1.pause_reasons) == 1
+    # Deliver "hi" -> body END fires -> _loop_step clones the next iteration -> pauses again.
+    r2 = resume_flow(loaded, engine=r1.engine,
+                     commands=[resume_command(loaded, r1.pause_reasons[0], "hi")])
+    assert r2.status == "paused"
+    # Deliver "bye" -> fold sets exited=true -> predicate false -> the run succeeds.
+    r3 = resume_flow(loaded, engine=r2.engine,
+                     commands=[resume_command(loaded, r2.pause_reasons[0], "bye")])
+    assert r3.status == "succeeded", r3.error
+    assert r3.output == {"messages": ["hi", "bye"], "exited": True}

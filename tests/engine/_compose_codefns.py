@@ -91,3 +91,11 @@ def loop_bump(inputs: dict) -> dict:
     # Drives the while-loop e2e (3 iterations from a {n:0, exited:false} seed).
     n = inputs["n"] + 1
     return {"n": n, "exited": n >= 3}
+
+
+def chat_fold(inputs: dict) -> dict:
+    # the chat-shaped loop body 'a -> 'a over {messages, exited}: append this turn's human
+    # message to the carried list and set exited once the human types "bye". Drives the
+    # pause/resume-per-turn e2e (a human_input leaf feeds `msg` each iteration).
+    messages = inputs["messages"] + [inputs["msg"]]
+    return {"messages": messages, "exited": inputs["msg"] == "bye"}
