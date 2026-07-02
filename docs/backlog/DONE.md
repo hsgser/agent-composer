@@ -143,3 +143,15 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   HUMAN_INPUT node path is unaffected.)~~ -- `_slug_call_id` maps every non-`[A-Za-z0-9_]` char to `_`
   for the `hi_id`/answer ref; the real id stays verbatim in `pending["call_id"]`/`slot` for the
   ToolMessage + resume-id match. -- f07c78a
+
+- [x] ~~**`loop` error-boundary + loader-guard hardening (adversarial review of the `while:` slice).**
+  Two latent crashes and two silent-mishandling gaps: (1) a `while:` predicate that raises at runtime
+  (e.g. a division-by-zero on the carried record) escaped `run()` uncaught on iterations >= 1 — the
+  predicate eval and per-iteration `_grow_loop` run in `_loop_step`, outside `eval_node`'s try/except,
+  unlike the wrapped `_apply_enqueue` seed pre-check; (2) the node-budget `RuntimeError` from
+  `_grow_loop` escaped the same way; (3) a `while:` ref to an undeclared name resolved falsy and spun
+  the loop silently to `max`; (4) a non-int `max:` (string/float/bool) blew up the compare or read as
+  0/1 (the descriptor is a bare dataclass, so its `Optional[int]` isn't enforced). Fixes: wrap the
+  `_loop_step` predicate/grow raises into `NodeExecutionError` -> `RunFailed`; reject undeclared
+  `while:` refs and non-int `max:` at build.~~ -- 951cd30 (crashes), d42a731 (loader guards)
+
