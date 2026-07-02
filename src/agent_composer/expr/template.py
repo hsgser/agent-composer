@@ -39,8 +39,17 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
 
+from lark import Token, Tree
+
+from agent_composer.expr import grammar
 from agent_composer.expr.builtins import TEMPLATE_FNS
-from agent_composer.expr.expressions import ExpressionError, _parse_literal
+from agent_composer.expr.expressions import (
+    ExpressionError,
+    ResolveMode,
+    _parse_literal,
+    eval_expr,
+    expr_refs,
+)
 
 _PATH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_#/]*(\.[A-Za-z_][A-Za-z0-9_#/]*)*$")
 
@@ -859,4 +868,168 @@ def prompt_refs(text: str) -> list[str]:
             i = j + 1
         else:
             i += 1
+    return refs
+
+
+# --------------------------------------------------------------------------- #
+# The ONE unified template scanner — splits a text string into literal runs +
+# `${...}` spans, parsing ONLY the span interiors with the unified grammar
+# (`expr.grammar.parse_expr`) and evaluating them via `expr.expressions.eval_expr`.
+#
+# This is the template layer OVER the one parser: outside `${...}`, text is LITERAL
+# — operator characters (`|`, `+`, `[`, ...) in literal text are NEVER parsed as
+# expression operators, which is what makes free text like
+# `"stance (positive|negative|neutral)"` safe. Only span interiors go through
+# `parse_expr`. `$$` -> a literal `$` everywhere (the universal-escape decision).
+#
+# It is a NEW `Segment` type, deliberately NOT the legacy `_Text`/`_Coalesce`
+# (whose `_Coalesce` holds legacy `_Atom`s, not a `parse_expr` Lark tree): reusing
+# them would entangle this path with `parse_binding`. Added ALONGSIDE the legacy
+# `render_template_record` / `parse_binding` / `eval_binding` / `prompt_refs`; later
+# steps switch callers over and delete the legacy code.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class Literal:
+    """A literal run of a template — raw text with `$$` already collapsed to `$`.
+    Its `text` is emitted verbatim; it is never parsed as an expression."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class Span:
+    """A `${...}` span of a template — its interior parsed via `grammar.parse_expr`.
+    `tree` is the resulting `Tree | Token` (a lone atom inlines to a `Token`),
+    evaluated by `eval_expr`. ONLY span interiors are parsed."""
+
+    tree: "Tree | Token"
+
+
+# A template Segment is a literal run OR a parsed `${...}` span.
+Segment = Union[Literal, Span]
+
+
+def scan_template(text: str) -> list:
+    """
+    Scan a template string into a list of `Segment`s — literal runs + `${...}` spans.
+
+    Splits `text` on `${...}` spans, parsing ONLY each span's interior via
+    `expr.grammar.parse_expr`. Literal text between spans is kept RAW (with `$$`
+    collapsed to `$`) and is NEVER parsed — so operator characters (`|`, `+`, `[`,
+    ...) in free text stay literal. `$$` -> `$` everywhere; a lone `$` not starting
+    a `${` span stays literal.
+
+    Args:
+        text (`str`):
+            The template source: literal text interspersed with `${...}` spans.
+
+    Returns:
+        `list[Segment]`:
+            The ordered segments — a [`Literal`][agent_composer.expr.template.Literal]
+            per literal run and a [`Span`][agent_composer.expr.template.Span] per
+            `${...}` (interior already parsed). Adjacent literal runs are never
+            emitted separately: each literal run is one `Literal`. A pure-literal
+            template is a single `Literal`.
+
+    Raises:
+        `ExpressionError`:
+            On an unbalanced `${...}` span, or if a span interior fails to parse.
+    """
+    segments: list = []
+    buf: list = []  # accumulates the current literal run (with `$$` -> `$`)
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "$" and text[i + 1 : i + 2] == "$":
+            buf.append("$")  # `$$` -> a literal `$`
+            i += 2
+        elif text[i] == "$" and text[i + 1 : i + 2] == "{":
+            if buf:
+                segments.append(Literal("".join(buf)))
+                buf = []
+            end = _find_span_end(text, i + 2)  # reuse the shared brace/quote matcher
+            if end is None:
+                raise ExpressionError(f"unbalanced '${{' in template {text!r}")
+            segments.append(Span(grammar.parse_expr(text[i + 2 : end])))
+            i = end + 1
+        else:
+            buf.append(text[i])
+            i += 1
+    if buf:
+        segments.append(Literal("".join(buf)))
+    return segments
+
+
+def eval_template(
+    segments: list,
+    resolve: Callable[[str], Any],
+    item: Any = None,
+    mode: ResolveMode = ResolveMode.BINDING_NONE,
+) -> Any:
+    """
+    Evaluate scanned template `segments` to a value.
+
+    A template that is EXACTLY one `${...}` span (no surrounding literal text)
+    returns the TYPED value of `eval_expr` (a float stays a float, a list a list, a
+    dict a dict). Otherwise every span is stringified and concatenated with the
+    literal runs (an embedded span is stringified; `None` -> `""`). A pure-literal
+    template returns its literal string.
+
+    Args:
+        segments (`list[Segment]`):
+            The scan from [`scan_template`][agent_composer.expr.template.scan_template].
+        resolve (`Callable[[str], Any]`):
+            Resolves a reference path to its value (pool-agnostic seam); a path it
+            maps to `None` is a miss.
+        item (`Any`, *optional*, defaults to `None`):
+            The MAP-body-local scope for `${item}` / `${item.path}`.
+        mode (`ResolveMode`, *optional*, defaults to `BINDING_NONE`):
+            How a missing reference is treated inside a span (see `eval_expr`).
+
+    Returns:
+        `Any`:
+            The typed value for a whole-single-span template; otherwise the rendered
+            string (pure-literal -> the literal string).
+
+    Raises:
+        `ExpressionError`:
+            On any error `eval_expr` raises for a span interior.
+        `RequiredError`:
+            When a span's `head :? message` required atom misses / is None.
+    """
+    if len(segments) == 1 and isinstance(segments[0], Span):
+        return eval_expr(segments[0].tree, resolve, item=item, mode=mode)
+    parts: list = []
+    for seg in segments:
+        if isinstance(seg, Literal):
+            parts.append(seg.text)
+        else:  # a Span embedded in surrounding text -> stringified (None -> "")
+            v = eval_expr(seg.tree, resolve, item=item, mode=mode)
+            parts.append("" if v is None else str(v))
+    return "".join(parts)
+
+
+def template_refs(segments: list) -> list:
+    """
+    Collect every reference PATH a template reads — union (source order) of
+    `expr_refs` over the span segments.
+
+    Literal runs contribute nothing. Matches the no-dedupe / source-order convention
+    of [`expr_refs`][agent_composer.expr.expressions.expr_refs], so callers switched
+    from `binding_refs` / `prompt_refs` see the same shape.
+
+    Args:
+        segments (`list[Segment]`):
+            The scan from [`scan_template`][agent_composer.expr.template.scan_template].
+
+    Returns:
+        `list[str]`:
+            The reference paths across all span segments, in source order (NOT
+            deduped).
+    """
+    refs: list = []
+    for seg in segments:
+        if isinstance(seg, Span):
+            refs.extend(expr_refs(seg.tree))
     return refs
