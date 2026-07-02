@@ -48,8 +48,9 @@ from agent_composer.state.pool import TypedVariablePool
 # The kinds whose `run` may return an `Enqueue`/`list[Enqueue]` to grow the live graph.
 # Any other kind returning one is a clear NodeFailed. AGENT covers BOTH entry modes
 # (Fresh and the Resume continuation): a multi-pause agent's resumed AgentNode itself returns
-# an Enqueue continuation pair, so one kind suffices (no separate RESUME_AGENT).
-_SPAWNER_KINDS = (NodeKind.CALL, NodeKind.MAP, NodeKind.AGENT)
+# an Enqueue continuation pair, so one kind suffices (no separate RESUME_AGENT). LOOP spawns
+# each iteration's callable, so it too may return an Enqueue.
+_SPAWNER_KINDS = (NodeKind.CALL, NodeKind.MAP, NodeKind.AGENT, NodeKind.LOOP)
 
 
 def eval_node(node, flow, pool: TypedVariablePool):

@@ -39,7 +39,7 @@ class NodeKind(str, Enum):
     CASE = "case"
     HUMAN_INPUT = "human_input"  # suspend for a person
     WAIT = "wait"  # internal-only: suspend for an external poke (WATCH uses it)
-    LOOP = "loop"  # reserved
+    LOOP = "loop"  # internal-only: iterate a callable to a fixpoint (`('a -> 'a) -> 'a -> 'a`)
     START = "start"  # internal-only: loader-synthesized input boundary (parameter binding)
     END = "end"      # internal-only: loader-synthesized return boundary (record + list modes)
     CALL = "call"    # internal-only: consult another flow once (REF — `kind: call`)
