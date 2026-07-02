@@ -40,7 +40,7 @@ Dispatch is an explicit `match`, never a registry/metaclass.
 
 | Authorable leaves | Internal-only (loader-synthesized / runtime-expanded) |
 |-------------------|-------------------------------------------------------|
-| `AGENT`, `CODE`, `MODEL`*, `TOOL`, `CASE` (the `case` node kind), `HUMAN_INPUT` | `WAIT`, `START`, `END`, `CALL`, `MAP`, `LOOP` (reserved) |
+| `AGENT`, `CODE`, `MODEL`*, `TOOL`, `CASE` (the `case` node kind), `HUMAN_INPUT` | `START`, `END`, `CALL`, `MAP`, `LOOP`, `WAIT` (reserved) |
 
 \* `MODEL` parses but `run` raises — the ML-serving seam was removed as dead
 plumbing; re-add when real serving lands.

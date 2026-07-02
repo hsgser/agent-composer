@@ -116,8 +116,10 @@ predicate goes false); `until: ${done}` is a POST-check / do-while (1+ runs, sto
 when the predicate becomes TRUE); `times: N` runs exactly N times with no
 predicate. `not` sits OUTSIDE the `${...}` span. `max:` is a required runaway guard
 for `while:`/`until:` — but REDUNDANT and REJECTED with `times:`. A body that pauses
-(a `human_input` leaf) makes the loop a chat REPL — run/resume threads each turn.
-See `loop.yaml`.
+(a `human_input` leaf) makes the loop a chat REPL — run/resume threads each turn,
+and the pause is DURABLE (a mid-loop checkpoint resumes in a fresh process). A long
+loop stays cheap: each committed iteration is PRUNED from the live graph, so only one
+is resident at a time. See `loop.yaml`.
 
 ## Gotchas
 

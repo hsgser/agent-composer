@@ -441,7 +441,14 @@ The node's value is the final carried record (committed under the loop node's id
 once the loop stops).
 
 A body may itself pause (e.g. a `human_input` leaf): the run suspends mid-loop and
-resumes into the next iteration — this is the shape a chat REPL takes.
+resumes into the next iteration — this is the shape a chat REPL takes. The pause is
+**durable** — a checkpoint taken mid-loop restores and resumes in a fresh process,
+not just in the original one.
+
+A long loop stays within the engine's node budget: once an iteration commits its
+carried record forward, that iteration's expanded body is **pruned** from the live
+graph, so only one iteration is resident at a time (a thousand-turn loop costs the
+same as a two-turn one).
 
 ## Effects from inside an agent — the `ask_user` control
 
