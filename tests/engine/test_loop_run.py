@@ -313,3 +313,57 @@ def test_until_stops_when_predicate_becomes_true():
     result = run_flow(load_flow(UNTIL_COUNTDOWN), {})   # {n: 3}, until: ${n} <= 0, max: 10
     assert result.output == {"n": 0}            # 3 -> 2 -> 1 -> 0, then n<=0 true -> stop
 
+
+def test_prune_iteration_drops_all_live_overlay_traces():
+    """`_prune_iteration(spawner, i)` clears EVERY live-overlay trace of iteration `#i` — its
+    nodes/edges, sm state (node_state/edge_state/executing), pool entries, and the loop-back
+    filler's `loop_alias` — while leaving the durable `LoopExpansion` ledger untouched and the
+    spawner id (no `#i` prefix) alone.
+
+    Deterministic grown-#0 setup: drive `LOOP_CHAT` to its first pause. The body's `human_input`
+    leaf parks the run with iteration #0 fully grown (its `#0/` nodes registered, the START seed
+    committed to `pool.store`, and `loop_alias['loop#0/__end__'] = 'loop'`) and NO `_loop_step`
+    yet — so the `#0/` overlay is live and un-pruned, the exact state prune must remove.
+    """
+    loaded = load_flow(LOOP_CHAT)
+    r = run_flow(loaded, {})
+    assert r.status == "paused"
+    engine = r.engine
+    spawner = "loop"
+    prefix = f"{spawner}#0/"
+
+    # Precondition: the grown #0 overlay is actually present in every registry prune touches,
+    # so a clean assert below is meaningful (not vacuously true on an empty overlay).
+    assert any(n.startswith(prefix) for n in engine.flow.nodes)
+    assert any(n.startswith(prefix) for n in engine.pool.store)
+    assert any(n.startswith(prefix) for n in engine.sm.node_state)
+    assert any(k.startswith(prefix) for k in engine.loop_alias)  # the body-END filler
+
+    # Snapshot the durable ledger BEFORE pruning — it must survive untouched.
+    ledger_len = len(engine.expansions)
+    loop_desc = engine.loop_desc[spawner]
+    records_before = [dict(rec) for rec in loop_desc.records]
+
+    engine._prune_iteration(spawner, 0)
+
+    # Every per-id registry is clean for the `#0/` prefix.
+    assert not any(n.startswith(prefix) for n in engine.flow.nodes)
+    assert not any(n.startswith(prefix) for n in engine.pool.store)
+    assert not any(k.startswith(prefix) for k in engine.alias)
+    assert not any(k.startswith(prefix) for k in engine.loop_alias)
+    assert not any(k.startswith(prefix) for k in engine.depth)
+    assert not any(k.startswith(prefix) for k in engine._spawner_expansion)
+    assert not any(n.startswith(prefix) for n in engine.sm.node_state)
+    assert not any(n.startswith(prefix) for n in engine.sm.executing)
+    # No surviving edge references a pruned id (from OR to), and no edge_state keys one.
+    assert not any(e.from_.startswith(prefix) or e.to.startswith(prefix)
+                   for e in engine.flow.edges)
+
+    # The durable LoopExpansion ledger is UNTOUCHED — replay needs it intact.
+    assert len(engine.expansions) == ledger_len
+    assert engine.loop_desc[spawner] is loop_desc
+    assert [dict(rec) for rec in loop_desc.records] == records_before
+
+    # The spawner id itself (no `#i` prefix) is NOT pruned — live loop bookkeeping stays.
+    assert engine.loop_iter[spawner] == 0
+

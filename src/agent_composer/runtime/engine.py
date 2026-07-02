@@ -813,6 +813,36 @@ class FlowEngine:
             self._schedule(root)                         # respects suspend (deferred)
         return cloned
 
+    def _prune_iteration(self, spawner_id: str, iteration: int) -> None:
+        """Drop the fully-committed loop iteration `f"{spawner_id}#{iteration}"` namespace from
+        the LIVE overlay (bounds a long loop's node budget). The iteration's carried record has
+        already threaded forward (into the next iteration's seed on continue, or under the spawner
+        id on terminate), and a loop body is an isolated scope no outside node references — so its
+        nodes, edges, sm state, pool entries, and loop_alias/alias/depth/_spawner_expansion
+        bookkeeping are all dead once the iteration finishes.
+
+        Everything the iteration populated lives UNDER the `f"{spawner}#{iteration}/"` prefix, so
+        iterating `dead_nodes` catches every per-id key: `_grow_loop` registers the body-END
+        FILLER (`cloned.out_node_id == ns(callsite, end_id)`, itself under the prefix) in
+        `loop_alias`; a nested-spawner body (a future non-leaf loop body) would additionally stamp
+        `alias`/`depth`/`_spawner_expansion` on prefixed sub-ids — all cleared here. NOT touched:
+        the `loop_iter`/`loop_desc` maps (keyed by the bare `spawner_id`, no `#i` prefix — live
+        loop bookkeeping the next iteration reads) and the `LoopExpansion` ledger
+        (`self.expansions` / `records`/`children_per_iter`), which is the durable replay metadata."""
+        prefix = f"{map_callsite(spawner_id, iteration)}/"    # f"{spawner}#{iteration}/"
+        with self.sm.lock:                                   # mutate topology + state atomically
+            dead_nodes = {n for n in self.flow.nodes if n.startswith(prefix)}
+            dead_edges = {e.id for e in self.flow.edges
+                          if e.from_ in dead_nodes or e.to in dead_nodes}
+            self.flow.remove_subgraph(dead_nodes)            # topology inverse of add_subgraph
+            self.sm.drop(dead_nodes, dead_edges)             # state inverse of register
+            for nid in dead_nodes:
+                self.pool.store.pop(nid, None)
+                self.alias.pop(nid, None)
+                self.loop_alias.pop(nid, None)
+                self.depth.pop(nid, None)
+                self._spawner_expansion.pop(nid, None)
+
     def _loop_step(self, filler_id: str, next_record: dict) -> None:
         """A loop body END (`filler_id`) fired with `next_record` (the body's output = the next
         carried record). Decide CONTINUE (clone the next iteration) vs STOP (commit the final
