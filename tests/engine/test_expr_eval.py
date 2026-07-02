@@ -134,12 +134,19 @@ def test_coalesce_present_falsy_wins():
     assert _eval("a | b", _from({"a": 0})) == 0
 
 
+def test_coalesce_short_circuits():
+    # fallback (1/0) must NOT be evaluated when the head is present.
+    assert _eval("a | 1 / 0", _from({"a": "present"})) == "present"
+
+
 def test_default_when_missing():
     assert _eval('a :- "d"') == "d"
 
 
-def test_default_not_used_when_present():
-    assert _eval('a :- "d"', _from({"a": "present"})) == "present"
+def test_default_short_circuits_fallback():
+    # fallback (1/0) must NOT be evaluated when the head is present — a vacuous
+    # inert literal fallback would pass even if short-circuit broke.
+    assert _eval("a :- 1 / 0", _from({"a": "present"})) == "present"
 
 
 def test_nested_default_wrapped_ref():
@@ -152,8 +159,9 @@ def test_required_raises_when_missing():
         _eval('a :? "m"')
 
 
-def test_required_returns_when_present():
-    assert _eval('a :? "m"', _from({"a": "here"})) == "here"
+def test_required_short_circuits_fallback():
+    # message (1/0) must NOT be evaluated when the head is present.
+    assert _eval("a :? 1 / 0", _from({"a": "here"})) == "here"
 
 
 # --------------------------------------------------------------------------- #
@@ -202,3 +210,47 @@ def test_item_head_bare():
 def test_item_scope_dict_only():
     # dotted access under `item` is also dict-only, never getattr.
     assert _eval("item.__class__", item={"a": 1}) is None
+
+
+# --------------------------------------------------------------------------- #
+# `and` / `or` fold by PYTHON truthiness (NOT the legacy bool-only filter)
+# --------------------------------------------------------------------------- #
+
+
+def test_or_folds_by_python_truthiness():
+    # `x or y` with x a FALSY non-bool (0) and y truthy: the non-bool operand
+    # participates (legacy `when:` filtered to bools only). Result is True since y
+    # is truthy — pins the deliberate Python-truthiness semantics.
+    assert _eval("x or y", _from({"x": 0, "y": "hit"})) is True
+
+
+def test_and_folds_by_python_truthiness():
+    # `x and y` with x a falsy non-bool (""): the empty string participates as
+    # falsy, so the `and` is False (not filtered out as a non-bool).
+    assert _eval("x and y", _from({"x": "", "y": "hit"})) is False
+
+
+# --------------------------------------------------------------------------- #
+# Cheap edge cases later steps rely on
+# --------------------------------------------------------------------------- #
+
+
+def test_not_in_list_true():
+    assert _eval('"z" not in items', _from({"items": ["a", "b"]})) is True
+
+
+def test_not_in_list_false():
+    assert _eval('"a" not in items', _from({"items": ["a", "b"]})) is False
+
+
+def test_unary_minus_on_missing_ref_raises_loudly():
+    # `-missing` in binding-none: the miss coerces to None, and unary minus over
+    # None raises a loud (wrapped) ExpressionError — NOT a silent value.
+    # (loud-arith-adjacent: PINNED to the observed behavior.)
+    with pytest.raises(ExpressionError):
+        _eval("-missing", mode=ResolveMode.BINDING_NONE)
+
+
+def test_list_lit_with_missing_element():
+    # `[a, 1]` with `a` missing (binding-none): the miss becomes None inside the list.
+    assert _eval("[a, 1]", mode=ResolveMode.BINDING_NONE) == [None, 1]

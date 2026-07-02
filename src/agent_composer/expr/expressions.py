@@ -551,9 +551,14 @@ class _EvalExpr:
         return not self._as_value(self._walk(operand[-1]))
 
     def _do_or_expr(self, node: Tree) -> Any:
+        # Operands fold by PYTHON truthiness, not bool-only (so `0 or "hit"` is truthy):
+        # a deliberate change from the legacy `when:` bool-filter, matching the design
+        # "operators delegate to Python semantics on resolved values".
         return any(self._as_value(self._walk(c)) for c in node.children if not isinstance(c, Token))
 
     def _do_and_expr(self, node: Tree) -> Any:
+        # Operands fold by Python truthiness, not bool-only (see `_do_or_expr`): a
+        # deliberate change from the legacy `when:` bool-filter.
         return all(self._as_value(self._walk(c)) for c in node.children if not isinstance(c, Token))
 
     # --- comparisons (reuse the locked `_eval_comparison` None-> False contract) --- #
