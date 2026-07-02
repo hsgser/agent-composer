@@ -15,10 +15,12 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
   repeat-until-N / `while:` predicate with carried state (e.g. a self-critique refine loop).
   Child-engine drivers reusing the `MAP` `over`/`${item}` machinery + a carried-state accumulator.
   The until-condition `LOOP` also needs the in-iteration suspension story (host resume seam + parallel
-  resume). **The `while:` LOOP slice SHIPPED** (2026-07-02) — the in-iteration-suspension prerequisite
-  for the agentic `ac chat` REPL below is now met **in-process** (a `human_input` body pauses per turn
-  and resumes into the next iteration). Still pending: `until:`/`times:` slices, DURABLE cross-process
-  resume of a live loop (`_replay_expansions` raises for `LoopExpansion` today), and `FOLD`/`REDUCE`.
+  resume). **The `LOOP` node SHIPPED** (2026-07-02) — all three drivers (`while:`, `until:`, `times:`),
+  overlay pruning (only one iteration resident at a time), and DURABLE cross-process resume of a live
+  loop (`_replay_expansions` re-grows the live iteration). The in-iteration-suspension prerequisite for
+  the agentic `ac chat` REPL below is met both **in-process** and **across processes** (a `human_input`
+  body pauses per turn and a mid-loop checkpoint resumes in a fresh process). Still pending on the
+  higher-order family: `FOLD`/`REDUCE`, and an AGENT (not just `human_input`) loop body.
 - **`WATCH` predefined composite** — TOOL + CASE + WAIT + loop, run via `call`, shown as one
   collapsed node. Needs cyclic-graph validation + engine-level re-enqueue (the watch-loop) and an
   unauthorable `EventAwaited` pause reason.

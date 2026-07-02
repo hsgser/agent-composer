@@ -155,3 +155,29 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   `_loop_step` predicate/grow raises into `NodeExecutionError` -> `RunFailed`; reject undeclared
   `while:` refs and non-int `max:` at build.~~ -- 951cd30 (crashes), d42a731 (loader guards)
 
+- [x] ~~**`loop` `until:`/`times:` predicate forms.** The first `loop` slice shipped `while:` only
+  (pre-check, 0+ runs). Complete the driver family: `until:` — a POST-check / do-while (1+ runs,
+  stop once the predicate becomes TRUE); `times: N` — a fixed count with no predicate. Exactly one
+  of `while:`/`until:`/`times:` is required (a load-time legality check); `max:` stays a required
+  runaway guard for `while:`/`until:` but is REDUNDANT+REJECTED with `times:`.~~ -- 42c1739, 8a3a77d
+  (parser), 1795b33 (build legality/bake), f531083 (seed pre-check), 099cc4e (loop-back), d89f585
+  (authoring docs). The seed pre-check (`_apply_enqueue`) and loop-back (`_loop_step`) both branch
+  on `predicate_kind`.
+
+- [x] ~~**`loop` node-budget interplay.** Each iteration re-clones the body into the append-only
+  subgraph overlay (`_grow_loop` → `add_subgraph`), so a long loop accumulated nodes until it tripped
+  `MAX_TOTAL_NODES` and the run failed. Fine for short loops / a bounded chat REPL; a long-running
+  loop needed clone reuse or overlay PRUNING of finished iterations.~~ -- 38d7895
+  (`CompiledFlow.remove_subgraph`), c6ed61c (`StateManager.drop`), 79f8ba6 (`_prune_iteration`),
+  2208506 (wire pruning into `_loop_step` — bounded budget). Chose overlay pruning over clone reuse
+  to preserve the deterministic `#i` namespacing durable replay depends on: once an iteration threads
+  its carried record forward, its `#i` namespace is dropped, so only one iteration is resident.
+
+- [x] ~~**Durable cross-process replay of a live loop.** `_replay_expansions` raised
+  `NotImplementedError` for the `LoopExpansion` arm — a run paused mid-loop could only resume
+  IN-PROCESS, not from a checkpoint in a fresh process.~~ -- b489454 (`_grow_loop schedule=`),
+  e0dcb18 (`LoopExpansion` replay arm), 0f95d6f (e2e cross-process resume), c925b1f (multi-hop
+  re-snapshot ledger parity). Because pruning leaves only the LIVE iteration resident at any pause,
+  the replay re-grows exactly ONE iteration (the last recorded seed) at its recorded index —
+  simpler than the design's "re-grow #0..#i", and correct given pruning.
+

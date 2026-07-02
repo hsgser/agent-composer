@@ -35,23 +35,11 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
   (merge semantics). Nice-to-have, but it layers a merge on top of the clean total-threading model —
   defer until a real flow finds re-emitting unchanged fields painful. (Raised 2026-07-01.)
 
-- [ ] **`loop` node-budget interplay.** Each iteration re-clones the body into the append-only
-  subgraph overlay (`_grow_loop` → `add_subgraph`), so a long loop accumulates nodes until it trips
-  `MAX_TOTAL_NODES` and the run fails. Fine for short loops / a chat REPL with a bounded turn count;
-  a long-running loop needs clone REUSE (re-run one baked body clone) or overlay PRUNING of finished
-  iterations. Pairs with the "single-use loaded flow / per-run copy" item above. (Raised 2026-07-02.)
-
 - [ ] **`_grow_loop` spawner-subnode stamping (`_spawner_expansion`/`depth`).** Slice-1 loop bodies
   are leaf-only, so `_grow_loop` does NOT stamp `_spawner_expansion`/`depth` on cloned spawner-eligible
   subnodes (the other `_grow_*` helpers do). An **AGENT-in-loop** body (the `ac chat` case) needs that
   stamping so its pause segments route through `_replay_expansions` correctly. Required before the
   agentic `ac chat` REPL. (Raised 2026-07-02.)
-
-- [ ] **Durable cross-process replay of a live loop.** `_replay_expansions` raises
-  `NotImplementedError` for the `LoopExpansion` arm — a run paused mid-loop can only resume IN-PROCESS
-  (via the live engine), not from a checkpoint in a fresh process. To lift: re-grow `#0..#i` from the
-  recorded per-iteration seeds (`LoopExpansion.records`) top-down like the CALL/MAP arms, with effects
-  suppressed. The `records`/`children_per_iter` shape is already persisted for this. (Raised 2026-07-02.)
 
 - [ ] **A loaded flow is single-use — expansion mutates `loaded.compiled` in place.**
   `run_flow(loaded, …)` grows the *shared* `loaded.compiled` (subgraph expansion appends an append-only
