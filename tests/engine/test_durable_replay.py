@@ -661,6 +661,68 @@ def test_replay_reproduces_live_loop_overlay():
     assert fresh.loop_desc["loop"] is loop_descs[0]    # the ledger was re-attached
 
 
+def test_durable_loop_resumes_on_fresh_flow():
+    """A `loop` paused mid-body resumes cross-process on a freshly recompiled flow, driven
+    through MULTIPLE turns (with a durable hop across a mid-loop pause), reaching the SAME
+    terminal as the live in-process resume.
+
+    Pruning drops committed iterations before any pause, so at the turn-1 pause only the LIVE
+    `loop#0/` iteration is resident. The checkpoint carries ONE LoopExpansion with the live
+    seed recorded; restore()+replay re-grows exactly that iteration on a clean flow. Delivering
+    "hi" then drives the loop-back (`_loop_step`) which must grow turn 2 and prune turn 1 from
+    the RESTORED overlay — the post-restore `loop_iter`/`loop_desc` must be consistent for that
+    to compute the next index and read the predicate. Delivering "bye" sets exited=true ->
+    predicate false -> the run succeeds identically to the live oracle."""
+    from agent_composer.compose.loader import load_flow
+    from agent_composer.compose.run import resume_command, resume_flow, run_flow
+    from agent_composer.suspension.expansions import LoopExpansion
+    from tests.engine.test_loop_run import LOOP_CHAT
+
+    # --- Live oracle (in-process): drive LOOP_CHAT to terminal exactly as the in-process test.
+    loaded = load_flow(LOOP_CHAT)
+    live1 = run_flow(loaded, {})
+    assert live1.status == "paused"
+    live2 = resume_flow(loaded, engine=live1.engine,
+                        commands=[resume_command(loaded, live1.pause_reasons[0], "hi")])
+    assert live2.status == "paused"
+    live3 = resume_flow(loaded, engine=live2.engine,
+                        commands=[resume_command(loaded, live2.pause_reasons[0], "bye")])
+    assert live3.status == "succeeded", live3.error
+    live_output = live3.output
+    assert live_output == {"messages": ["hi", "bye"], "exited": True}
+
+    # --- Durable sequence: a fresh process parks at the turn-1 pause, persists, round-trips.
+    proc1 = run_flow(load_flow(LOOP_CHAT), {})
+    assert proc1.status == "paused"
+    ckpt = RunCheckpoint.loads(proc1.checkpoint.dumps())   # cross-process round-trip
+
+    # Exactly ONE LoopExpansion, with the live iteration's seed recorded (non-empty).
+    loop_descs = [e for e in ckpt.expansions if isinstance(e, LoopExpansion)]
+    assert len(loop_descs) == 1
+    assert loop_descs[0].records                            # the live #0 seed is recorded
+
+    # Pruning leaves only the live iteration: node_state carries `loop#0/` keys but no `loop#1/`.
+    assert any(k.startswith("loop#0/") for k in ckpt.node_state)
+    assert not any(k.startswith("loop#1/") for k in ckpt.node_state)
+
+    # --- Restore on a FRESH recompiled flow and drive the remaining turns to terminal.
+    fresh = FlowEngine.restore(load_flow(LOOP_CHAT).compiled, ckpt)
+
+    # The replay rebuilt the live iteration's namespaced human_input leaf on the fresh flow.
+    parked_leaf = ckpt.pause_reasons[0].node_id
+    assert parked_leaf in fresh.flow.nodes
+
+    # Deliver "hi" to the restored turn-1 pause -> the loop-back grows turn 2 -> a NEW pause.
+    dur2 = resume_flow(loaded, engine=fresh,
+                       commands=[resume_command(loaded, ckpt.pause_reasons[0], "hi")])
+    assert dur2.status == "paused", dur2.error
+    # Deliver "bye" -> fold sets exited=true -> predicate false -> succeeds.
+    dur3 = resume_flow(loaded, engine=dur2.engine,
+                       commands=[resume_command(loaded, dur2.pause_reasons[0], "bye")])
+    assert dur3.status == "succeeded", dur3.error
+    assert dur3.output == live_output                       # durable == live (same terminal)
+
+
 def test_snapshot_captures_num_workers():
     from agent_composer.runtime.engine import FlowEngine
     from tests.engine.test_engine_expansions_ledger import call_with_inner_pause
