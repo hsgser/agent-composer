@@ -74,6 +74,40 @@ def test_agent_unknown_mode_is_loud_loaderror():
         build_leaf_node(desc, {})
 
 
+def test_agent_bad_mode_loaderror_is_located_via_load_flow():
+    # Through the full load path the loader stamps the node's source line onto the
+    # build-time LoadError (build_leaf_node raises it line-less; loader locates it),
+    # so an invalid mode:/controls: points the author at the offending node.
+    from agent_composer.compose.loader import load_flow
+
+    bad_mode = (
+        "id: f\nname: f\n"
+        "nodes:\n"          # line 3
+        "  a:\n"            # line 4 — the node
+        "    kind: agent\n"
+        "    prompt: hi\n"
+        "    mode: not_a_real_mode\n"
+        "output: ${a.output}\n"
+    )
+    with pytest.raises(LoadError, match="unknown mode") as ei:
+        load_flow(bad_mode, search_paths=["."])
+    assert ei.value.line == 4
+
+    bad_controls = (
+        "id: f\nname: f\n"
+        "nodes:\n"
+        "  a:\n"            # line 4 — the node
+        "    kind: agent\n"
+        "    prompt: hi\n"
+        "    controls:\n"
+        "      - bogus_control\n"
+        "output: ${a.output}\n"
+    )
+    with pytest.raises(LoadError, match="unknown control") as ei:
+        load_flow(bad_controls, search_paths=["."])
+    assert ei.value.line == 4
+
+
 def test_agent_node_knobs():
     # seed 14 — mode / tools / controls / llm_config carried onto the AgentNode.
     desc = _seed_nodes("14-agent-tools.yaml")["reviewer"]
