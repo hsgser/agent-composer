@@ -67,24 +67,6 @@ landed at 9867b04):
 - [ ] **`cli/utils.py` helpers** referenced by `llm_clients` comments but not built: `ensure_api_key`
   (interactive key prompt) + `confirm_ollama_endpoint`.
 
-- [ ] **Box runtime node failures + traceback under `--engine-trace`** — a runtime `NodeFailed` with a
-  RUNTIME-NAMESPACED id (a node inside a called child, e.g. `run/boom`) printed a bare `run failed:`
-  line because the parser only indexes top-level nodes; it now falls back to the owning top-level call
-  node and boxes a real source frame. The engine also captures the raising call's Python traceback at
-  the node-failure boundary (`eval_node.py` -> `NodeFailed.traceback` -> `RunResult.traceback`),
-  surfaced behind the existing `--engine-trace` flag (now covers runtime failures, not just compile
-  errors). Seed `e24-nested-code-raise.yaml` + tests in `test_cli_prompt.py`.
-
-- [x] ~~**Multi-frame call traceback into defs / external flows** — extends the above: a runtime failure
-  inside a called child now renders a Python-traceback-style STACK of boxed `.yaml` frames (the
-  top-level `call` node, then each `defs:<name>` / external `uses:` file it descends into, down to the
-  failing leaf), not just the owning call node. Mechanism: a render-only `SourceFrame` baked onto each
-  `call`/`map` node's `child_source` at load (`compose/loader`; parser gains `def_node_lines` /
-  `def_node_field_lines` to index defs-internal node lines), walked by `cli/run.py:_walk_call_frames`.
-  Closes the DEFER "defs-internal error line-mapping" item. Seeds `e25-external-raise.yaml` (+
-  `lib_boom.yaml`), `e26-three-level-raise.yaml` + tests in `test_cli_prompt.py`,
-  `test_call_source_frame.py`, `test_parser_lines.py`.~~ -- e801d26
-
 ## Tooling
 
 - [ ] **Project-wide pyright not clean / not wired to the env** — `npx pyright src/agent_composerr`
