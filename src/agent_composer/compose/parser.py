@@ -19,7 +19,7 @@ rules shape it:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Optional
 
 import yaml
@@ -396,6 +396,31 @@ class CallDescriptor:
 
 
 @dataclass(frozen=True)
+class LoopDescriptor:
+    """kind=loop — a `('a -> 'a) -> 'a -> 'a` driver over a carried record.
+
+    `call` names the body subflow (defs-first, else external — same resolution as
+    `call`/`map`). `inputs` seeds the carried record at turn 0. Exactly one of
+    `while_`/`until_`/`times` carries the predicate (this slice builds `while_`);
+    `max` is the runaway guard (required for while/until). `while`/`until` are Python
+    keywords, so they land here as `while_`/`until_` (the `_parse_node` remap, like
+    `else`->`else_`).
+    """
+
+    id: str
+    call: str
+    inputs: dict[str, Any] = field(default_factory=dict)
+    while_: Optional[str] = None
+    until_: Optional[str] = None
+    times: Optional[int] = None
+    max: Optional[int] = None
+    asserts: list[str] = field(default_factory=list)
+    node_name: Optional[str] = None
+    depends_on: list[str] = field(default_factory=list)
+    runs_after: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class HumanInputDescriptor:
     """kind=human_input — suspend for a person; the typed answer is the node's output.
 
@@ -438,6 +463,7 @@ NodeDescriptor = (
     | ToolDescriptor
     | CaseDescriptor
     | CallDescriptor
+    | LoopDescriptor
     | HumanInputDescriptor
     | WaitDescriptor
 )
@@ -473,6 +499,14 @@ _KIND_SPECS: dict[str, tuple[type, frozenset, frozenset]] = {
         frozenset({"call", "over"}),
         frozenset({"call", "inputs", "over", "parallel", "asserts"}),
     ),
+    # LOOP: a `('a -> 'a) -> 'a -> 'a` driver — `call:` is the body subflow; `inputs:` seed the
+    # carried record; `while`/`until`/`times` carry the predicate (remapped to `while_`/`until_`);
+    # `max` is the runaway guard.
+    "loop": (
+        LoopDescriptor,
+        frozenset({"call"}),
+        frozenset({"call", "inputs", "while", "until", "times", "max", "asserts"}),
+    ),
     # `adaptive_questions:` is a nested block; its inner keys (prompt/mode/llm_config/
     # retries) live INSIDE the block, so they need no top-level allow-list entry.
     "human_input": (
@@ -488,6 +522,10 @@ _KIND_SPECS: dict[str, tuple[type, frozenset, frozenset]] = {
 # (likewise `off`/`yes`/`no`). The case-node surface key `on:` is the only such
 # key in a node body, so we map the coerced key back to its string form.
 _YAML_BOOL_KEYS = {True: "on", False: "off"}
+
+# Surface keys that collide with Python keywords map onto a trailing-underscore field on
+# the descriptor: `else:`->`else_` (case), `while:`/`until:`->`while_`/`until_` (loop).
+_KEYWORD_FIELD_REMAP = {"else": "else_", "while": "while_", "until": "until_"}
 
 
 def _normalize_keys(body: dict) -> dict:
@@ -606,11 +644,15 @@ def _parse_node(node_id: str, body: Any, line: Optional[int]) -> NodeDescriptor:
     # on `.kind`. Every other kind has a 1:1 descriptor class, so `kind` is informational there.
     if cls is CallDescriptor:
         kwargs["kind"] = kind
+    _cls_fields = {f.name for f in fields(cls)}
     for key in allowed:
         if key not in body:
             continue
-        # `else` -> the descriptor's `else_` field (reserved word).
-        kwargs["else_" if key == "else" else key] = body[key]
+        # Python-keyword surface keys map onto the descriptor's trailing-underscore field:
+        # `else`->`else_` (case), `while`->`while_` / `until`->`until_` (loop). Only remap
+        # when the keyword form is NOT itself a field — `wait` keeps its literal `until` field.
+        remapped = _KEYWORD_FIELD_REMAP.get(key, key)
+        kwargs[remapped if key not in _cls_fields else key] = body[key]
     if "node_name" in body:
         kwargs["node_name"] = body["node_name"]
     if "depends_on" in body:
