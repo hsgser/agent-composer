@@ -34,3 +34,27 @@ def test_parser_reads_loop_node():
     assert desc.while_ == "not ${exited}"
     assert desc.max == 1000
     assert desc.inputs["exited"] is False
+
+
+UNTIL_TIMES_YAML = """
+id: p
+name: p
+input:
+  n: int
+output:
+  n: int
+nodes:
+  L:
+    kind: loop
+    call: body
+    inputs:
+      n: 3
+    until: ${n} <= 0
+    max: 5
+"""
+
+
+def test_parser_accepts_until_and_times_keys():
+    cf = parse_file(UNTIL_TIMES_YAML)
+    desc = parse_nodes(cf.nodes)["L"]
+    assert desc.until_ == "${n} <= 0"
