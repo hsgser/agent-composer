@@ -37,9 +37,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
-
-from lark import Token, Tree
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from agent_composer.expr import grammar
 from agent_composer.expr.builtins import TEMPLATE_FNS
@@ -50,6 +48,9 @@ from agent_composer.expr.expressions import (
     eval_expr,
     expr_refs,
 )
+
+if TYPE_CHECKING:  # `Tree`/`Token` appear ONLY in the `Span.tree` annotation
+    from lark import Token, Tree
 
 _PATH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_#/]*(\.[A-Za-z_][A-Za-z0-9_#/]*)*$")
 
@@ -904,14 +905,14 @@ class Span:
     `tree` is the resulting `Tree | Token` (a lone atom inlines to a `Token`),
     evaluated by `eval_expr`. ONLY span interiors are parsed."""
 
-    tree: "Tree | Token"
+    tree: Tree | Token
 
 
 # A template Segment is a literal run OR a parsed `${...}` span.
 Segment = Union[Literal, Span]
 
 
-def scan_template(text: str) -> list:
+def scan_template(text: str) -> list[Segment]:
     """
     Scan a template string into a list of `Segment`s — literal runs + `${...}` spans.
 
@@ -974,7 +975,8 @@ def eval_template(
     returns the TYPED value of `eval_expr` (a float stays a float, a list a list, a
     dict a dict). Otherwise every span is stringified and concatenated with the
     literal runs (an embedded span is stringified; `None` -> `""`). A pure-literal
-    template returns its literal string.
+    template returns its literal string. An empty template (`scan_template("") == []`,
+    no segments at all) returns `""`.
 
     Args:
         segments (`list[Segment]`):
@@ -1010,7 +1012,7 @@ def eval_template(
     return "".join(parts)
 
 
-def template_refs(segments: list) -> list:
+def template_refs(segments: list) -> list[str]:
     """
     Collect every reference PATH a template reads — union (source order) of
     `expr_refs` over the span segments.

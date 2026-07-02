@@ -156,6 +156,29 @@ def test_scan_unbalanced_span_raises():
         scan_template("${a")
 
 
+def test_scan_empty_string_is_no_segments():
+    # An empty template scans to NO segments; eval_template of it returns "".
+    assert scan_template("") == []
+    assert _eval("") == ""
+
+
+def test_scan_empty_span_raises():
+    # `${}` / `${   }` — an empty/whitespace-only interior fails parse_expr.
+    with pytest.raises(ExpressionError):
+        scan_template("${}")
+    with pytest.raises(ExpressionError):
+        scan_template("${   }")
+
+
+def test_scan_adjacent_spans_are_two_spans_and_concatenate():
+    # `${a}${b}` is TWO Span segments (NOT one whole-span) — so eval stringifies each
+    # and concatenates (NOT the typed value of a single span). Pins the
+    # whole-single-span-vs-embedded boundary.
+    segs = scan_template("${a}${b}")
+    assert [type(s).__name__ for s in segs] == ["Span", "Span"]
+    assert _eval("${a}${b}", _from({"a": 1, "b": 2})) == "12"
+
+
 # --------------------------------------------------------------------------- #
 # 4a: template_refs
 # --------------------------------------------------------------------------- #
