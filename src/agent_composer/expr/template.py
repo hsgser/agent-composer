@@ -860,18 +860,42 @@ def _eval_prompt_span(interior: str, record: dict) -> Any:
     return value
 
 
+def _resolve_record_strict_or_none(path: str, record: dict) -> Any:
+    """Resolve a dotted `path` against a node's bound input `record`, returning `None` on
+    any miss (unknown head, a dotted-walk step off a non-dict / absent key, or a `None`
+    value). This is the resolve seam handed to `eval_template` in `STRICT_RAISE` mode: the
+    evaluator turns a `None` here into a raised `ExpressionError`, so a `None` return IS the
+    strict prompt floor (no silent blank). A present-but-falsy value (`0`, `""`, `False`)
+    is a hit and comes back unchanged."""
+    parts = [p.strip() for p in path.split(".")]
+    if not parts or any(not p for p in parts):
+        raise ExpressionError(f"malformed reference ${{{path}}} in prompt")
+    if parts[0] not in record:
+        return None
+    value: Any = record[parts[0]]
+    for step in parts[1:]:
+        value = value.get(step) if isinstance(value, dict) else None
+        if value is None:
+            return None
+    return value
+
+
 def render_template_record(text: str, record: dict) -> str:
     """
     Render a strict AGENT / HUMAN_INPUT prompt against its bound input `record`.
 
-    Each `${...}` span is a plain dotted reference (`${name}` / `${name.path}`) or a
-    builtin call (`${ render_as_json(${name}, 4) }`, optionally `.field` on the result).
-    A reference resolves against `record` (a node's declared inputs); a call invokes the
-    named `expr.builtins.TEMPLATE_FNS` formatter over its resolved args. Bare local-input
-    refs only — the pool namespaces (`node`/`system`) are not in scope.
+    Each `${...}` span is a unified expression (`expr.grammar`): a plain dotted reference
+    (`${name}` / `${name.path}`), a builtin call (`${ render_as_json(${name}, 4) }`,
+    optionally `.field` on the result), or arithmetic / string / list ops over them
+    (`${a + 1}`). A reference resolves against `record` (a node's declared inputs); a call
+    invokes the named `expr.builtins.TEMPLATE_FNS` formatter over its resolved args. Bare
+    local-input refs only — the pool namespaces (`node`/`system`) are not in scope.
 
-    Unlike `evaluate_when_record` (strict CASE), which returns `None`->falsy on a
-    dotted miss, this renderer RAISES — the locked strict-prompt floor.
+    Rendered in `STRICT_RAISE` mode: unlike `eval_binding` (missing -> None) and the strict
+    CASE `when:` (missing -> falsy), this renderer RAISES on any missing reference — the
+    locked strict-prompt floor (no silent blank). A prompt is text, so the result is always
+    a `str`: a whole-single-span value is stringified, embedded spans are stringified in
+    place. `$$` renders a single `$` (the unified-scanner universal escape).
 
     Args:
         text (`str`):
@@ -888,46 +912,56 @@ def render_template_record(text: str, record: dict) -> str:
             On an unbalanced span, an unresolved reference (unknown input, dict-path miss,
             or `None` value), an unknown builtin, or a builtin that fails.
     """
-    out: list = []
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] == "$" and text[i + 1 : i + 2] == "{":
-            j = _find_span_end(text, i + 2)
-            if j is None:
-                raise ExpressionError(f"unbalanced '${{' in prompt {text!r}")
-            out.append(str(_eval_prompt_span(text[i + 2 : j], record)))
-            i = j + 1
-        else:
-            out.append(text[i])
-            i += 1
-    return "".join(out)
+    segments = scan_template(text)
+    result = eval_template(
+        segments,
+        lambda path: _resolve_record_strict_or_none(path, record),
+        mode=ResolveMode.STRICT_RAISE,
+    )
+    # A prompt is text and the floor forbids a silent blank: a whole-single-span that
+    # evaluates to `None` (e.g. a dotted miss on a builtin-call result, which the shared
+    # evaluator maps to `None` rather than a miss) must raise, not render "". Missing
+    # references already raise inside the span via `STRICT_RAISE`.
+    if result is None:
+        raise ExpressionError(f"unresolved reference in prompt {text!r}")
+    return str(result)
 
 
 def prompt_refs(text: str) -> list[str]:
     """Every declared-input reference PATH a prompt reads — the compile-time companion to
     `render_template_record`, used by `compose.validate` to name-check prompt scope.
 
-    Returns each plain-span path plus each `${...}`-wrapped builtin-call argument path
-    (literals contribute nothing). Raises `ExpressionError` on a malformed span or an
-    unknown builtin callee (so the loader rejects both at load time)."""
-    refs: list[str] = []
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] == "$" and text[i + 1 : i + 2] == "{":
-            j = _find_span_end(text, i + 2)
-            if j is None:
-                raise ExpressionError(f"unbalanced '${{' in prompt {text!r}")
-            node = _parse_prompt_span(text[i + 2 : j])
-            if isinstance(node, _PromptRef):
-                refs.append(node.path)
-            else:
-                if node.callee not in TEMPLATE_FNS:
-                    raise ExpressionError(f"unknown prompt function {node.callee!r}")
-                refs.extend(a.ref for a in node.args if a.is_ref and a.ref is not None)
-            i = j + 1
-        else:
-            i += 1
-    return refs
+    Scans `text` with the unified scanner and unions `template_refs` over its spans: each
+    plain-span path plus each builtin-call argument path (literals contribute nothing), in
+    source order (not deduped). Also rejects an unknown builtin callee — the loader relies
+    on this compile-time check so a prompt naming a non-existent `TEMPLATE_FNS` formatter
+    fails at load, not at render. Raises `ExpressionError` on a malformed / unparseable
+    span too."""
+    segments = scan_template(text)
+    for seg in segments:
+        if isinstance(seg, Span):
+            _reject_unknown_prompt_builtin(seg.tree)
+    return template_refs(segments)
+
+
+def _reject_unknown_prompt_builtin(tree: Tree | Token) -> None:
+    """Raise `ExpressionError` if any builtin CALL in a scanned prompt span names a callee
+    absent from `TEMPLATE_FNS`. Walks the parse tree for `refcall`s carrying a `call_suffix`
+    (a call); a bare reference (no suffix) names no builtin and is skipped. This is the
+    compile-time mirror of the render-time `unknown expression function` raise, so the
+    loader can reject an unknown prompt builtin without evaluating."""
+    from lark import Tree as _Tree  # runtime import: `Tree` is TYPE_CHECKING-only above
+
+    if not isinstance(tree, _Tree):
+        return
+    for node in tree.iter_subtrees():
+        if node.data != "refcall":
+            continue
+        has_call = any(
+            isinstance(c, _Tree) and c.data == "call_suffix" for c in node.children
+        )
+        if has_call and str(node.children[0]) not in TEMPLATE_FNS:
+            raise ExpressionError(f"unknown prompt function {str(node.children[0])!r}")
 
 
 # --------------------------------------------------------------------------- #

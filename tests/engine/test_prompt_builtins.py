@@ -47,6 +47,23 @@ def test_dotted_access_on_call_result():
     assert render_template_record("${_mkrec(${name}).field}", _REC) == "F-zeta"
 
 
+# --- render: unified-expression spans (new grammar) -------------------------- #
+
+
+def test_arithmetic_in_a_prompt_span():
+    # NEW under the unified engine: a `${}` span is a full expression, so arithmetic
+    # over a ref renders its computed value, stringified (the old prompt grammar had no
+    # arithmetic — a span was a plain ref or a builtin call only).
+    assert render_template_record("total ${a + 1}", {"a": 4}) == "total 5"
+
+
+def test_dollar_dollar_renders_single_dollar():
+    # INTENTIONAL, LOCKED change: the legacy renderer emitted `$$` verbatim; the unified
+    # scanner collapses `$$` -> a single `$` everywhere (the universal escape). A prompt
+    # containing `$$` now renders one `$`.
+    assert render_template_record("cost is $$5", {}) == "cost is $5"
+
+
 # --- render: error floor ----------------------------------------------------- #
 
 
@@ -55,10 +72,12 @@ def test_unknown_builtin_raises():
         render_template_record("${frobnicate(${name})}", _REC)
 
 
-def test_bare_unwrapped_ref_arg_raises():
-    # a record reference MUST be `${...}`-wrapped; a bare word is neither ref nor literal.
-    with pytest.raises(ExpressionError):
-        render_template_record("${render_as_json(briefs)}", _REC)
+def test_bare_word_arg_is_a_ref_option_a():
+    # Option A: inside `${}` a BARE word is a REFERENCE (literals must be quoted). So a
+    # bare call arg resolves against the record — the old "bare word is neither ref nor
+    # literal -> raise" rule is gone. `${...}`-wrapping a ref still works (see below).
+    out = render_template_record("${render_as_json(briefs, 4)}", _REC)
+    assert out == '[\n    "ab",\n    "adf"\n]'
 
 
 def test_arg_ref_strict_on_missing():
