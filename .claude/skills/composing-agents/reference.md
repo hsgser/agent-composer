@@ -44,7 +44,7 @@ One expression grammar, everywhere `${...}` appears:
 | `${X:-default}` | value, else `default` if absent |
 | `${X:?msg}` | required — fail with `msg` if absent |
 | `${a \| b \| c}` | first present among peers — **the branch-join coalesce** |
-| `$$` | a literal `$` (outside a span) |
+| `$$` | a literal `$` (universal escape — in a prompt `$$` renders a single `$`) |
 
 Nesting a ref is allowed: `${a:-${b:-"lit"}}`. The `:-`/`:?` RHS is an
 expression, so a string default must be **quoted** (`${x:-"today"}`; bare `today`

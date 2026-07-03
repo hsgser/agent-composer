@@ -109,7 +109,7 @@ appears — bindings, conditions, prompts. Inside it you may write:
 | `${X:-default}` | value, else `default` if absent |
 | `${X:?msg}` | required — fail with `msg` if absent |
 | `${a \| b \| c}` | first present among peers (n-ary coalesce — for branch joins) |
-| `$$` | a literal `$` (outside a span) |
+| `$$` | a literal `$` (the scanner's universal escape — outside a span; in a prompt `$$` renders a single `$`) |
 
 The `:-` default and `:?` message RHS are themselves expressions, so a **string**
 default must be quoted: `${input.as_of:-"today"}`, not `:-today` (bare `today`

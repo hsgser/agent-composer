@@ -180,7 +180,7 @@ named record is **type-checked at compile time** (`${analyze.output.rating.categ
 | `${X:-default}` | value, else `default` if X is null/absent |
 | `${X:?err}` | value, else **fail** with message `err` (required) |
 | `${a \| b \| c}` | first-present among **peers** — n-ary coalesce (branch-joins) |
-| `$$` | a literal `$` (escape; not interpolated) |
+| `$$` | a literal `$` (universal escape — in a prompt `$$` renders a single `$`) |
 
 Nesting a ref is allowed: `${a:-${b:-"lit"}}`. The `:-`/`:?` RHS is an
 expression, so a **string** default must be quoted (`${x:-"today"}`; bare
