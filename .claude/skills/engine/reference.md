@@ -122,6 +122,48 @@ Arrows never reverse: a package imports only lower-level or peer packages. See t
 `structure` skill. An upward import means the code is in the wrong package (extract
 the shared contract to `common.py` / a leaf, or invert via a seam).
 
+## The `expr` layer (one grammar, everywhere `${...}` appears)
+
+Bindings, conditions, and prompts share ONE expression grammar — the three
+divergent dialects the engine grew (binding coalesce/default, `when:`
+boolean/arithmetic, prompt builtin-call) are unified. Three modules, one pipeline
+(parse → AST → evaluate / ref-walk):
+
+- **`grammar.py` — parse only.** `parse_expr` compiles a span into a Lark tree
+  (arithmetic `+ - * / % **`, comparisons, `and`/`or`/`not`, `in`/`not in`, list
+  literals, pure builtin calls with dotted access, `:-` default / `:?` required /
+  `|` coalesce). No evaluation here. The evaluator walks this **restricted AST** —
+  there is no Python `eval`; a builtin call resolves only against the
+  `TEMPLATE_FNS` whitelist, so a span can compute but cannot reach arbitrary code.
+- **`expressions.py` — evaluate + ref-walk.** `eval_expr` walks the tree over a
+  resolver; `expr_refs` collects the reference paths a span reads (the compile-time
+  companion, for edge inference + scope checks); `evaluate_when` is the `when:`
+  boolean. `RequiredError` (a `${x:?"msg"}` over an unbound ref) lives here, its
+  natural home now that the evaluator raises it.
+- **`template.py` — the string surface.** `scan_template` splits literal text from
+  `${...}` spans; `eval_binding` renders a binding value; `render_template_record`
+  renders a strict prompt; `$$` is the scanner's universal escape (a prompt `$$`
+  renders a single `$`).
+
+**Three resolve modes** decide what a MISSING reference does, one per context:
+`BINDING_NONE` (a binding → `None`, so `|`/`:-` can coalesce), `CONDITION_FALSY`
+(a `when:` → falsy), `STRICT_RAISE` (a prompt → raise; no silent blank).
+
+**`call(...)` desugar — a flow call is NOT an expression.** A child-flow call is a
+compile-time directive recognized at TWO sites, by ONE whole-value rule (only the
+entire trimmed value, never embedded in a span): a binding's whole value, and a
+`case` `then:`/`else:` target. At load it desugars into an anonymous `call` node
+(`__call_N`) and the host is rewritten to `${<synth>.output}`. A flow call inside
+a span (`${flow(args)}`) is a hard `LoadError` — hoist an embedded call to a named
+node; a coalesce-of-calls (`${a() | b()}`) is likewise rejected. Pure builtins
+(`${upper(x)}`) stay legal inside `${}`.
+
+**Raw-string public API** (what callers outside `expr` use, re-exported from the
+package `__init__`): `eval_binding` (render a binding), `expr_refs_of` (its
+reference paths), `evaluate_when` (a condition), plus `render_template_record` /
+`prompt_refs` for prompts. Callers pass source strings + a resolver; they never
+touch the grammar or AST.
+
 ## Located errors (precise source lines)
 
 A runtime failure points at the **exact YAML line** it originates from, not just the
