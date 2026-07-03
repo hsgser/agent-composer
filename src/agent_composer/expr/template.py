@@ -921,9 +921,10 @@ def render_template_record(text: str, record: dict) -> str:
     # A prompt is text and the floor forbids a silent blank. A MISSING reference — plain
     # or a dotted miss on a builtin-call result — now raises inside the span for BOTH single
     # and multi span (the shared evaluator yields the `_MISSING` sentinel, which STRICT_RAISE
-    # turns into a raise). This guard remains only for a whole-single-span that LEGITIMATELY
-    # evaluates to `None` without any missing reference — an explicit `${null}` literal or a
-    # fully-exhausted `${a | b}` coalesce — which STRICT_RAISE does not treat as a miss.
+    # turns into a raise). An exhausted `${a | b}` coalesce or a `${x:-...}` over missing
+    # refs likewise raises inside the evaluator. This guard remains only for a whole-single-
+    # span that evaluates to a genuine `None` VALUE with no missing reference — an explicit
+    # `${null}` literal (or an expression computing to null) — which is not a miss.
     if result is None:
         raise ExpressionError(f"unresolved reference in prompt {text!r}")
     return str(result)

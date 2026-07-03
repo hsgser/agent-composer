@@ -9,6 +9,14 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 ## Engine bugs surfaced but deferred
 
+- [ ] **Prompt strict-floor asymmetry on an explicit `${null}`** — under STRICT_RAISE prompt rendering,
+  a whole-single-span `${null}` (a genuine null VALUE, not a missing ref) RAISES (a prompt can't be
+  None), but the SAME `${null}` embedded in a multi-span prompt (`x ${null} y`) silently stringifies to
+  `""` → `"x  y"`. Missing refs already raise consistently in both single- and multi-span; this only
+  affects an *explicit* null literal (or an expression legitimately computing to null). Pre-existing and
+  narrow. Decide whether an explicit null in a prompt span should raise, render `""`, or render the
+  literal — then make single- and multi-span agree. (Surfaced 2026-07-03 during expr-unification Step 8.)
+
 - [ ] **`tool_calling` structured final turn double-invokes the model** — on the final turn the loop
   calls the model to discover there are no more tool calls (`nodes/agent/modes/tool_calling.py:89`),
   which returns *prose*; `generate_structured` then invokes again to emit the declared shape. Two calls
