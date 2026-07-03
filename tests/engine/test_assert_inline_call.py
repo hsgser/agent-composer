@@ -1,8 +1,9 @@
-"""An inline `${call}` inside a flow `asserts:` expression.
+"""A named `call` node whose `.output` a flow `asserts:` expression reads.
 
-`${ dbl(n=${input.v}) } >= 0` desugars (the same inline-call machinery, extended to the asserts section) to a
-synth `__call_<n>` node + the assert rewritten to `${<synth>.output} >= 0`; the synth node runs in
-the flow and the assert (now reading `${X.output}`) is classified post and checked after the run.
+A flow-level post assert can reference any node's output, including a named `call`
+node's: `dbl_call` runs the `dbl` def, and `${dbl_call.output} >= 0` is classified
+post and checked after the run. No synth node is minted — the call is an ordinary,
+author-named node in the flow.
 """
 
 from agent_composer.compose import load_flow, run_flow
@@ -36,16 +37,21 @@ nodes:
     input:
       n: ${{input.v}}
     output: int
+  dbl_call:
+    kind: call
+    call: dbl
+    input:
+      n: ${{input.v}}
 output: ${{main.output}}
 asserts:
-  - "${{ dbl(n=${{input.v}}) }} >= 0"
+  - "${{dbl_call.output}} >= 0"
 """
 
 
-def test_inline_call_in_assert_desugars_to_synth_node():
+def test_named_call_node_assert_loads():
     loaded = load_flow(_FLOW)
-    synth = [nid for nid in loaded.compiled.nodes if nid.startswith("__call_")]
-    assert len(synth) == 1  # the inline assert-call became a synth node
+    assert "dbl_call" in loaded.compiled.nodes  # the assert reads an author-named call node
+    assert not any(nid.startswith("__call_") for nid in loaded.compiled.nodes)  # no synth node minted
 
 
 def test_inline_call_assert_passes():

@@ -1,11 +1,11 @@
 # 23 — Asserts at every scope (flow / def-child / node).
 #
-# One relevance-desk flow that exercises all THREE assert scopes plus the inline-call
-# form. A false (or raising) assert at any scope fails the run loudly.
+# One relevance-desk flow that exercises all THREE assert scopes plus a named-call-node
+# post assert. A false (or raising) assert at any scope fails the run loudly.
 #
 #   - FLOW   asserts: top-level `asserts:` — boundary (${inputs}/${system}, before any
-#            node) or post (${X.output}, after the terminal); a span-wrapped inline
-#            `${ call(...) }` runs a callable and is post-checked.
+#            node) or post (${X.output}, after the terminal); a flow-level post assert
+#            can read a named `call` node's `.output` like any other node's output.
 #   - DEF    asserts: a `defs:` callable's top-level `asserts:` — enforced at the REF/MAP
 #            child seam (boundary before the child runs, post after it terminates).
 #   - NODE   asserts: a node's `asserts:` — the per-node contract; node-LOCAL refs only:
@@ -15,7 +15,7 @@
 
 id: asserts-scopes
 name: asserts_scopes
-description: Asserts at every scope — flow (boundary/post + inline-call), def-child, and node.
+description: Asserts at every scope — flow (boundary/post + named-call post), def-child, and node.
 
 input:
   topic: str
@@ -55,6 +55,15 @@ nodes:
       - "${window} >= 5"     # NODE PRE  — bare ${name} = this node's declared input, before _run
       - "${output} >= -1"      # NODE POST — ${output} = the call's re-exported value, after _run
 
+  # A named call whose .output a flow-level assert reads — the hoisted form of what used
+  # to be a span-wrapped inline ${call} in the asserts section.
+  score_one_call:
+    kind: call
+    call: score_one
+    input:
+      topic: ${input.topic}
+      window: ${input.window}
+
   # A `case` routes only — it cannot carry `asserts:` (assert the branch targets instead).
   size:
     kind: case
@@ -89,5 +98,5 @@ asserts:
   - "${input.weight} >= 0 and ${input.weight} <= 1"
   # FLOW post — reads ${<node>.output} (a node's output); checked AFTER the terminal.
   - "${score.output} >= -1 and ${score.output} <= 1"
-  # FLOW inline-call — a span-wrapped ${call} runs a callable (a synth node); post-checked.
-  - "${ score_one(topic=${input.topic}, window=${input.window}) } >= -1"
+  # FLOW post — reads a named call node's .output (the hoisted inline-call form).
+  - "${score_one_call.output} >= -1"
