@@ -54,6 +54,7 @@ from agent_composer.nodes.case import DEFAULT_HANDLE, Case, CaseNode
 from agent_composer.state.segments import Shape
 from agent_composer.compose.calls import (
     _to_call_descriptor,
+    desugar_call_directives,
     map_binding_strings_in_descriptor,
     map_outputs_strings,
 )
@@ -371,9 +372,11 @@ def reconcile_case_edges(
 def desugar_case_call_targets(
     descriptors: dict, mint: Callable[[], str], *, node_lines: "dict[str, int] | None" = None
 ) -> dict:
-    """Rewrite each `case` then:/else: that is a single bare inline `${call}` to a synth
+    """Rewrite each `case` then:/else: that is an inline call — a whole-value
+    `call(<flow-id>, kw=...)` directive OR a single bare inline `${call}` span — to a synth
     call node id (minting its `CallDescriptor`, `over=None`); return the new descriptor map
-    (augmented with the synth nodes). A plain node id (no `${`) passes through unchanged."""
+    (augmented with the synth nodes). A plain node id (no `${`, not a `call(...)` directive)
+    passes through unchanged."""
     lines = node_lines or {}
     synth: dict = {}
     new_descriptors: dict = {}
@@ -398,10 +401,40 @@ def desugar_case_call_targets(
 def _lift_case_target(
     target: Any, mint: Callable[[], str], synth: dict, *, host: str, line: Optional[int]
 ) -> Any:
-    """A then:/else: target: pass a plain node id through; lift a single bare inline `${call}`
-    to a synth node id (minting its CallDescriptor into `synth`); reject any other `${...}`."""
-    if not isinstance(target, str) or "${" not in target:
-        return target  # a plain node id (None handled by the caller)
+    """A then:/else: target rewritten to a single node id. Accepts THREE forms and
+    rejects everything else with a located `LoadError`:
+
+    - a whole-value `call(<flow-id>, kw=...)` directive (the compile-time form) -> lift
+      its synth call node(s) into `synth`, return the OUTER call's synth id;
+    - a single bare whole-span inline `${call}` (the legacy span form) -> lift the same
+      way, return its synth id;
+    - a plain node id (no `${`, not a `call(...)` directive) -> passed through unchanged.
+
+    A coalesce / embedded text / dotted call (in either spelling) is a `LoadError` — a
+    route target must resolve to exactly one node id."""
+    if not isinstance(target, str):
+        return target  # None (handled by the caller) or a native literal
+    stripped = target.strip()
+    # A whole-value `call(...)` directive: recognized BEFORE the plain-id passthrough,
+    # since a directive carries no `${` and would otherwise look like a bare node id.
+    new_value, calls = desugar_call_directives(target, mint)
+    if calls:  # inner-first: the OUTER call is calls[-1] and names the branch target
+        outer = calls[-1]
+        if new_value.strip() == f"${{{outer.id}.output}}":
+            for c in calls:
+                synth[c.id] = _to_call_descriptor(c, host=host, line=line)
+            return outer.id
+    if "${" not in target:
+        # Not a directive and no span: a plain node id, UNLESS it is a rejected `call(...)`
+        # attempt (e.g. a coalesce of directives) that the recognizer declined — those must
+        # not slip through as a node id.
+        if stripped.startswith("call("):
+            raise LoadError(
+                f"{host}: a branch target must be a node id or a single call "
+                f"(got {target!r}) — not a coalesce / embedded text / dotted call",
+                line=line,
+            )
+        return target
     try:
         new_value, calls = desugar_calls(target, mint)
     except ExpressionError as exc:
