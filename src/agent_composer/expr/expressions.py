@@ -462,6 +462,11 @@ class _EvalExpr:
             segments = [str(c.children[0]) for c in children[1:]]  # each trailer's NAME
             return self._reference(".".join([name, *segments]))
         # a builtin call: dispatch through TEMPLATE_FNS, then dotted access on the result.
+        # A `.field` walk that misses yields `_MISSING` — the SAME sentinel a plain-ref
+        # dotted miss yields (below) — so every value consumer treats a call-result miss
+        # exactly as a ref miss (strict raises, non-strict maps to None). Without this the
+        # miss leaked a plain `None`, which a multi-span concat stringified to "" (a silent
+        # blank that broke the STRICT_RAISE floor).
         value = self._call_builtin(name, call_suffix)
         after = [c for c in children if isinstance(c, Tree) and c.data == "trailer"]
         for tr in after:
@@ -481,15 +486,21 @@ class _EvalExpr:
             value: Any = self._item
             for step in parts[1:]:
                 value = self._dotted_step(value, step)
-            return _MISSING if value is None else value
+            return value  # `_dotted_step` already yields `_MISSING` on a walk miss
         resolved = self._resolve(path)
         return _MISSING if resolved is None else resolved
 
     def _dotted_step(self, value: Any, step: str) -> Any:
         """One dotted step — dict `.get` ONLY, never `getattr` (SAFETY-CRITICAL: so
-        `${x.__class__}` can never reach a Python attribute). A non-dict / missing key
-        -> None."""
-        return value.get(step) if isinstance(value, dict) else None
+        `${x.__class__}` can never reach a Python attribute). A non-dict, a missing key,
+        or a `None`-valued key -> `_MISSING` (the unresolved-reference sentinel), so a
+        dotted miss on ANY object — a plain ref value OR a builtin-call result — is treated
+        identically by every value consumer (strict raise / non-strict None / falsy). Also
+        used to walk into an already-`_MISSING` value (a chained miss stays `_MISSING`)."""
+        if isinstance(value, dict):
+            stepped = value.get(step)
+            return _MISSING if stepped is None else stepped
+        return _MISSING
 
     def _call_builtin(self, callee: str, call_suffix: Tree) -> Any:
         """Dispatch a builtin call through `TEMPLATE_FNS`. Positional and keyword
