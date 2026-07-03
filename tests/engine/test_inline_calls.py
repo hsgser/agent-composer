@@ -7,13 +7,13 @@ load into an anonymous `call` node, with the host binding rewritten to
 - `compose.calls.desugar_call_directives` (pure string→data recognition) — exercised
   in `test_call_directive.py`.
 - `compose.calls.desugar_inline_calls` + the loader wiring — exercised end-to-end
-  (load + run, edge inference, defs callee, flow output) in the STEP 2 block below.
-- the `${item}`-capture + synth-id-collision guards — the STEP 3 block.
+  (load + run, edge inference, defs callee, flow output) in the loader-wiring block below.
+- the `${item}`-capture + synth-id-collision guards — the guards block.
 """
 
 import pytest
 # --------------------------------------------------------------------------- #
-# STEP 2 — `desugar_inline_calls` + the loader wiring (end-to-end load + run).
+# `desugar_inline_calls` + the loader wiring (end-to-end load + run).
 # CODE-only children (Ollama-free), resolver-free via in-file `defs:`.
 # --------------------------------------------------------------------------- #
 
@@ -223,7 +223,7 @@ output: ${use.output}
 
 
 # --------------------------------------------------------------------------- #
-# STEP 3 — guards: `${item}` capture + reserved synth-id prefix + malformed call.
+# Guards: `${item}` capture + reserved synth-id prefix + malformed call.
 # --------------------------------------------------------------------------- #
 
 
@@ -328,10 +328,9 @@ def test_inline_call_seed_21_loads():
 
 
 # --------------------------------------------------------------------------- #
-# STEP 4 — review hardening (adversarial-review follow-ups): named-form parity,
-# located outputs errors, and the in-scope binding positions / paths that were
-# implemented but untested (TOOL args:, mapped-call over:, defs body, multi-site
-# ids, unknown callee, e06 over a synth binding).
+# Hardening: named-form parity, located outputs errors, and the in-scope binding
+# positions / paths that were implemented but untested (TOOL args:, mapped-call
+# over:, defs body, multi-site ids, unknown callee, e06 over a synth binding).
 # --------------------------------------------------------------------------- #
 
 from agent_composer.compose import desugar_inline_calls  # noqa: E402

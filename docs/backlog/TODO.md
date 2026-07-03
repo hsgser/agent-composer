@@ -65,6 +65,13 @@ _None currently open — recently shipped CLI items are archived in [DONE.md](DO
   point pyright at the project interpreter (`pyrightconfig` / `venvPath`+`venv`), then triage what
   genuinely remains. Undecided whether to gate CI on it — see also DEFER.
 
+- [ ] **(low) sweep leftover `STEP N` / `C1` plan-tracking tokens from test + source docstrings** —
+  CLAUDE.md forbids plan/phase/step tracking tokens in code (they rot and mean nothing to a fresh
+  reader). Several remain from the expr-unification build: `test_case_value.py` (STEP 1/2 section
+  headers), `test_run_locator.py`, `test_binding_raw_api.py`, `compose/run.py` ("Step 8"),
+  `test_expr_grammar.py` + `grammar.py` ("C1" fix). Replace each with plain-language description.
+  (`test_inline_calls.py` already cleaned during Step 15.)
+
 ## Open bugs / known issues
 
 _None currently open — recently fixed items are archived in [DONE.md](DONE.md)._
