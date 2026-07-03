@@ -23,9 +23,12 @@ from agent_composer.expr.template import (
     binding_refs,
     desugar_calls,
     eval_binding,
+    eval_template,
+    expr_refs_of,
     parse_binding,
     prompt_refs,
     render_template_record,
+    scan_template,
 )
 
 __all__ = [
@@ -36,10 +39,13 @@ __all__ = [
     "binding_refs",
     "desugar_calls",
     "eval_binding",
+    "eval_template",
     "evaluate_when",
+    "expr_refs_of",
     "first_failing_assert",
     "parse_binding",
     "prompt_refs",
     "render_template_record",
     "resolve_reference",
+    "scan_template",
 ]

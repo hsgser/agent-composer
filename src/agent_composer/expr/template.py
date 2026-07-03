@@ -515,20 +515,30 @@ def _split_calls_aware(s: str, sep: str) -> list:
 # --------------------------------------------------------------------------- #
 
 
-def eval_binding(segments: list, resolve: Callable[[str], Any], item: Any = None) -> Any:
+def eval_binding(source: str, resolve: Callable[[str], Any], item: Any = None) -> Any:
     """
-    Evaluate parsed binding segments to a value.
+    Evaluate a binding-value TEMPLATE string to a value (through the unified engine).
 
     A binding that is EXACTLY one `${...}` span resolves to the **typed** value of that
-    reference (a float stays a float, a list a list, an object a dict). A span embedded in
-    surrounding text — or a plain-text segment — is stringified and concatenated.
+    span's expression (a float stays a float, a list a list, an object a dict). A span
+    embedded in surrounding text — or a plain-text run — is stringified and concatenated;
+    a source with no `${...}` is a plain literal (after `$$` -> `$`).
+
+    This is the raw-string binding API: it scans `source` into template segments
+    (`scan_template`, parsing only span interiors with the unified grammar) and evaluates
+    them in `BINDING_NONE` mode (a missing reference resolves to `None`, so a coalesce /
+    default may fire). The full `${...}` expression grammar is available inside a span —
+    arithmetic (`${x + 1}`), string/list ops (`${xs + [item]}`), coalesce / default /
+    required — not just the legacy coalesce-of-atoms.
 
     Args:
-        segments (`list[_Text | _Coalesce]`):
-            The parsed binding from [`parse_binding`][agent_composer.expr.parse_binding].
+        source (`str`):
+            The binding-value template: literal text interspersed with `${...}` spans.
+            (A non-string source is a literal and never reaches here — callers short-
+            circuit it — so this takes a `str`.)
         resolve (`Callable[[str], Any]`):
-            Resolves a reference path to its value (pool-agnostic seam); a missing
-            reference resolves to `None`.
+            Resolves a reference path to its value (pool-agnostic seam); a path it maps
+            to `None` is a MISS (resolves to `None` in this binding mode).
         item (`Any`, *optional*, defaults to `None`):
             The MAP-body-local scope for `${item}` / `${item.path}`. `None` means no item
             scope (a `None` element and "no scope" coincide).
@@ -539,18 +549,41 @@ def eval_binding(segments: list, resolve: Callable[[str], Any], item: Any = None
 
     Raises:
         `RequiredError`:
-            If a `${ref:?message}` atom is unbound.
+            If a `${ref:?message}` required atom is unbound.
+        `ExpressionError`:
+            On a malformed span (unbalanced `${...}`, unparseable interior) or any error
+            the span's evaluation raises.
     """
-    if len(segments) == 1 and isinstance(segments[0], _Coalesce):
-        return _eval_coalesce(segments[0], resolve, item)
-    parts: list = []
-    for seg in segments:
-        if isinstance(seg, _Text):
-            parts.append(seg.text)
-        else:
-            v = _eval_coalesce(seg, resolve, item)
-            parts.append("" if v is None else str(v))
-    return "".join(parts)
+    return eval_template(scan_template(source), resolve, item=item, mode=ResolveMode.BINDING_NONE)
+
+
+def expr_refs_of(source: str) -> list[str]:
+    """
+    Collect every reference PATH a binding-value TEMPLATE string reads.
+
+    The raw-string ref-walk: scan `source` into template segments and union
+    (source order, NOT deduped) the [`expr_refs`][agent_composer.expr.expressions.expr_refs]
+    of each `${...}` span. Replaces the legacy `binding_refs(parse_binding(source))`
+    two-call idiom at every compile-time call site (edge inference, item-capture,
+    on-shape resolution, output typing).
+
+    Literal runs contribute nothing. `item`-headed refs ARE collected (the caller skips
+    them for edge minting — the rule stays at the caller, per `expr_refs`).
+
+    Args:
+        source (`str`):
+            The binding-value template: literal text interspersed with `${...}` spans.
+
+    Returns:
+        `list[str]`:
+            The reference paths across all spans, in source order (NOT deduped).
+
+    Raises:
+        `ExpressionError`:
+            On a malformed span (unbalanced `${...}`, unparseable interior) — callers
+            that already frame parse errors keep their `except ExpressionError` handling.
+    """
+    return template_refs(scan_template(source))
 
 
 def _eval_coalesce(c: _Coalesce, resolve: Callable[[str], Any], item: Any) -> Any:
@@ -621,27 +654,52 @@ def _collect_refs(c: _Coalesce, refs: list) -> None:
 def binding_co_skips(source: Any) -> bool:
     """True if this binding co-skips when all its referenced producers are skipped.
 
-    A hard data dependency: a whole-string `${...}` coalesce of refs / ref-defaults
-    with NO literal escape (`_Lit`, a literal `_Default`) and NO `:?` (`_Required`). A literal
-    fallback runs the node with the literal; a `:?` runs it to fail loud (e07); embedded text
-    stringifies an absent ref to ''. None of those co-skip; non-strings never co-skip.
+    A hard data dependency: a whole-string `${...}` span whose expression is a pure group
+    of references / ref-defaults with NO literal escape and NO `:?` required. A literal
+    operand runs the node with the literal; a `:-literal` default supplies one; a `:?` runs
+    it to fail loud (e07); embedded text stringifies an absent ref to ''. None of those
+    co-skip; non-strings never co-skip.
+
+    Re-implemented over the RAW string via the unified engine: scan `source` into template
+    segments; it co-skips iff there is exactly ONE segment and it is a `${...}` span whose
+    parsed expression is a co-skipping operand (see `_operand_co_skips`). Any surrounding
+    literal text (embedded span), a plain literal, a malformed span, or a computed
+    expression (arithmetic / comparison / builtin call) -> `False`.
     """
     if not isinstance(source, str):
         return False
     try:
-        segments = parse_binding(source)
+        segments = scan_template(source)
     except ExpressionError:
         return False
-    if len(segments) != 1 or not isinstance(segments[0], _Coalesce):
+    if len(segments) != 1 or not isinstance(segments[0], Span):
         return False  # embedded text / plain literal -> stringifies, never co-skips
-    for atom in segments[0].atoms:
-        if isinstance(atom, _Lit):
-            return False  # a literal operand always satisfies the group
-        if isinstance(atom, _Required):
-            return False  # `:?` -> run & fail (e07), not co-skip
-        if isinstance(atom, _Default) and not isinstance(atom.default, _Coalesce):
-            return False  # `:-literal` (a ref-default `:-${y}` keeps co-skipping)
-    return True
+    return _operand_co_skips(segments[0].tree)
+
+
+def _operand_co_skips(node: "Tree | Token") -> bool:
+    """Does one parsed-expression operand co-skip (a pure ref / ref-default group)?
+
+    True for: a bare reference (`refcall` with no `call_suffix`), a `${...}`-wrapped ref
+    (`WRAPPED_REF` token), a `coalesce` whose EVERY operand co-skips, and a `default_expr`
+    whose fallback is itself a co-skipping operand (`:-${y}` / `:-b.output`). False for a
+    literal token, a builtin-call `refcall`, a `required_expr` (`:?`), and any computed node
+    (arithmetic / comparison / boolean / list) — none of which are a pure ref dependency.
+    """
+    from lark import Token as _Token, Tree as _Tree
+
+    if isinstance(node, _Token):
+        return node.type == "WRAPPED_REF"  # a `${ref}` token co-skips; a literal token doesn't
+    if not isinstance(node, _Tree):
+        return False
+    if node.data == "refcall":
+        # a reference co-skips; a builtin call (has a `call_suffix`) is a computed value.
+        return not any(isinstance(c, _Tree) and c.data == "call_suffix" for c in node.children)
+    if node.data == "coalesce":
+        return all(_operand_co_skips(c) for c in node.children)
+    if node.data == "default_expr":  # `head :- fallback` — fallback must be a ref too
+        return _operand_co_skips(node.children[1])
+    return False  # required_expr / arithmetic / comparison / list / ... -> not a pure ref
 
 
 # --------------------------------------------------------------------------- #

@@ -186,15 +186,19 @@ def test_coalesce_nary_and_literal_last_segment():
     ) == {"n": 0.0}
 
 
-def test_default_operator_bare_rhs_is_literal():
-    # `:-` RHS: a BARE token is a literal (no quotes) — string / number / null.
+def test_default_operator_quoted_rhs_is_literal():
+    # `:-` RHS under the unified grammar is a full expression: a QUOTED string is a
+    # literal, a number/null is its literal, and a BARE word is a REFERENCE (not a bare
+    # string as the legacy binding grammar treated it) — so quote a literal default.
     empty = TypedVariablePool()
-    assert bind_inputs([InputBinding(name="d", source="${input.as_of:-today}")], empty) == {"d": "today"}
+    assert bind_inputs([InputBinding(name="d", source='${input.as_of:-"today"}')], empty) == {"d": "today"}
     assert bind_inputs([InputBinding(name="n", source="${input.n:-30}")], empty) == {"n": 30}
     assert bind_inputs([InputBinding(name="z", source="${input.z:-null}")], empty) == {"z": None}
+    # a bare word RHS is a ref: unbound -> None (miss), no literal string fallback.
+    assert bind_inputs([InputBinding(name="d", source="${input.as_of:-today}")], empty) == {"d": None}
     # present value wins over the default
     pool = TypedVariablePool(); pool.set(START_ID, {"as_of": "2026-06-12"})
-    assert bind_inputs([InputBinding(name="d", source="${input.as_of:-today}")], pool) == {"d": "2026-06-12"}
+    assert bind_inputs([InputBinding(name="d", source='${input.as_of:-"today"}')], pool) == {"d": "2026-06-12"}
 
 
 def test_required_operator_fails_loud_when_unbound():
@@ -264,8 +268,10 @@ def test_one_level_nested_default_resolves_two_level_raises():
     assert bind_inputs(
         [InputBinding(name="d", source="${input.as_of:-${system.today}}")], pool
     ) == {"d": "2026-01-01"}
-    # two-level nesting -> loud error
-    with pytest.raises(BindingError, match="one nested"):
+    # two-level nesting -> loud error. The unified `WRAPPED_REF` terminal matches to the
+    # FIRST `}`, so `${x:-${system.today}` grabs the inner span and the dangling `}` makes
+    # the interior unparseable — still a rejected `BindingError` (use `|` for chains).
+    with pytest.raises(BindingError):
         bind_inputs([InputBinding(name="d", source="${input.as_of:-${x:-${system.today}}}")], pool)
 
 

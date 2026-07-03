@@ -149,12 +149,12 @@ def test_case_ref_in_nested_default_value_is_loud():
         expand_case_outputs(descs, None, [])
 
 
-def test_case_shaped_text_in_required_message_is_untouched():
-    # ${input.t:?${gate.output}} — the :? MESSAGE is a literal (NOT a ref), so it must be
-    # left verbatim (no rewrite/corruption), and not spuriously rejected.
+def test_case_ref_in_required_message_is_loud():
+    # ${input.t:?${gate.output}} — under Option A the :? MESSAGE is a full expression,
+    # so a case ref in it is a genuine ref and must be LOUD (parallel to the :- default).
     descs = {"gate": _gate(), "c": _code("c", v="${input.t:?${gate.output}}")}
-    new, _ = expand_case_outputs(descs, None, [])
-    assert new["c"].inputs["v"] == "${input.t:?${gate.output}}"
+    with pytest.raises(LoadError, match="whole single reference"):
+        expand_case_outputs(descs, None, [])
 
 
 def test_case_ref_in_assert_is_located():

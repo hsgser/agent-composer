@@ -42,9 +42,8 @@ from agent_composer.compile.validation import (
 )
 from agent_composer.expr import (
     ExpressionError,
-    binding_refs,
     desugar_calls,
-    parse_binding,
+    expr_refs_of,
     prompt_refs,
 )
 from agent_composer.expr.expressions import _PARSER
@@ -235,18 +234,18 @@ def validate_references(
 
     def scan(from_value: Any, where: str, line: "int | None", extra_heads: tuple = ()) -> None:
         """Name-check every reference a BINDING `from:` reads (coalesce + nested-default
-        split by `binding_refs`); a non-string source / literal yields no refs.
+        split by `expr_refs_of`); a non-string source / literal yields no refs.
 
         `extra_heads` is the per-site set of body-local scopes treated as lenient — e.g.
         a MAP per-element input's `${item}` (valid only inside `map.inputs`, not `over:`)."""
         if not isinstance(from_value, str):
             return
         try:
-            segments = parse_binding(from_value)
+            paths = expr_refs_of(from_value)
         except ExpressionError as exc:
             errors.append((f"{where}: {exc}", line))
             return
-        for path in binding_refs(segments):
+        for path in paths:
             err = _classify_path(
                 path, valid_targets, flow_inputs, extra_heads, producer_shapes
             )

@@ -33,9 +33,8 @@ from typing import Any, Callable, Optional
 from agent_composer.expr import (
     ExpressionError,
     InlineCall,
-    binding_refs,
     desugar_calls,
-    parse_binding,
+    expr_refs_of,
 )
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.parser import (
@@ -219,7 +218,7 @@ def _captures_item(value: Any) -> bool:
     if not isinstance(value, str):
         return False
     try:
-        refs = binding_refs(parse_binding(value))
+        refs = expr_refs_of(value)
     except ExpressionError:
         return False  # malformed -> surfaced (located) by the downstream ref-wiring pass
     return any(ref.split(".")[0] == "item" for ref in refs)

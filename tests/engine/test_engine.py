@@ -92,7 +92,7 @@ def test_terminal_output_default_when_ref_none():
     g = _graph(
         [FuncNode("a", lambda p: {})],
         [(START_ID, "a"), ("a", END_ID)],
-        outputs=[FlowOutput(name="result", from_="${missing.output:-fallback}")],
+        outputs=[FlowOutput(name="result", from_='${missing.output:-"fallback"}')],
     )
     events = _run(FlowEngine(g))
     assert events[-1].output == "fallback"

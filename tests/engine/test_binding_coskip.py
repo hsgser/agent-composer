@@ -35,3 +35,18 @@ def test_non_string_and_non_ref_do_not_co_skip():
     assert binding_co_skips(30) is False
     assert binding_co_skips("plain literal") is False
     assert binding_co_skips("${input.x}") is True  # whole-string ref still co-skips structurally
+
+
+def test_arithmetic_span_does_not_co_skip():
+    # a computed span (not a pure ref group) is not a hard data dependency.
+    assert binding_co_skips("${a.output + 1}") is False
+
+
+def test_builtin_call_span_does_not_co_skip():
+    # a builtin-call span is a computed value, not a pure ref, so it does not co-skip.
+    assert binding_co_skips("${upper(a.output)}") is False
+
+
+def test_bare_ref_default_co_skips():
+    # `:-b.output` (a bare-ref default) keeps co-skipping, like `:-${b.output}`.
+    assert binding_co_skips("${a.output:-b.output}") is True

@@ -7,7 +7,7 @@ nodes:
   use:
     kind: code
     input:
-      as_of: ${input.as_of:?as_of is required}   # null when omitted -> required error at run
+      as_of: ${input.as_of:?"as_of is required"}   # null when omitted -> required error at run
     output: str
     code: tests.seeds.fns:echo_value
 output: ${use.output}

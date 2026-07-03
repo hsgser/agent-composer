@@ -18,7 +18,7 @@ nodes:
     kind: agent
     input:
       # required AT THE USE SITE — fail with this message if absent (vs param-level required)
-      topic: ${input.topic:?a topic is required}
+      topic: ${input.topic:?"a topic is required"}
       # coalesce chain: as_of, else fallback_date, else the host clock (first-present)
       as_of:  ${input.as_of | input.fallback_date | system.today}
       run_id: ${system.run_id}     # host-ambient namespace (run id / clock / tenant)

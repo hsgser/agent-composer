@@ -28,6 +28,14 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 ## Engine design forks (undecided)
 
+- [x] ~~**`:-` / `:?` RHS: expression vs. legacy bare-literal text.**~~ **DECIDED (2026-07-03): Option A —
+  the RHS of `:-` (default) and `:?` (required message) is a **full expression** under the unified
+  grammar, uniform with everything else inside `${}`. A bare word is a **reference**; a literal must be
+  **quoted** (`${a:-"today"}`, `${a:?"a topic is required"}`). This is an authoring break vs. the legacy
+  binding dialect (which treated the RHS as plain literal text), so the expr-unification codemod now also
+  rewrites every bare `:-`/`:?` RHS to quoted form across the seeds + tests it touches. Landed as part of
+  expr-unification Step 5.
+
 - [ ] **A general flow-local variable scope — needed?** The `loop` node reads its *carried record*
   by **bare name** (`${exited}`) in `until:`/`while:`, consistent with the existing convention that a
   node references its own declared inputs bare (AGENT/HUMAN_INPUT `prompt:`, `case when:`); dotted

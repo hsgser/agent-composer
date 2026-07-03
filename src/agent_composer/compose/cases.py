@@ -46,9 +46,8 @@ from agent_composer.compile.model import Edge
 from agent_composer.expr import (
     ExpressionError,
     binding_co_skips,
-    binding_refs,
     desugar_calls,
-    parse_binding,
+    expr_refs_of,
 )
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.case import DEFAULT_HANDLE, Case, CaseNode
@@ -136,7 +135,7 @@ def _data_edges(node_id: str, wiring: dict[str, Any]) -> list[Edge]:
         if not isinstance(source, str):
             continue
         try:
-            refs = binding_refs(parse_binding(source))
+            refs = expr_refs_of(source)
         except ExpressionError:
             continue  # malformed refs surface, located, in the ref-wiring pass
         for ref in refs:
@@ -188,7 +187,7 @@ def _resolve_on_shape(on_ref: str, producers: dict[str, Shape]) -> Optional[Shap
     from agent_composer.compile.validation import _walk_record_fields
 
     try:
-        refs = binding_refs(parse_binding(on_ref))
+        refs = expr_refs_of(on_ref)
     except ExpressionError:
         return None
     if len(refs) != 1:
@@ -575,7 +574,7 @@ def _reject_case_refs(strings, case_ids: set, where: str, line: Optional[int]) -
         if not isinstance(s, str):
             continue
         try:
-            refs = binding_refs(parse_binding(s))
+            refs = expr_refs_of(s)
         except ExpressionError:
             continue  # malformed -> surfaced (located) by the relevant downstream pass
         for ref in refs:

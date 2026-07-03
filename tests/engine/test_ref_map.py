@@ -125,7 +125,7 @@ def test_seed05_map_loads_with_list_output_and_parallel():
     assert loaded.compiled.wiring["research_each"] == {
         "over": "${input.topics}",
         "topic": "${item}",
-        "as_of": "${input.as_of:-today}",
+        "as_of": '${input.as_of:-"today"}',
     }
     assert [p.name for p in research_each.params] == ["topic", "as_of"]
 
