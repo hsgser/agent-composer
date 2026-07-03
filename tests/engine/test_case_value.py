@@ -149,12 +149,12 @@ def test_case_ref_in_nested_default_value_is_loud():
         expand_case_outputs(descs, None, [])
 
 
-def test_case_shaped_text_in_required_message_is_untouched():
-    # ${input.t:?${gate.output}} — the :? MESSAGE is a literal (NOT a ref), so it must be
-    # left verbatim (no rewrite/corruption), and not spuriously rejected.
+def test_case_ref_in_required_message_is_loud():
+    # ${input.t:?${gate.output}} — under Option A the :? MESSAGE is a full expression,
+    # so a case ref in it is a genuine ref and must be LOUD (parallel to the :- default).
     descs = {"gate": _gate(), "c": _code("c", v="${input.t:?${gate.output}}")}
-    new, _ = expand_case_outputs(descs, None, [])
-    assert new["c"].inputs["v"] == "${input.t:?${gate.output}}"
+    with pytest.raises(LoadError, match="whole single reference"):
+        expand_case_outputs(descs, None, [])
 
 
 def test_case_ref_in_assert_is_located():
@@ -392,7 +392,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ passthru(v=${gate.output}) }
+      topic: call(passthru, v=${gate.output})
     output: str
 output: ${wrap.output}
 """
@@ -400,7 +400,7 @@ output: ${wrap.output}
 
 def test_case_value_in_inline_call_arg_runs():
     # the desugar ordering contract: an inline call arg reading a case value
-    # (${ passthru(v=${gate.output}) }) desugars to a synth call whose arg is then
+    # (call(passthru, v=${gate.output})) desugars to a synth call whose arg is then
     # expanded to the branch coalesce. If expansion missed the synth node, ${gate.output}
     # would resolve to null (a case writes no value) and the run would be wrong.
     loaded = load_flow(_INLINE_INTO_CASE)

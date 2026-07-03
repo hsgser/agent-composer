@@ -1,140 +1,19 @@
-"""Inline `${ f(arg=...) }` call expressions.
+"""Inline `call(...)` directive calls — end-to-end.
 
-An inline call is applicative expression syntax that DESUGARS at load into an
-anonymous `call` node, with the host binding rewritten to `${<synth>.output}` —
-pure sugar, no new runtime kind. Two layers:
+An inline call is a whole-value `call(<flow-id>, kw=...)` directive that DESUGARS at
+load into an anonymous `call` node, with the host binding rewritten to
+`${<synth>.output}` — pure sugar, no new runtime kind. Two layers:
 
-- `expr.desugar_calls` (pure string→string + plain-data) — exercised here in the
-  STEP 1 block (whole-string / embedded / coalesce / nested / arg-value kinds /
-  `$$` / non-call / unbalanced).
+- `compose.calls.desugar_call_directives` (pure string→data recognition) — exercised
+  in `test_call_directive.py`.
 - `compose.calls.desugar_inline_calls` + the loader wiring — exercised end-to-end
-  (load + run, edge inference, defs callee, flow output) in the STEP 2 block.
-- the `${item}`-capture + synth-id-collision guards — the STEP 3 block.
+  (load + run, edge inference, defs callee, flow output) in the loader-wiring block below.
+- the `${item}`-capture + synth-id-collision guards — the guards block.
 """
 
 import pytest
-
-from agent_composer.expr import ExpressionError, InlineCall, desugar_calls
-
-
 # --------------------------------------------------------------------------- #
-# STEP 1 — `desugar_calls` (pure): no loader, deterministic ids.
-# --------------------------------------------------------------------------- #
-
-
-def _ids():
-    """A deterministic synth-id minter for the pure tests (`__call_0`, `__call_1`, …)."""
-    counter = iter(range(1000))
-    return lambda: f"__call_{next(counter)}"
-
-
-def test_whole_string_call():
-    s, calls = desugar_calls("${ f(x=1) }", _ids())
-    assert s == "${__call_0.output}"  # a clean whole-string ref -> typed value
-    assert calls == [InlineCall(id="__call_0", callee="f", args={"x": 1})]
-
-
-def test_embedded_call_is_stringified_host():
-    s, calls = desugar_calls("pe=${ relevance(t=${input.x}) }", _ids())
-    assert s == "pe=${__call_0.output}"  # embedded -> host stringifies at runtime
-    assert calls == [InlineCall(id="__call_0", callee="relevance", args={"t": "${input.x}"})]
-
-
-def test_coalesce_of_calls():
-    s, calls = desugar_calls("${ a(x=1) | b(y=2) }", _ids())
-    assert s == "${__call_0.output|__call_1.output}"
-    assert calls == [
-        InlineCall(id="__call_0", callee="a", args={"x": 1}),
-        InlineCall(id="__call_1", callee="b", args={"y": 2}),
-    ]
-
-
-def test_nested_call_inner_first():
-    s, calls = desugar_calls("${ outer(x=${inner(y=1)}) }", _ids())
-    assert s == "${__call_1.output}"  # the host binds the OUTER call result
-    # inner is minted first (inner-first), the outer references it by synth ref.
-    assert calls == [
-        InlineCall(id="__call_0", callee="inner", args={"y": 1}),
-        InlineCall(id="__call_1", callee="outer", args={"x": "${__call_0.output}"}),
-    ]
-
-
-def test_multi_arg_typed_ref_coalesce_values():
-    s, calls = desugar_calls(
-        '${ f(n=30, s="hi", z=null, b=true, r=${y.output}, co=${a | b}) }', _ids()
-    )
-    assert s == "${__call_0.output}"
-    assert calls == [
-        InlineCall(
-            id="__call_0",
-            callee="f",
-            # bare literals (int/None/bool); a quoted scalar -> unquoted; refs/coalesce
-            # stay binding strings.
-            args={"n": 30, "s": "hi", "z": None, "b": True, "r": "${y.output}", "co": "${a | b}"},
-        )
-    ]
-
-
-def test_callee_with_hyphen_is_a_flow_id():
-    _, calls = desugar_calls("${ research-one(topic=${input.t}) }", _ids())
-    assert calls[0].callee == "research-one"
-
-
-def test_dollar_escape_untouched():
-    s, calls = desugar_calls("cost $$5 then ${ f(x=1) }", _ids())
-    assert s == "cost $$5 then ${__call_0.output}"  # `$$` is not a span start
-    assert len(calls) == 1
-
-
-def test_non_call_refs_untouched():
-    # a plain ref / coalesce with no call round-trips with no synth calls.
-    assert desugar_calls("${input.x}", _ids()) == ("${input.x}", [])
-    assert desugar_calls("${a.output | b.output}", _ids()) == (
-        "${a.output | b.output}",
-        [],
-    )
-    assert desugar_calls("plain text, no spans", _ids()) == ("plain text, no spans", [])
-
-
-def test_default_rhs_call_not_desugared():
-    # the desugar handles calls in COALESCE-operand position, not a `:-` default RHS
-    # (deferred to the named form): `${ x :- f() }` is left for the binding grammar.
-    s, calls = desugar_calls("${ x:-foo }", _ids())
-    assert calls == []
-    assert s == "${ x:-foo }"
-
-
-def test_empty_args_call():
-    s, calls = desugar_calls("${ now() }", _ids())
-    assert s == "${__call_0.output}"
-    assert calls == [InlineCall(id="__call_0", callee="now", args={})]
-
-
-def test_unbalanced_parens_fall_through():
-    # an unbalanced call paren is NOT a call — left verbatim for the downstream parser.
-    s, calls = desugar_calls("${ f(x=1 }", _ids())
-    assert calls == []
-    assert s == "${ f(x=1 }"
-
-
-def test_positional_arg_is_loud():
-    with pytest.raises(ExpressionError, match="keyword"):
-        desugar_calls("${ f(30) }", _ids())
-
-
-def test_call_in_arg_coalesce_position():
-    # a call as a coalesce operand INSIDE an arg value desugars too (inner-first).
-    s, calls = desugar_calls("${ f(note=${a | g(x=1)}) }", _ids())
-    assert s == "${__call_1.output}"
-    assert calls == [
-        InlineCall(id="__call_0", callee="g", args={"x": 1}),
-        # operand whitespace is preserved on rejoin (harmless — parse_binding strips it).
-        InlineCall(id="__call_1", callee="f", args={"note": "${a |__call_0.output}"}),
-    ]
-
-
-# --------------------------------------------------------------------------- #
-# STEP 2 — `desugar_inline_calls` + the loader wiring (end-to-end load + run).
+# `desugar_inline_calls` + the loader wiring (end-to-end load + run).
 # CODE-only children (Ollama-free), resolver-free via in-file `defs:`.
 # --------------------------------------------------------------------------- #
 
@@ -169,7 +48,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{input.topic}}) }}
+      topic: call(enrich, topic=${{input.topic}})
     output: str
 output: ${{use.output}}
 """
@@ -193,7 +72,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic="HARDCODED") }}
+      topic: call(enrich, topic="HARDCODED")
     output: str
 output: ${{use.output}}
 """
@@ -219,7 +98,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{y.output}}) }}
+      topic: call(enrich, topic=${{y.output}})
     output: str
 output: ${{use.output}}
 """
@@ -266,7 +145,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ outer(topic=${inner(topic=${input.topic})}) }
+      topic: call(outer, topic=call(inner, topic=${input.topic}))
     output: str
 output: ${use.output}
 """
@@ -292,7 +171,7 @@ nodes:
     input:
       topic: ${{input.topic}}
     output: str
-output: ${{ enrich(topic=${{seed.output}}) }}
+output: call(enrich, topic=${{seed.output}})
 """
     loaded = load_flow(text)
     assert "__call_0" in loaded.compiled.nodes
@@ -328,7 +207,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ ext_flow(topic=${input.topic}) }
+      topic: call(ext_flow, topic=${input.topic})
     output: str
 output: ${use.output}
 """
@@ -344,7 +223,7 @@ output: ${use.output}
 
 
 # --------------------------------------------------------------------------- #
-# STEP 3 — guards: `${item}` capture + reserved synth-id prefix + malformed call.
+# Guards: `${item}` capture + reserved synth-id prefix + malformed call.
 # --------------------------------------------------------------------------- #
 
 
@@ -385,7 +264,7 @@ nodes:
     call: one
     over: ${input.topics}
     input:
-      topic: ${ wrap(t=${item}) }
+      topic: call(wrap, t=${item})
 output: ${each.output}
 """
     with pytest.raises(LoadError) as exc:
@@ -429,7 +308,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(30) }}
+      topic: call(enrich, 30)
     output: str
 output: ${{use.output}}
 """
@@ -449,10 +328,9 @@ def test_inline_call_seed_21_loads():
 
 
 # --------------------------------------------------------------------------- #
-# STEP 4 — review hardening (adversarial-review follow-ups): named-form parity,
-# located outputs errors, and the in-scope binding positions / paths that were
-# implemented but untested (TOOL args:, mapped-call over:, defs body, multi-site
-# ids, unknown callee, e06 over a synth binding).
+# Hardening: named-form parity, located outputs errors, and the in-scope binding
+# positions / paths that were implemented but untested (TOOL args:, mapped-call
+# over:, defs body, multi-site ids, unknown callee, e06 over a synth binding).
 # --------------------------------------------------------------------------- #
 
 from agent_composer.compose import desugar_inline_calls  # noqa: E402
@@ -473,21 +351,13 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic="hi ${{input.name}}") }}
+      topic: call(enrich, topic="hi ${{input.name}}")
     output: str
 output: ${{use.output}}
 """
     result = run_flow(load_flow(text), {"name": "ACME"})
     assert result.status == "succeeded"
     assert result.output == "hi ACME"  # NOT '"hi ACME"' — no spurious quote chars
-
-
-def test_bare_bool_word_arg_is_a_string_not_yaml_coerced():
-    # deliberate: inline bare literals are a YAML-1.1 SUBSET — `yes`/`on`/`off`/`no` stay
-    # strings (no boolean coercion), avoiding the YAML bool footgun. (A named call's YAML
-    # `inputs:` map WOULD coerce `yes` -> True; the inline form intentionally does not.)
-    _, calls = desugar_calls("${ f(flag=yes) }", _ids())
-    assert calls[0].args == {"flag": "yes"}
 
 
 def test_malformed_inline_call_in_outputs_is_located():
@@ -504,7 +374,7 @@ nodes:
     input:
       topic: ${{input.topic}}
     output: str
-output: ${{ enrich(30) }}
+output: call(enrich, 30)
 """
     with pytest.raises(LoadError) as exc:
         load_flow(text)
@@ -516,7 +386,7 @@ def test_inline_call_in_tool_args_desugars():
     # the ToolDescriptor `args:` branch (distinct from `inputs:`) desugars too. Unit-level
     # (a real TOOL run needs a registered tool); asserts the synth node + rewrite.
     descriptors = {
-        "t": ToolDescriptor(id="t", tool_id="some_tool", args={"q": "${ enrich(x=${input.k}) }"})
+        "t": ToolDescriptor(id="t", tool_id="some_tool", args={"q": "call(enrich, x=${input.k})"})
     }
     new_descriptors, _, _ = desugar_inline_calls(descriptors, "${t.output}")
     assert new_descriptors["t"].args["q"] == "${__call_0.output}"
@@ -559,7 +429,7 @@ nodes:
   each:
     kind: map
     call: one
-    over: ${ producelist(xs=${input.topics}) }
+    over: call(producelist, xs=${input.topics})
     input:
       topic: ${item}
 output: ${each.output}
@@ -584,13 +454,13 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{input.topic}}) }}
+      topic: call(enrich, topic=${{input.topic}})
     output: str
   b:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{input.topic}}) }}
+      topic: call(enrich, topic=${{input.topic}})
     output: str
 output:
   ra: ${{a.output}}
@@ -631,7 +501,7 @@ defs:
         kind: code
         code: tests.engine._compose_codefns:echo
         input:
-          topic: ${ helper(topic=${input.topic}) }
+          topic: call(helper, topic=${input.topic})
         output: str
     output: ${y.output}
 nodes:
@@ -658,7 +528,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ nope(x=${input.topic}) }
+      topic: call(nope, x=${input.topic})
     output: str
 output: ${use.output}
 """
@@ -699,7 +569,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ enrich(topic=${num.output}) }
+      topic: call(enrich, topic=${num.output})
     output: str
 output: ${use.output}
 """

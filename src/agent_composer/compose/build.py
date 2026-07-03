@@ -26,8 +26,7 @@ from agent_composer.compile.validation import shapes_compatible
 from agent_composer.expr import (
     ExpressionError,
     binding_co_skips,
-    binding_refs,
-    parse_binding,
+    expr_refs_of,
 )
 from agent_composer.expr.template import prompt_refs
 from agent_composer.nodes.agent import AgentNode
@@ -264,7 +263,7 @@ def build_leaf_node(
 #
 # The analogue of scope/dependency analysis: a sink binding that reads a free
 # variable `${<id>.output[.…]}` depends on the producing node `<id>`, so we emit a
-# data `Edge(from_=<id>, to=<consumer>, input_group=<sink key>)`. `binding_refs`
+# data `Edge(from_=<id>, to=<consumer>, input_group=<sink key>)`. `expr_refs_of`
 # already flattens a coalesce `${a | b}` to BOTH ref paths, so the two alternatives
 # of one sink share that sink's `input_group` (per-input readiness). Refs whose
 # head is not `outputs` (`inputs`/`system`/`item`) are NOT data edges.
@@ -310,11 +309,11 @@ def _binding_producers(value: Any) -> list[str]:
     if not isinstance(value, str):
         return []
     try:
-        segments = parse_binding(value)
+        refs = expr_refs_of(value)
     except ExpressionError:
         return []  # malformed refs surface in the ref-wiring pass, located
     producers: list[str] = []
-    for ref in binding_refs(segments):
+    for ref in refs:
         producer = _ref_producer(ref)
         if producer is not None:
             producers.append(producer)
@@ -569,7 +568,7 @@ def _output_value_shape(
     if not isinstance(from_, str):
         return None
     try:
-        refs = binding_refs(parse_binding(from_))
+        refs = expr_refs_of(from_)
     except ExpressionError:
         return None
     if len(refs) != 1:

@@ -22,5 +22,5 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
+| dev/engine/expr-unification | main | unify ${...} into one expression grammar + call(...) directive | 2026-07-02 |
 
-_None open._

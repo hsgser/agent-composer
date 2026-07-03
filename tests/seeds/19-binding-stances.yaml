@@ -80,7 +80,7 @@ nodes:
       detail:   ${pro_detail.output:-null}           # OPTIONAL — null when the pro branch didn't run
       when:     ${input.as_of:-${system.today}}       # OPTIONAL param — one nested ${...}
                                                        #   default: as_of, else the host clock
-      topic:   ${input.topic:?a topic is required} # REQUIRED + FAIL-LOUD at the use site
+      topic:   ${input.topic:?"a topic is required"} # REQUIRED + FAIL-LOUD at the use site
                                                        #   (belt-and-suspenders: topic is already a required param)
     output: str
     prompt: |-

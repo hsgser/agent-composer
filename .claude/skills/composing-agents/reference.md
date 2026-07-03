@@ -23,6 +23,7 @@ Copy, rename, and edit.
 | [`human-questions.yaml`](templates/human-questions.yaml) | a `human_input` gate with multiple questions — static `questions:` + `adaptive_questions:` |
 | [`child-summarize.yaml`](templates/child-summarize.yaml) | a reusable CHILD flow |
 | [`call-child.yaml`](templates/call-child.yaml) | `call` a sibling flow once (via `uses:`) |
+| [`expr-and-call.yaml`](templates/expr-and-call.yaml) | `${a + b}` arithmetic in a binding + inline `call(...)` over an in-file `defs:` callee |
 | [`map-fanout.yaml`](templates/map-fanout.yaml) | `map` a child over a list, in parallel |
 | [`loop.yaml`](templates/loop.yaml) | `loop` a body until a predicate goes false — chat-shaped pause-per-turn |
 | [`llm-config-cascade.yaml`](templates/llm-config-cascade.yaml) | flow-level `llm_config:`, per-node override, `inherit: false` |
@@ -33,26 +34,46 @@ the search path — run them from the `templates/` dir (or pass the dir to
 
 ## Operators inside `${...}`
 
+One expression grammar, everywhere `${...}` appears:
+
 | Form | Meaning |
 |------|---------|
+| `${a + b}`, `${a * b + 1}` | arithmetic — `+ - * / % **`, unary minus |
+| `${a == b}`, `${x in [1, 2]}` | comparisons / membership / `and`/`or`/`not` |
+| `${[a, b]}`, `${upper(x)}` | list literal / pure builtin call |
 | `${X:-default}` | value, else `default` if absent |
-| `${X:?msg}` | required — fail with `msg` if absent |
+| `${X:?"msg"}` | required — fail with the literal `msg` if absent (quote the message) |
 | `${a \| b \| c}` | first present among peers — **the branch-join coalesce** |
-| `$$` | a literal `$` |
+| `$$` | a literal `$` (universal escape — in a prompt `$$` renders a single `$`) |
 
-Nesting is allowed: `${a:-${b:-lit}}`. A whole-string `${ref}` resolves to the
-**typed value**; embedded in surrounding text it is **stringified**.
+Nesting a ref is allowed: `${a:-${b:-"lit"}}`. The `:-`/`:?` RHS is an
+expression, so a string default must be **quoted** (`${x:-"today"}`; bare `today`
+reads a variable). A whole-string `${ref}` resolves to the **typed value**;
+embedded in surrounding text it is **stringified**. A child-flow call is the
+whole-value `call(...)` directive (below), never a `${flow(args)}` span.
 
-## The three expression contexts (different power)
+## The three expression contexts (one grammar)
 
-| Context | Where | What's allowed |
-|---------|-------|----------------|
-| **Bindings** | `input:` / `output:` values | `${ref}`, a literal, `:-` / `:?` / `\|`. **No arithmetic, no function calls.** |
-| **Conditions** | `when:` / `asserts:` | boolean: `== != < <= > >=`, `in`/`not in`, `and`/`or`/`not`, parens; operands may use `+ - * / %`. **No function calls.** |
-| **Prompts** | `prompt:` text | free text with embedded bare `${name}` (stringified) |
+One `${...}` grammar; the context decides what happens to the result:
 
-> Bindings wire, conditions test, nodes compute. Any transform belongs in a `code`
-> node, not in an expression.
+| Context | Where | What it does |
+|---------|-------|--------------|
+| **Bindings** | `input:` / `output:` values | **evaluated** to a typed value — refs, literals, arithmetic, lists, `:-` / `:?` / `\|`, pure builtins. Child-flow call = `call(...)` directive. |
+| **Conditions** | `when:` / `asserts:` | **tested** as a boolean: `== != < <= > >=`, `in`/`not in`, `and`/`or`/`not`, parens, arithmetic operands. Bare or `${...}`-wrapped are equivalent. |
+| **Prompts** | `prompt:` text | free text with embedded `${...}` spans (each stringified) |
+
+> Bindings wire, conditions test, nodes compute. A heavy transform still belongs
+> in a `code` node — but simple arithmetic/coalesce in a binding is fine.
+
+## Inline `call(...)` directive
+
+A child-flow call written as a binding's **whole value** (or a `case`
+`then:`/`else:` target) — `call(f, arg=${ref}, k=lit)` — desugars at load into an
+anonymous `call` node; the host becomes `${<synth>.output}`. Keyword args only;
+nesting allowed (`call(a, x=call(b, y=1))`). Recognized **only** as the entire
+trimmed value. The old `${flow(args)}` (a flow call inside braces) is a load
+error: hoist an embedded flow call to a named node; split a coalesce-of-calls into
+per-node outputs. Pure builtins (`${upper(x)}`) stay legal inside `${}`.
 
 ## Type forms
 

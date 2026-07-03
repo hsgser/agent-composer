@@ -24,10 +24,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from lark.exceptions import LarkError
-
 from agent_composer.compile.validation import _classify_path
-from agent_composer.expr.expressions import _PARSER
+from agent_composer.expr.expressions import ExpressionError
+from agent_composer.expr.grammar import parse_expr
 from agent_composer.state.segments import Shape
 from agent_composer.compose.errors import LoadError
 
@@ -77,8 +76,8 @@ def classify_asserts(
     for expr in assert_list:
         # 1. parse-check the boolean expression (a bad `when:`/`asserts:` string is loud).
         try:
-            _PARSER.parse(expr)
-        except LarkError as exc:
+            parse_expr(expr)
+        except ExpressionError as exc:
             raise LoadError(
                 f"assert {expr!r} is not a valid boolean expression: {exc}"
             ) from exc

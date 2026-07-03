@@ -27,7 +27,7 @@ shape of it:
 ```
 state/        typed value system (segments) + variable pool              [leaf, no deps]
 events.py     run + node event vocabulary
-expr/         ${...} resolution + when: evaluator on the typed pool
+expr/         one ${...} expression grammar: parse -> AST -> evaluate / ref-walk on the pool
 nodes/        Node contract (base) + per-kind implementations
               (start, end, agent, code, model, tool, case, call, map,
                loop, human_input, wait)

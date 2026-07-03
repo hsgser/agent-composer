@@ -31,8 +31,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from lark.exceptions import LarkError
-
 from agent_composer.compile.model import Edge
 from agent_composer.compile.validation import (
     FlowValidationError,
@@ -42,12 +40,12 @@ from agent_composer.compile.validation import (
 )
 from agent_composer.expr import (
     ExpressionError,
-    binding_refs,
-    desugar_calls,
-    parse_binding,
+    expr_refs_of,
     prompt_refs,
 )
-from agent_composer.expr.expressions import _PARSER
+from agent_composer.expr.grammar import parse_expr
+from agent_composer.expr.template import flow_call_callees_in_spans
+from agent_composer.compose.calls import desugar_call_directives
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node, NodeKind
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
@@ -235,18 +233,18 @@ def validate_references(
 
     def scan(from_value: Any, where: str, line: "int | None", extra_heads: tuple = ()) -> None:
         """Name-check every reference a BINDING `from:` reads (coalesce + nested-default
-        split by `binding_refs`); a non-string source / literal yields no refs.
+        split by `expr_refs_of`); a non-string source / literal yields no refs.
 
         `extra_heads` is the per-site set of body-local scopes treated as lenient — e.g.
         a MAP per-element input's `${item}` (valid only inside `map.inputs`, not `over:`)."""
         if not isinstance(from_value, str):
             return
         try:
-            segments = parse_binding(from_value)
+            paths = expr_refs_of(from_value)
         except ExpressionError as exc:
             errors.append((f"{where}: {exc}", line))
             return
-        for path in binding_refs(segments):
+        for path in paths:
             err = _classify_path(
                 path, valid_targets, flow_inputs, extra_heads, producer_shapes
             )
@@ -413,20 +411,22 @@ def validate_node_asserts(
         pre: list[str] = []
         post: list[str] = []
         for a in asserts:
-            # node asserts are node-local — an inline `${call}` belongs in a flow-level assert.
+            # node asserts are node-local — an inline call (a whole-value `call(...)` directive
+            # or the retired `${flow(args)}` span) belongs in a flow-level assert, not here.
             try:
-                _, calls = desugar_calls(a, lambda: "__a")
+                _, directive_calls = desugar_call_directives(a, lambda: "__a")
+                span_callees = flow_call_callees_in_spans(a)
             except ExpressionError:
-                calls = ["(malformed call)"]
-            if calls:
+                directive_calls, span_callees = ["(malformed call)"], []
+            if directive_calls or span_callees:
                 errors.append((
-                    f"node {nid!r} assert {a!r}: an inline `${{call}}` is not allowed in a "
+                    f"node {nid!r} assert {a!r}: an inline call is not allowed in a "
                     f"node-local assert (use a flow-level assert)", line))
                 continue
             # parse-check the boolean grammar at LOAD (located), like flow `classify_asserts`.
             try:
-                _PARSER.parse(a)
-            except LarkError as exc:
+                parse_expr(a)
+            except ExpressionError as exc:
                 errors.append((
                     f"node {nid!r} assert {a!r}: not a valid boolean expression ({exc})", line))
                 continue

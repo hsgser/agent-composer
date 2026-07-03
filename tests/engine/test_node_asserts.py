@@ -53,6 +53,7 @@ def test_reject_pool_head_ref():
 
 
 def test_reject_inline_call_in_node_assert():
+    # the retired `${flow(args)}` span form of an inline call is rejected in a node assert.
     flow = f"""
 id: na
 name: na
@@ -79,6 +80,41 @@ nodes:
     output: int
     asserts:
       - "${{ dbl(n=${{input.v}}) }} >= 0"
+output: ${{x.output}}
+"""
+    with pytest.raises(LoadError, match="inline"):
+        load_flow(flow)
+
+
+def test_reject_call_directive_in_node_assert():
+    # the whole-value `call(...)` directive form of an inline call is also rejected in a
+    # node assert — inline calls belong in a flow-level assert, never node-local.
+    flow = f"""
+id: na
+name: na
+input:
+  v: int
+defs:
+  dbl:
+    input:
+      n: int
+    nodes:
+      y:
+        kind: code
+        code: tests.engine._compose_codefns:double
+        input:
+          n: ${{input.n}}
+        output: int
+    output: ${{y.output}}
+nodes:
+  x:
+    kind: code
+    code: tests.engine._compose_codefns:double
+    input:
+      n: ${{input.v}}
+    output: int
+    asserts:
+      - call(dbl, n=1)
 output: ${{x.output}}
 """
     with pytest.raises(LoadError, match="inline"):

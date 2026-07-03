@@ -31,10 +31,10 @@ def resolve_until(until_src: Any, pool: TypedVariablePool) -> str:
     resolve to ISO strings (returned as-is), a raw `.isoformat()` object is formatted defensively,
     anything else is a loud `ValueError`. Lifted out of `WaitNode` so the engine bind seam can
     pre-resolve `inputs["until"]` for a pure `WaitNode.run`."""
-    from agent_composer.expr import eval_binding, parse_binding
+    from agent_composer.expr import eval_binding
     from agent_composer.expr.expressions import resolve_reference
 
-    val = eval_binding(parse_binding(until_src), lambda path: resolve_reference(path, pool))
+    val = eval_binding(until_src, lambda path: resolve_reference(path, pool))
     if isinstance(val, str):
         return val  # date/datetime are stored/resolved as ISO strings
     if hasattr(val, "isoformat"):  # defensive: a raw date/datetime object

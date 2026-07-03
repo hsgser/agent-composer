@@ -9,6 +9,24 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 ## Engine bugs surfaced but deferred
 
+- [ ] **`and`/`or`/`not`/`in` are not reserved words in the unified `${}` grammar** — the LALR lexer
+  resolves them contextually: in operator position they lex as the keyword token, in operand position as
+  a plain `NAME`/ref. So `${x and and}` parses (the 2nd `and` is a ref named `and`), and bare `${and}`
+  resolves a pool variable named `and`. Consequence: a malformed boolean like `x and and` silently
+  parses instead of erroring, and a variable may shadow a keyword. Harmless today (no one names a var
+  `and`; the condition evaluator is unaffected because it keys off token TYPE), but it weakens
+  malformed-expression detection. Decide whether to reserve `and or not in true false null` as keywords
+  (rejecting them as identifiers) or keep the ergonomic looseness. (Surfaced 2026-07-03 during
+  expr-unification Step 9.)
+
+- [ ] **Prompt strict-floor asymmetry on an explicit `${null}`** — under STRICT_RAISE prompt rendering,
+  a whole-single-span `${null}` (a genuine null VALUE, not a missing ref) RAISES (a prompt can't be
+  None), but the SAME `${null}` embedded in a multi-span prompt (`x ${null} y`) silently stringifies to
+  `""` → `"x  y"`. Missing refs already raise consistently in both single- and multi-span; this only
+  affects an *explicit* null literal (or an expression legitimately computing to null). Pre-existing and
+  narrow. Decide whether an explicit null in a prompt span should raise, render `""`, or render the
+  literal — then make single- and multi-span agree. (Surfaced 2026-07-03 during expr-unification Step 8.)
+
 - [ ] **`tool_calling` structured final turn double-invokes the model** — on the final turn the loop
   calls the model to discover there are no more tool calls (`nodes/agent/modes/tool_calling.py:89`),
   which returns *prose*; `generate_structured` then invokes again to emit the declared shape. Two calls
@@ -27,6 +45,14 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
   helpers.
 
 ## Engine design forks (undecided)
+
+- [x] ~~**`:-` / `:?` RHS: expression vs. legacy bare-literal text.**~~ **DECIDED (2026-07-03): Option A —
+  the RHS of `:-` (default) and `:?` (required message) is a **full expression** under the unified
+  grammar, uniform with everything else inside `${}`. A bare word is a **reference**; a literal must be
+  **quoted** (`${a:-"today"}`, `${a:?"a topic is required"}`). This is an authoring break vs. the legacy
+  binding dialect (which treated the RHS as plain literal text), so the expr-unification codemod now also
+  rewrites every bare `:-`/`:?` RHS to quoted form across the seeds + tests it touches. Landed as part of
+  expr-unification Step 5.
 
 - [ ] **A general flow-local variable scope — needed?** The `loop` node reads its *carried record*
   by **bare name** (`${exited}`) in `until:`/`while:`, consistent with the existing convention that a

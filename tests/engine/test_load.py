@@ -252,7 +252,7 @@ def test_seed19_loads_clean():
     assert sources["claim"] == "${pro.output | con.output}"
     assert sources["detail"] == "${pro_detail.output:-null}"
     assert sources["when"] == "${input.as_of:-${system.today}}"
-    assert sources["topic"] == "${input.topic:?a topic is required}"
+    assert sources["topic"] == '${input.topic:?"a topic is required"}'
 
 
 # --------------------------------------------------------------------------- #

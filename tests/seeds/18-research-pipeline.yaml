@@ -29,14 +29,14 @@ nodes:
     kind: agent
     input:
       topic: ${input.topic}
-      as_of: ${input.as_of:-today}     # :- default — the optional param, else literal today
+      as_of: ${input.as_of:-"today"}     # :- default — the optional param, else literal "today"
     output: str
     prompt: "Summarize ${topic} fundamentals as of ${as_of} in 3 neutral sentences."
   news:
     kind: agent
     input:
       topic: ${input.topic}
-      as_of: ${input.as_of:-today}
+      as_of: ${input.as_of:-"today"}
     output: str
     prompt: "Summarize recent ${topic} news as of ${as_of} in 3 neutral sentences. Keep [n] citations."
   social:

@@ -152,3 +152,109 @@ def test_case_condition_escape_marks_optional():
     a_to_gate = [e for e in flow.edges if e.from_ == "a" and e.to == "gate"]
     assert len(a_to_gate) == 1
     assert a_to_gate[0].optional is True  # `${a.output:-0}` in when: -> optional gate input
+
+
+# --------------------------------------------------------------------------- #
+# item-head edge-skip: a MAP/LOOP body binding `${item[.field]}` is body-local and
+# yields NO data edge (there is no node named `item`), while `${producer.output}` in the
+# SAME body DOES create a producer->consumer edge. Pins `_ref_producer`/`_binding_producers`
+# skipping the `item` head against a silent regression of the edge-DAG builder.
+# --------------------------------------------------------------------------- #
+
+
+def test_item_head_ref_yields_no_edge_but_producer_ref_does():
+    from agent_composer.compose.build import infer_data_edges
+    from agent_composer.compose.parser import parse_nodes
+
+    # A CODE `producer` and a stand-in `mapbody` consumer whose wiring binds both an
+    # `${item.foo}` (body-local) and a `${producer.output}` (a real producer ref). We drive
+    # `infer_data_edges` with the hand-built `flow_wiring` for the consumer (the leaf/MAP
+    # branch reads `flow_wiring[node_id]` verbatim), so this exercises the exact producer
+    # ref-walk the map/loop body inputs go through.
+    descriptors = parse_nodes(
+        {
+            "producer": {
+                "kind": "code",
+                "code": "tests.engine._compose_codefns:score",
+                "input": {"seed": "${input.seed}"},
+                "output": "float",
+            },
+            "mapbody": {
+                "kind": "code",
+                "code": "tests.engine._compose_codefns:cautious",
+                "input": {"v": "${producer.output}"},
+                "output": "str",
+            },
+        }
+    )
+    flow_wiring = {
+        # the map body's per-element sink: `item`-headed refs are body-local (no edge),
+        # `producer.output` is a genuine producer ref (an edge).
+        "mapbody": {"a": "${item}", "b": "${item.foo}", "c": "${producer.output}"},
+    }
+    edges = infer_data_edges(descriptors, flow_wiring)
+    froms = {(e.from_, e.to) for e in edges}
+    assert ("producer", "mapbody") in froms      # the real producer ref makes an edge
+    assert not any(e.from_ == "item" for e in edges)  # `${item[.foo]}` makes NO edge
+    assert "item" not in {e.to for e in edges}
+
+
+# --------------------------------------------------------------------------- #
+# `binding_co_skips` -> edge `optional=` end-to-end (the co-skip contract, "Option A").
+# A binding whose fallback is a REF (a bare ref, `.field` walk, or a `:-<ref>` default) may
+# be absent without failing -> co-skips -> REQUIRED edge. A binding that pins a concrete
+# value or REQUIRES presence (`:-"literal"`, `:-null`, `:?`) does NOT co-skip -> OPTIONAL
+# edge. Pins `emit_for`'s `optional = not binding_co_skips(source)` for each stance.
+# --------------------------------------------------------------------------- #
+
+_COSKIP_STANCE_FLOW = """
+id: coskip_stance
+name: coskip_stance
+input:
+  seed: float
+nodes:
+  a:
+    kind: code
+    code: tests.engine._compose_codefns:score
+    input:
+      seed: ${input.seed}
+    output: float
+  bare:
+    kind: code
+    code: tests.engine._compose_codefns:cautious
+    input:
+      v: ${a.output}
+    output: str
+  ref_default:
+    kind: code
+    code: tests.engine._compose_codefns:cautious
+    input:
+      v: ${a.output:-a.output}
+    output: str
+  lit_default:
+    kind: code
+    code: tests.engine._compose_codefns:cautious
+    input:
+      v: ${a.output:-"fallback"}
+    output: str
+  required:
+    kind: code
+    code: tests.engine._compose_codefns:cautious
+    input:
+      v: ${a.output:?"required"}
+    output: str
+output: ${bare.output}
+"""
+
+
+def test_binding_coskip_sets_edge_optional_per_stance():
+    from agent_composer.compose import load_flow
+
+    flow = load_flow(_COSKIP_STANCE_FLOW).compiled
+    by_to = {e.to: e for e in flow.edges if e.input_group == "v"}
+    # co-skipping bindings (ref fallback) -> REQUIRED (optional False):
+    assert by_to["bare"].optional is False          # a bare ref
+    assert by_to["ref_default"].optional is False   # `:-<ref>` default (ref fallback)
+    # non-co-skipping bindings (concrete/required) -> OPTIONAL (optional True):
+    assert by_to["lit_default"].optional is True    # `:-"literal"` default
+    assert by_to["required"].optional is True       # `:?` required

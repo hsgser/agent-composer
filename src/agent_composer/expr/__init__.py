@@ -1,10 +1,18 @@
-"""Expression + condition evaluation (`${...}` references, `when:` clauses) and the
-`${...}` binding-value template language.
+"""One unified `${...}` expression engine + the template scanner that hosts it.
 
-A leaf both `nodes` (runtime resolve/bind) and `compile` (the compile-time
-reference walk) may import:
-`expressions` is the `when:`/`asserts:` evaluator + pool resolution; `template` is the
-binding-value parser/evaluator (parse → AST → typed value | stringified embed).
+The engine is three layers, all pool-agnostic (they take a `resolve` callable):
+- `grammar` (`parse_expr`) — PARSE ONLY: one Lark grammar for every `${...}`
+  construct (refs, arithmetic, boolean, coalesce/default/required, builtin calls).
+- `expressions` (`eval_expr`, `expr_refs`) — evaluate a parsed tree against a
+  `resolve`, and the compile-time reference-leaf walk over the same tree. Also the
+  `when:`/`asserts:` condition surface (`evaluate_when`, `first_failing_assert`)
+  and pool resolution (`resolve_reference`).
+- `template` — the binding/prompt scanner: splits a value into text + `${...}`
+  spans, then drives the engine per span (`eval_binding`, `eval_template`,
+  `expr_refs_of`, `prompt_refs`, `render_template_record`, `scan_template`).
+
+Flow invocation is NO LONGER a `${...}` construct — it is the compile-time
+whole-value `call(...)` directive (in `compose.calls`), not part of this engine.
 
 Knows about:   `state` (the pool, in `expressions`).
 Never imports: `nodes`, `compile`, `runtime`, `suspension` (they import IT).
@@ -12,34 +20,38 @@ Never imports: `nodes`, `compile`, `runtime`, `suspension` (they import IT).
 
 from agent_composer.expr.expressions import (
     ExpressionError,
+    RequiredError,
+    eval_expr,
     evaluate_when,
+    expr_refs,
     first_failing_assert,
     resolve_reference,
 )
+from agent_composer.expr.grammar import parse_expr
 from agent_composer.expr.template import (
-    InlineCall,
-    RequiredError,
     binding_co_skips,
-    binding_refs,
-    desugar_calls,
     eval_binding,
-    parse_binding,
+    eval_template,
+    expr_refs_of,
     prompt_refs,
     render_template_record,
+    scan_template,
 )
 
 __all__ = [
     "ExpressionError",
-    "InlineCall",
     "RequiredError",
     "binding_co_skips",
-    "binding_refs",
-    "desugar_calls",
     "eval_binding",
+    "eval_expr",
+    "eval_template",
     "evaluate_when",
+    "expr_refs",
+    "expr_refs_of",
     "first_failing_assert",
-    "parse_binding",
+    "parse_expr",
     "prompt_refs",
     "render_template_record",
     "resolve_reference",
+    "scan_template",
 ]

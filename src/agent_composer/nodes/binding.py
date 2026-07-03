@@ -12,7 +12,7 @@ A MAP body binds a per-element `item` scope: `${item}` / `${item.path}` resolve 
 element passed via the `item=` kwarg (a body-local scope, NOT a pool head). The default (`item`
 unset) is the ordinary non-MAP bind path.
 
-Imports `expr` (parse_binding / eval_binding / resolve_reference) + `state` (shape_for /
+Imports `expr` (eval_binding / resolve_reference) + `state` (shape_for /
 build_segment_with_type); both sit below/beside `nodes` in the layer ladder.
 """
 
@@ -27,7 +27,6 @@ from agent_composer.expr import (
     ExpressionError,
     RequiredError,
     eval_binding,
-    parse_binding,
     resolve_reference,
 )
 from agent_composer.state import SegmentError, Shape, build_segment_with_type, shape_for
@@ -88,8 +87,7 @@ def _resolve_source(source: Any, pool: TypedVariablePool, item: Any = None) -> A
     if not isinstance(source, str):
         return source
     try:
-        segments = parse_binding(source)
-        return eval_binding(segments, lambda path: resolve_reference(path, pool), item)
+        return eval_binding(source, lambda path: resolve_reference(path, pool), item)
     except (RequiredError, ExpressionError) as exc:
         raise BindingError(str(exc)) from exc
 

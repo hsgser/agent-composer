@@ -1,26 +1,26 @@
 import pytest
 
-from agent_composer.expr.template import parse_binding, _check_path
+from agent_composer.expr.grammar import parse_expr
 from agent_composer.expr.expressions import ExpressionError
 from agent_composer.compose.cases import _CASE_OUTPUT_INTERIOR
 
 
 def test_namespaced_path_parses():
     # a namespaced expansion ref: ${each#0/score.output.output} must parse (no ExpressionError)
-    parse_binding("${each#0/score.output.output}")
-    parse_binding("${a/b.output.output}")
-    _check_path("each#0/score.output")
-    _check_path("a/b.output")
+    parse_expr("each#0/score.output.output")
+    parse_expr("a/b.output.output")
+    parse_expr("each#0/score.output")
+    parse_expr("a/b.output")
 
 
 def test_existing_dotted_paths_still_parse():
-    parse_binding("${research.output.report}")
-    _check_path("outputs.research.report")
+    parse_expr("research.output.report")
+    parse_expr("outputs.research.report")
 
 
 def test_genuinely_bad_path_still_rejected_unchanged():
-    with pytest.raises(ExpressionError, match="malformed reference path"):
-        _check_path("a..b")          # empty segment still bad
+    with pytest.raises(ExpressionError, match="could not parse expression"):
+        parse_expr("a..b")          # empty segment still bad
 
 
 def test_case_output_interior_accepts_separators():

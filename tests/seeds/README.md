@@ -74,11 +74,11 @@ Per kind, the flat fields are: **agent** → `prompt` (+ future tools/mode/llm_c
 `call:` + `over:` + `input:` (+ `parallel:`) — `List.map` over the `over:` list, `${item}` per
 element; **case** → `cases:` + `else:` (+ `on:`). `model` / `tool` land in the next batch.
 
-A `call` also has an **inline form** — `${ f(arg=${ref}, k=lit) }` written inside any binding
+A `call` also has an **inline form** — `call(f, arg=${ref}, k=lit)` written as the whole value of any binding
 (a node input, a TOOL `arg:`, a `map`'s `over:`, a flow output). It is sugar: it desugars
 **at load** into an anonymous `call` node and the host binding becomes `${<that node>.output}`.
 Keyword args only; each arg value is a full binding (a `${…}` ref/coalesce, else a YAML-scalar
-literal); a nested `${ g(…) }` arg desugars inner-first. It cannot capture `${item}` (the synth
+literal); a nested `call(g, …)` arg desugars inner-first. It cannot capture `${item}` (the synth
 node has no map-element scope — use a named `map` node with `over:`). Seed 21.
 
 ## Declarations are native YAML — source side = types, sink side = bindings
@@ -170,16 +170,21 @@ named record is **type-checked at compile time** (`${analyze.output.rating.categ
 | `${system.X}` | host-ambient (run id / clock / tenant); reserved |
 | `${name}` (bare) | **inside an AGENT prompt or a `case` `when:`** — that node's own declared input `name` |
 
-**Operator forms** inside `${…}` (bash/Compose family + our coalesce):
+**Operator forms** inside `${…}` — one expression grammar (arithmetic + our coalesce):
 
 | Form | Means |
 |---|---|
+| `${a + b}`, `${a * b + 1}` | arithmetic — `+ - * / % **`, unary minus |
+| `${a == b}`, `${x in [1, 2]}` | comparisons / membership / `and`/`or`/`not` |
+| `${[a, b]}`, `${upper(x)}` | list literal / pure builtin call |
 | `${X:-default}` | value, else `default` if X is null/absent |
-| `${X:?err}` | value, else **fail** with message `err` (required) |
+| `${X:?"err"}` | value, else **fail** with the literal message `err` (required; quote it) |
 | `${a \| b \| c}` | first-present among **peers** — n-ary coalesce (branch-joins) |
-| `$$` | a literal `$` (escape; not interpolated) |
+| `$$` | a literal `$` (universal escape — in a prompt `$$` renders a single `$`) |
 
-Nesting is allowed: `${a:-${b:-lit}}`. Rule of thumb: `:-` for *value-or-default*, `|` for
+Nesting a ref is allowed: `${a:-${b:-"lit"}}`. The `:-`/`:?` RHS is an
+expression, so a **string** default must be quoted (`${x:-"today"}`; bare
+`today` reads a variable). Rule of thumb: `:-` for *value-or-default*, `|` for
 *whichever-ran*.
 
 **Whole-string vs embedded:** a value that is *exactly* `${ref}` resolves to the **typed** value
@@ -196,11 +201,13 @@ maps, and for any record/payload with a generic-typed field. (Quoted values — 
 
 ## Three expression contexts
 
-| Context | Grammar |
+One `${…}` grammar; the context decides what happens to the result:
+
+| Context | What it does |
 |---|---|
-| **Bindings** (`input:`/`output:` values) | `${ref}` / literal / `:-` `:?` / `\|`. **No arithmetic** — transforms go in nodes. |
-| **`when:` / `asserts:`** | boolean (`== != < <= > >= in not in`, `and`/`or`/`not`, parens) over operands that may use **simple arithmetic** (`+ - * / %`, parens, unary minus). Numbers only; **no function calls**. |
-| **Prompts** | free text with embedded `${name}` (stringified). |
+| **Bindings** (`input:`/`output:` values) | **evaluated** to a typed value — refs / literals / arithmetic / lists / `:-` `:?` / `\|` / pure builtins. (A child-flow call is the whole-value `call(…)` directive, not a `${…}` span.) |
+| **`when:` / `asserts:`** | **tested** as a boolean — `== != < <= > >= in not in`, `and`/`or`/`not`, parens, arithmetic operands. Bare or `${…}`-wrapped are equivalent. |
+| **Prompts** | free text with embedded `${…}` spans (each stringified). |
 
 "Bindings wire, conditions test, nodes compute."
 
@@ -314,9 +321,9 @@ nodes:
 | `18-research-pipeline.yaml` | **(DRAFT)** realistic end-to-end — fan-out reviewers → typed-`View` synth → `case … on` stance → multi-output + `asserts:` |
 | `19-binding-stances.yaml` | **(DRAFT/proposed)** every input-binding stance — required (plain, co-skip) / optional (`:-`) / branch-join (`\|`) / fail-loud (`:?`); pins the **per-input readiness** model (review-doc CC3 / Problem 2) |
 | `20-call-defs.yaml` | a `call:` resolving to an in-file `defs:` callable (a multi-node sub-flow inline) — `defs:` section + `call` defs-first; loads resolver-free |
-| `21-inline-call.yaml` | an INLINE `${ enrich(topic=${input.topic}) }` call expression — desugars to a synth `call` node on the in-file def; loads resolver-free |
+| `21-inline-call.yaml` | an INLINE `call(enrich, topic=${input.topic})` call directive — desugars to a synth `call` node on the in-file def; loads resolver-free |
 | `22-case-value.yaml` | the **value-case**: `output: ${gate.output}` = the taken branch's value (desugars to the branch coalesce — seed 02's hand-written join) |
-| `23-asserts-scopes.yaml` | **asserts at every scope**: FLOW (boundary/post + a span-wrapped inline `${ call(...) }`), DEF-child (a `defs:` callable's `asserts:`, enforced at the call seam), and NODE (per-node contract — `${name}` PRE, `${output}` POST) |
+| `23-asserts-scopes.yaml` | **asserts at every scope**: FLOW (boundary/post + a named `call` node's `.output` in a flow assert), DEF-child (a `defs:` callable's `asserts:`, enforced at the call seam), and NODE (per-node contract — `${name}` PRE, `${output}` POST) |
 
 Every node kind (AGENT/CODE/MODEL/TOOL/call/case) and every settled convention appears in
 at least one seed; the effects (`HUMAN_INPUT`/`WAIT`) are **pinned as a DRAFT proposal**

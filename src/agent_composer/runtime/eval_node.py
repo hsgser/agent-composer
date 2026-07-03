@@ -38,7 +38,7 @@ from agent_composer.events import (
     PauseRequested,
     SourceSpan,
 )
-from agent_composer.expr import eval_binding, parse_binding, resolve_reference
+from agent_composer.expr import eval_binding, resolve_reference
 from agent_composer.expr.expressions import _evaluate, _resolve_in_record
 from agent_composer.nodes.base import Enqueue, NodeKind, Output, Pause
 from agent_composer.nodes.binding import bind_params
@@ -77,7 +77,7 @@ def eval_node(node, flow, pool: TypedVariablePool):
             record["until"] = resolve_until(node_wiring["until"], pool)
         if over_mode:
             over_src = node_wiring["over"]
-            items = eval_binding(parse_binding(over_src), lambda p: resolve_reference(p, pool))
+            items = eval_binding(over_src, lambda p: resolve_reference(p, pool))
             if items is None or not isinstance(items, list):
                 raise RuntimeError(
                     f"MAP node {node.id!r}: `over` ({over_src}) did not resolve to a list"

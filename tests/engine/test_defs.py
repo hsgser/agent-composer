@@ -663,7 +663,7 @@ nodes:
     kind: call
     call: child
     input:
-      topic: ${input.x:-safe}
+      topic: ${input.x:-"safe"}
 output: ${go.output}
 """
 

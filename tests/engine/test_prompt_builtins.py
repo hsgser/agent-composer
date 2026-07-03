@@ -14,8 +14,10 @@ The feature is prompt-only: it mints no graph node or edge (see agent-compose-pr
 import pytest
 
 from agent_composer.compose import LoadError, load_flow
-from agent_composer.expr import ExpressionError, prompt_refs, render_template_record
+from agent_composer.expr import ExpressionError, eval_binding, prompt_refs, render_template_record
+from agent_composer.expr import grammar
 from agent_composer.expr.builtins import register_template_fn
+from agent_composer.expr.expressions import ResolveMode, eval_expr
 
 _REC = {"briefs": ["ab", "adf"], "name": "zeta", "sig": {"value": 0.8}}
 
@@ -47,6 +49,23 @@ def test_dotted_access_on_call_result():
     assert render_template_record("${_mkrec(${name}).field}", _REC) == "F-zeta"
 
 
+# --- render: unified-expression spans (new grammar) -------------------------- #
+
+
+def test_arithmetic_in_a_prompt_span():
+    # NEW under the unified engine: a `${}` span is a full expression, so arithmetic
+    # over a ref renders its computed value, stringified (the old prompt grammar had no
+    # arithmetic — a span was a plain ref or a builtin call only).
+    assert render_template_record("total ${a + 1}", {"a": 4}) == "total 5"
+
+
+def test_dollar_dollar_renders_single_dollar():
+    # INTENTIONAL, LOCKED change: the legacy renderer emitted `$$` verbatim; the unified
+    # scanner collapses `$$` -> a single `$` everywhere (the universal escape). A prompt
+    # containing `$$` now renders one `$`.
+    assert render_template_record("cost is $$5", {}) == "cost is $5"
+
+
 # --- render: error floor ----------------------------------------------------- #
 
 
@@ -55,10 +74,12 @@ def test_unknown_builtin_raises():
         render_template_record("${frobnicate(${name})}", _REC)
 
 
-def test_bare_unwrapped_ref_arg_raises():
-    # a record reference MUST be `${...}`-wrapped; a bare word is neither ref nor literal.
-    with pytest.raises(ExpressionError):
-        render_template_record("${render_as_json(briefs)}", _REC)
+def test_bare_word_arg_is_a_ref_option_a():
+    # Option A: inside `${}` a BARE word is a REFERENCE (literals must be quoted). So a
+    # bare call arg resolves against the record — the old "bare word is neither ref nor
+    # literal -> raise" rule is gone. `${...}`-wrapping a ref still works (see below).
+    out = render_template_record("${render_as_json(briefs, 4)}", _REC)
+    assert out == '[\n    "ab",\n    "adf"\n]'
 
 
 def test_arg_ref_strict_on_missing():
@@ -70,6 +91,24 @@ def test_dotted_access_miss_raises():
     register_template_fn("_mkrec")(lambda x: {"field": f"F-{x}"})
     with pytest.raises(ExpressionError):
         render_template_record("${_mkrec(${name}).nope}", _REC)
+
+
+def test_multi_span_plain_ref_dotted_miss_raises():
+    # A dotted miss on a PLAIN ref embedded in surrounding text must raise (never render
+    # "") — the strict-prompt no-silent-blank floor for the multi-span concat path.
+    with pytest.raises(ExpressionError):
+        render_template_record("x ${sig.nope} y", _REC)
+
+
+def test_multi_span_call_result_dotted_miss_raises():
+    # THE STEP-8 GAP: a dotted miss on a builtin-CALL result embedded in surrounding text.
+    # It used to leak a plain `None` that the multi-span concat stringified to "" (a silent
+    # blank). The shared evaluator now yields the `_MISSING` sentinel for a call-result
+    # dotted miss too, so STRICT_RAISE raises for both single AND multi span.
+    register_template_fn("_mkrec")(lambda x: {"field": f"F-{x}"})
+    with pytest.raises(ExpressionError):
+        render_template_record("x ${_mkrec(${name}).nope} y", _REC)
+
 
 
 # --- render: plain-ref regression (the pre-builtin behavior is unchanged) ----- #
@@ -141,3 +180,44 @@ def test_loader_rejects_unknown_builtin():
     with pytest.raises(LoadError) as exc:
         load_flow(_FLOW.format(call="${frobnicate(${topic})}"))
     assert "frobnicate" in str(exc.value)
+
+
+# --- mode interaction: a call-result dotted miss is `_MISSING`, not a raise, in the
+# non-strict modes (only STRICT_RAISE raises). These pin that the shared-evaluator fix
+# (call-result miss -> `_MISSING`) does NOT regress binding coalesce / condition falsy. --- #
+
+
+def _record_resolve(record):
+    """A dotted-walk `resolve` over a record (miss -> None), the seam `eval_expr` takes."""
+
+    def resolve(path):
+        parts = path.split(".")
+        value = record.get(parts[0])
+        for step in parts[1:]:
+            value = value.get(step) if isinstance(value, dict) else None
+        return value
+
+    return resolve
+
+
+def test_binding_coalesce_call_result_miss_falls_through():
+    # BINDING_NONE: `${call().field | fallback}` — the call-result dotted miss coalesces to
+    # the fallback (it does NOT raise). The `_MISSING` sentinel is "absent" to coalesce.
+    register_template_fn("_mkrec")(lambda x: {"field": f"F-{x}"})
+    out = eval_binding("${_mkrec(${name}).nope | 'fallback'}", _record_resolve(_REC))
+    assert out == "fallback"
+
+
+def test_binding_default_call_result_miss_supplies_default():
+    # BINDING_NONE: `${call().field :- "x"}` — the default fires on a call-result dotted miss.
+    register_template_fn("_mkrec")(lambda x: {"field": f"F-{x}"})
+    out = eval_binding('${_mkrec(${name}).nope :- "x"}', _record_resolve(_REC))
+    assert out == "x"
+
+
+def test_condition_call_result_miss_stays_falsy():
+    # CONDITION_FALSY: a `when:`-style comparison over a call-result dotted miss stays False
+    # (missing -> falsy), it does NOT raise — so `default` routing can still fire.
+    register_template_fn("_mkrec")(lambda x: {"field": f"F-{x}"})
+    tree = grammar.parse_expr("_mkrec(${name}).nope == 1")
+    assert eval_expr(tree, _record_resolve(_REC), mode=ResolveMode.CONDITION_FALSY) is False
