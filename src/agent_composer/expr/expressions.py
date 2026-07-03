@@ -373,8 +373,8 @@ class _EvalExpr:
 
     def _reference(self, path: str) -> Any:
         """Resolve a dotted reference path. An `item`-headed path walks the MAP-body
-        `item` scope locally (dict-only — mirrors `template._resolve_path`'s item branch);
-        every other path is handed WHOLE to `resolve` (the pool-agnostic seam — the
+        `item` scope locally (dict-only — see `_dotted_step`); every other path is
+        handed WHOLE to `resolve` (the pool-agnostic seam — the
         resolver owns the dotted walk, exactly as `resolve_reference` / `_resolve_in_record`
         do today). A miss (`item` miss, or `resolve` -> None) yields `_MISSING`."""
         parts = path.split(".")
