@@ -107,7 +107,7 @@ appears — bindings, conditions, prompts. Inside it you may write:
 | `${[a, b, c]}` | a list literal (elements are themselves expressions) |
 | `${upper(name)}`, `${join(items, ", ")}` | a pure builtin call (with dotted access on the result: `${fn(x).field}`) |
 | `${X:-default}` | value, else `default` if absent |
-| `${X:?msg}` | required — fail with `msg` if absent |
+| `${X:?"msg"}` | required — fail with the literal `msg` if absent (quote the message) |
 | `${a \| b \| c}` | first present among peers (n-ary coalesce — for branch joins) |
 | `$$` | a literal `$` (the scanner's universal escape — outside a span; in a prompt `$$` renders a single `$`) |
 

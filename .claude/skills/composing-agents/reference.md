@@ -42,7 +42,7 @@ One expression grammar, everywhere `${...}` appears:
 | `${a == b}`, `${x in [1, 2]}` | comparisons / membership / `and`/`or`/`not` |
 | `${[a, b]}`, `${upper(x)}` | list literal / pure builtin call |
 | `${X:-default}` | value, else `default` if absent |
-| `${X:?msg}` | required — fail with `msg` if absent |
+| `${X:?"msg"}` | required — fail with the literal `msg` if absent (quote the message) |
 | `${a \| b \| c}` | first present among peers — **the branch-join coalesce** |
 | `$$` | a literal `$` (universal escape — in a prompt `$$` renders a single `$`) |
 

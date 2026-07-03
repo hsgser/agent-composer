@@ -72,6 +72,14 @@ _None currently open — recently shipped CLI items are archived in [DONE.md](DO
   `test_expr_grammar.py` + `grammar.py` ("C1" fix). Replace each with plain-language description.
   (`test_inline_calls.py` already cleaned during Step 15.)
 
+- [ ] **(low) `${x:?msg}` required-message test passes for the wrong reason** — with the unified
+  grammar the `:?` RHS is an expression: a bare multi-word message (`${x:?a topic required}`) is a
+  parse error, and a bare single word reads a *variable* (message lost as `None`); only a *quoted*
+  message (`${x:?"..."}`) reaches `RequiredError` intact. `test_required_operator_fails_loud_when_unbound`
+  asserts the message text appears, but for a bare message it only appears because the raw source is
+  echoed inside the wrapped parse-error string — a false green. Tighten the test to use a quoted
+  message and assert the `RequiredError` payload, not the source echo.
+
 ## Open bugs / known issues
 
 _None currently open — recently fixed items are archived in [DONE.md](DONE.md)._

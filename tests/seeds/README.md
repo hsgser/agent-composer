@@ -178,7 +178,7 @@ named record is **type-checked at compile time** (`${analyze.output.rating.categ
 | `${a == b}`, `${x in [1, 2]}` | comparisons / membership / `and`/`or`/`not` |
 | `${[a, b]}`, `${upper(x)}` | list literal / pure builtin call |
 | `${X:-default}` | value, else `default` if X is null/absent |
-| `${X:?err}` | value, else **fail** with message `err` (required) |
+| `${X:?"err"}` | value, else **fail** with the literal message `err` (required; quote it) |
 | `${a \| b \| c}` | first-present among **peers** — n-ary coalesce (branch-joins) |
 | `$$` | a literal `$` (universal escape — in a prompt `$$` renders a single `$`) |
 

@@ -108,7 +108,7 @@ text it is **stringified**.
 | `${a == b}`, `${x in [1, 2]}` | comparisons / membership / `and`/`or`/`not` |
 | `${[a, b]}`, `${upper(x)}` | list literal / pure builtin call |
 | `${X:-default}` | value, else `default` if absent |
-| `${X:?msg}` | required — fail with `msg` if absent |
+| `${X:?"msg"}` | required — fail with the literal `msg` if absent (quote the message) |
 | `${a \| b \| c}` | first present among peers — **the branch-join coalesce** |
 | `$$` | a literal `$` (universal escape — in a prompt `$$` renders a single `$`) |
 
@@ -347,5 +347,5 @@ result. For a *guaranteed* gate use `human_input`; for "ask only if needed" use
 - [ ] Every prompt references only the node's own local input names.
 - [ ] Each `case` has an `else:` (or its `Literal` cases are exhaustive); branches are joined with `|`.
 - [ ] `tool` ids are registered; `code` `module:function` is importable; `call`/`uses:` targets resolve on the search path.
-- [ ] A child-flow call is written `call(f, ...)` as a whole value, never `${flow(args)}`; string `:-` defaults are quoted.
+- [ ] A child-flow call is written `call(f, ...)` as a whole value, never `${flow(args)}`; string `:-` defaults and `:?` messages are quoted.
 - [ ] It loads cleanly (`ac run` / `load_flow`) before you wire a model.
