@@ -1,7 +1,7 @@
-# 21 — inline ${ f(...) } call expression: function-call syntax inside a binding.
+# 21 — inline call(f, ...) directive: a flow call written as a binding's whole value.
 #
-# An inline call is SUGAR: `${ enrich(topic=${input.topic}) }` written in a node
-# input desugars AT LOAD into an anonymous `call` node (kind: call), and the host
+# An inline call is SUGAR: `call(enrich, topic=${input.topic})` written as a node
+# input's whole value desugars AT LOAD into an anonymous `call` node (kind: call), and the host
 # binding becomes `${<synth>.output}` — pure surface sugar, no new runtime kind. It
 # is the applicative form of seed 20's named `call` node: write `f x` inline instead
 # of declaring a separate node for it. Shows: an inline call in a node input, keyword
@@ -34,10 +34,10 @@ nodes:
   summary:
     kind: agent
     input:
-      # INLINE call: desugars to a synth `call` node (call: enrich) whose value
+      # INLINE call directive: desugars to a synth `call` node (call: enrich) whose value
       # (list[str] of headlines) this input then binds — equivalent to declaring a
       # separate `kind: call` node and referencing ${<that node>.output}.
-      news: ${ enrich(topic=${input.topic}) }
+      news: call(enrich, topic=${input.topic})
     output: str
     prompt: |-
       Summarize these headlines in one neutral sentence (no recommendations):

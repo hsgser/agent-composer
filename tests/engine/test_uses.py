@@ -181,7 +181,7 @@ def test_defs_uses_collision():
 
 
 # --------------------------------------------------------------------------- #
-# uses∩node-id guard + eager uses resolution + inline ${alias()}
+# uses∩node-id guard + eager uses resolution + inline call(alias, ...)
 # --------------------------------------------------------------------------- #
 
 
@@ -214,7 +214,7 @@ def test_inline_call_routes_through_uses_arm():
         "id: f\nname: f\ninput: {x: str}\n"
         "nodes:\n"
         "  a: {kind: code, code: tests.seeds.fns:one_line_summary, "
-        "input: {x: \"${ mom(x=inputs.x) }\"}}\n"
+        "input: {x: \"call(mom, x=inputs.x)\"}}\n"
         "output: {y: \"${a.output}\"}\nuses:\n  mom: library/relevance@v1\n"
     )
     load_flow(text, child_resolver=_fake_resolver(seen))

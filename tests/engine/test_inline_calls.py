@@ -169,7 +169,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{input.topic}}) }}
+      topic: call(enrich, topic=${{input.topic}})
     output: str
 output: ${{use.output}}
 """
@@ -193,7 +193,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic="HARDCODED") }}
+      topic: call(enrich, topic="HARDCODED")
     output: str
 output: ${{use.output}}
 """
@@ -219,7 +219,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{y.output}}) }}
+      topic: call(enrich, topic=${{y.output}})
     output: str
 output: ${{use.output}}
 """
@@ -266,7 +266,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ outer(topic=${inner(topic=${input.topic})}) }
+      topic: call(outer, topic=call(inner, topic=${input.topic}))
     output: str
 output: ${use.output}
 """
@@ -292,7 +292,7 @@ nodes:
     input:
       topic: ${{input.topic}}
     output: str
-output: ${{ enrich(topic=${{seed.output}}) }}
+output: call(enrich, topic=${{seed.output}})
 """
     loaded = load_flow(text)
     assert "__call_0" in loaded.compiled.nodes
@@ -328,7 +328,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ ext_flow(topic=${input.topic}) }
+      topic: call(ext_flow, topic=${input.topic})
     output: str
 output: ${use.output}
 """
@@ -385,7 +385,7 @@ nodes:
     call: one
     over: ${input.topics}
     input:
-      topic: ${ wrap(t=${item}) }
+      topic: call(wrap, t=${item})
 output: ${each.output}
 """
     with pytest.raises(LoadError) as exc:
@@ -429,7 +429,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(30) }}
+      topic: call(enrich, 30)
     output: str
 output: ${{use.output}}
 """
@@ -473,7 +473,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic="hi ${{input.name}}") }}
+      topic: call(enrich, topic="hi ${{input.name}}")
     output: str
 output: ${{use.output}}
 """
@@ -504,7 +504,7 @@ nodes:
     input:
       topic: ${{input.topic}}
     output: str
-output: ${{ enrich(30) }}
+output: call(enrich, 30)
 """
     with pytest.raises(LoadError) as exc:
         load_flow(text)
@@ -516,7 +516,7 @@ def test_inline_call_in_tool_args_desugars():
     # the ToolDescriptor `args:` branch (distinct from `inputs:`) desugars too. Unit-level
     # (a real TOOL run needs a registered tool); asserts the synth node + rewrite.
     descriptors = {
-        "t": ToolDescriptor(id="t", tool_id="some_tool", args={"q": "${ enrich(x=${input.k}) }"})
+        "t": ToolDescriptor(id="t", tool_id="some_tool", args={"q": "call(enrich, x=${input.k})"})
     }
     new_descriptors, _, _ = desugar_inline_calls(descriptors, "${t.output}")
     assert new_descriptors["t"].args["q"] == "${__call_0.output}"
@@ -559,7 +559,7 @@ nodes:
   each:
     kind: map
     call: one
-    over: ${ producelist(xs=${input.topics}) }
+    over: call(producelist, xs=${input.topics})
     input:
       topic: ${item}
 output: ${each.output}
@@ -584,13 +584,13 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{input.topic}}) }}
+      topic: call(enrich, topic=${{input.topic}})
     output: str
   b:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{input.topic}}) }}
+      topic: call(enrich, topic=${{input.topic}})
     output: str
 output:
   ra: ${{a.output}}
@@ -631,7 +631,7 @@ defs:
         kind: code
         code: tests.engine._compose_codefns:echo
         input:
-          topic: ${ helper(topic=${input.topic}) }
+          topic: call(helper, topic=${input.topic})
         output: str
     output: ${y.output}
 nodes:
@@ -658,7 +658,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ nope(x=${input.topic}) }
+      topic: call(nope, x=${input.topic})
     output: str
 output: ${use.output}
 """
@@ -699,7 +699,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ enrich(topic=${num.output}) }
+      topic: call(enrich, topic=${num.output})
     output: str
 output: ${use.output}
 """

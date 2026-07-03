@@ -392,7 +392,7 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${ passthru(v=${gate.output}) }
+      topic: call(passthru, v=${gate.output})
     output: str
 output: ${wrap.output}
 """
@@ -400,7 +400,7 @@ output: ${wrap.output}
 
 def test_case_value_in_inline_call_arg_runs():
     # the desugar ordering contract: an inline call arg reading a case value
-    # (${ passthru(v=${gate.output}) }) desugars to a synth call whose arg is then
+    # (call(passthru, v=${gate.output})) desugars to a synth call whose arg is then
     # expanded to the branch coalesce. If expansion missed the synth node, ${gate.output}
     # would resolve to null (a case writes no value) and the run would be wrong.
     loaded = load_flow(_INLINE_INTO_CASE)
