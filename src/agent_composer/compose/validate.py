@@ -31,8 +31,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from lark.exceptions import LarkError
-
 from agent_composer.compile.model import Edge
 from agent_composer.compile.validation import (
     FlowValidationError,
@@ -46,7 +44,7 @@ from agent_composer.expr import (
     expr_refs_of,
     prompt_refs,
 )
-from agent_composer.expr.expressions import _PARSER
+from agent_composer.expr.grammar import parse_expr
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node, NodeKind
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
@@ -424,8 +422,8 @@ def validate_node_asserts(
                 continue
             # parse-check the boolean grammar at LOAD (located), like flow `classify_asserts`.
             try:
-                _PARSER.parse(a)
-            except LarkError as exc:
+                parse_expr(a)
+            except ExpressionError as exc:
                 errors.append((
                     f"node {nid!r} assert {a!r}: not a valid boolean expression ({exc})", line))
                 continue

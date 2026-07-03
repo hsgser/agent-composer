@@ -482,7 +482,9 @@ Three places take expressions, with different power:
   and `|`. **No arithmetic** — transforms belong in nodes.
 - **`when:` / `asserts:`**: boolean expressions — `== != < <= > >=`, `in` /
   `not in`, `and` / `or` / `not`, parentheses, over operands that may use
-  arithmetic (`+ - * / %`). No function calls.
+  arithmetic (`+ - * / %`). No function calls. A condition may be written bare
+  (`a.output > 5`), with braces on a ref (`${a.output} > 5`), or with braces around
+  the whole expression (`${a.output > 5}`) — all three are equivalent.
 - **Prompts**: free text with embedded bare `${name}` (stringified).
 
 > Bindings wire, conditions test, nodes compute.

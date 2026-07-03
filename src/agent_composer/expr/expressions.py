@@ -5,9 +5,10 @@ resolution now goes through `TypedVariablePool.resolve`, so it reads typed
 segments (and can traverse into object outputs — `${x.output.output.ratio}` —
 which the old dict-of-str pool could not).
 
-Grammar: comparisons (`==` `!=` `<` `<=` `>` `>=` `in` `not in`) over `${...}`
-references and literals, combined with `and` / `or` / `not` and parentheses.
-A bare reference with no comparison operator is rejected.
+Grammar: comparisons (`==` `!=` `<` `<=` `>` `>=` `in` `not in`) and arithmetic over
+references and literals, combined with `and` / `or` / `not` and parentheses. Conditions
+route through the ONE unified engine (`grammar.parse_expr` + `eval_expr`); a bare
+reference with no comparison operator is a truthiness test (not an error).
 """
 
 import re
@@ -15,7 +16,6 @@ from enum import Enum
 from typing import Any, Callable
 
 from lark import Lark, Token, Transformer, Tree
-from lark.exceptions import LarkError, VisitError
 
 from agent_composer.state.pool import TypedVariablePool
 
@@ -270,41 +270,67 @@ class _Evaluator(Transformer):
 _PARSER = Lark(_GRAMMAR, parser="lalr", maybe_placeholders=False)
 
 
+_WHOLE_SPAN_RE = re.compile(r"^\$\{(.*)\}$", re.DOTALL)
+
+
+def _parse_condition(expression: str) -> "Tree | Token":
+    """Parse an expression-field value (`when:`/`on:`/an `asserts:` entry) via the ONE
+    unified grammar, honouring the both-spellings entry rule.
+
+    An expression field may be written three ways, all of which must PARSE (and later
+    evaluate) IDENTICALLY:
+      - a bare expression `a > 5` (no braces) — canonical,
+      - a legacy `${a} > 5` (braces around a ref, operators outside),
+      - a whole `${a > 5}` (braces around the whole expression).
+    If the WHOLE trimmed value is a single `${...}` span, strip the outer braces and
+    parse the interior; otherwise parse the whole value directly. The grammar's ref atom
+    already admits a `${...}`-wrapped ref, so the mixed `${a} > 5` form parses as-is.
+    """
+    from agent_composer.expr.grammar import parse_expr
+
+    text = expression.strip()
+    m = _WHOLE_SPAN_RE.match(text)
+    # A whole-span `${...}` with no unescaped `}` inside strips to its interior; a value
+    # with an interior `}` (e.g. `${a} > 5`) is NOT a single span and parses whole.
+    if m is not None and "}" not in m.group(1):
+        return parse_expr(m.group(1))
+    return parse_expr(text)
+
+
 def _evaluate(expression: str, resolve: Callable[[str], Any]) -> bool:
-    """Parse + evaluate a `when:` expression, resolving each `${ref}` via `resolve`."""
-    try:
-        tree = _PARSER.parse(expression)
-    except LarkError as exc:
-        raise ExpressionError(
-            f"could not parse `when:` expression {expression!r}: must be one or more "
-            f"comparisons combined with and/or/not. {exc}"
-        ) from exc
-    try:
-        result = _Evaluator(resolve).transform(tree)
-    except VisitError as exc:
-        if isinstance(exc.orig_exc, ExpressionError):
-            raise exc.orig_exc from None
-        raise ExpressionError(str(exc.orig_exc)) from exc.orig_exc
-    if isinstance(result, bool):
-        return result
-    raise ExpressionError(f"expression {expression!r} did not evaluate to a boolean")
+    """Parse + evaluate a `when:`/`asserts:` expression on the UNIFIED engine, resolving
+    each reference via `resolve`; the result is coerced to `bool`.
+
+    Runs the unified `eval_expr` in `CONDITION_FALSY` mode — a missing reference is `None`
+    (falsy through comparisons, the LOCKED `when:` missing->falsy contract that `case default`
+    routing depends on). The truthiness fold of `and`/`or` (unified) is coerced back to a
+    plain `bool` here, so a `when:`/`asserts:` predicate always yields a boolean.
+    """
+    tree = _parse_condition(expression)
+    return bool(eval_expr(tree, resolve, mode=ResolveMode.CONDITION_FALSY))
 
 
 def evaluate_when(expression: str, pool: TypedVariablePool) -> bool:
     """
     Evaluate a `when:` boolean expression against the variable pool.
 
-    Parses and folds the expression — comparisons (`==` `!=` `<` `<=` `>` `>=` `in`
-    `not in`) over `${...}` references and literals, combined with `and` / `or` / `not`
-    — to a single boolean. This is the pool-based path, kept for manifest parse-checks and
-    the deferred LOOP `while:` predicate seam; strict `CASE` uses the record-based path.
+    Parses and folds the expression on the ONE unified engine — comparisons
+    (`==` `!=` `<` `<=` `>` `>=` `in` `not in`) and arithmetic over references and literals,
+    combined with `and` / `or` / `not` — and coerces the result to a single boolean. This is
+    the pool-based path, kept for manifest parse-checks and the deferred LOOP `while:` predicate
+    seam; strict `CASE` uses the record-based path.
+
+    The value may be written three ways, all evaluating IDENTICALLY: a bare expression
+    `a > 5`, a legacy `${a} > 5` (braces on the ref), or a whole `${a > 5}` (braces around
+    the whole thing). A bare reference with no comparison operator is a TRUTHINESS test
+    (coerced to bool), not an error.
 
     Args:
         expression (`str`):
-            The `when:` source: one or more comparisons combined with `and`/`or`/`not`.
-            A bare reference with no comparison operator is rejected.
+            The `when:` source — any expression the unified grammar accepts, in any of the
+            three brace spellings above.
         pool (`TypedVariablePool`):
-            The variable pool each `${ref}` resolves against (`node`/`system` namespaces).
+            The variable pool each reference resolves against (`node`/`system` namespaces).
             A reference that resolves to `None` participates as a falsy value.
 
     Returns:
@@ -313,8 +339,8 @@ def evaluate_when(expression: str, pool: TypedVariablePool) -> bool:
 
     Raises:
         `ExpressionError`:
-            If the expression is malformed, references an invalid path, mixes
-            incompatible types, or does not evaluate to a boolean.
+            If the expression is malformed, references an invalid path, or mixes
+            incompatible types (e.g. arithmetic over a non-number).
 
     Example:
         ```python
@@ -557,20 +583,33 @@ class _EvalExpr:
         return v
 
     # --- boolean combinators --- #
+    # The operator KEYWORD tokens interleaved among the operands. A value operand may ALSO
+    # be a top-level `Token` (a bare `${ref}` WRAPPED_REF, or a bare NUMBER/STRING/BOOL/NULL),
+    # so a blanket "drop every Token" filter would wrongly discard the operand — only these
+    # keyword token TYPES are the operators to skip. (The legacy `Transformer` did not hit
+    # this: it resolved terminals to values bottom-up before the combinator ran.)
+    _OP_TOKEN_TYPES = frozenset({"NOT", "AND", "OR"})
+
+    def _operands(self, node: Tree) -> list:
+        """The operand children of a boolean combinator node (drop the operator keywords)."""
+        return [
+            c for c in node.children
+            if not (isinstance(c, Token) and c.type in self._OP_TOKEN_TYPES)
+        ]
+
     def _do_negate(self, node: Tree) -> Any:
-        operand = [c for c in node.children if not isinstance(c, Token)]  # drop the NOT token
-        return not self._as_value(self._walk(operand[-1]))
+        return not self._as_value(self._walk(self._operands(node)[-1]))
 
     def _do_or_expr(self, node: Tree) -> Any:
         # Operands fold by PYTHON truthiness, not bool-only (so `0 or "hit"` is truthy):
         # a deliberate change from the legacy `when:` bool-filter, matching the design
         # "operators delegate to Python semantics on resolved values".
-        return any(self._as_value(self._walk(c)) for c in node.children if not isinstance(c, Token))
+        return any(self._as_value(self._walk(c)) for c in self._operands(node))
 
     def _do_and_expr(self, node: Tree) -> Any:
         # Operands fold by Python truthiness, not bool-only (see `_do_or_expr`): a
         # deliberate change from the legacy `when:` bool-filter.
-        return all(self._as_value(self._walk(c)) for c in node.children if not isinstance(c, Token))
+        return all(self._as_value(self._walk(c)) for c in self._operands(node))
 
     # --- comparisons (reuse the locked `_eval_comparison` None-> False contract) --- #
     def _do_compare(self, node: Tree) -> Any:

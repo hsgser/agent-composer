@@ -131,10 +131,12 @@ def test_unknown_field_on_record_producer_is_loud():
 
 
 def test_malformed_expression_is_loud():
-    # a bare reference with no comparison operator is rejected by the grammar.
+    # a syntactically malformed expression (a doubled comparison operator) is rejected by
+    # the unified grammar. (Under the unified engine a bare reference is a truthiness test,
+    # not a parse error, so it is no longer the malformed case.)
     with pytest.raises(LoadError):
         classify_asserts(
-            ["${input.x} and and"],
+            ["${input.x} == == 5"],
             flow_inputs={"x"},
             valid_targets=set(),
             producers={},
