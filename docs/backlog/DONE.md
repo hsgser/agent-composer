@@ -15,6 +15,18 @@ This backlog is split four ways:
 
 ## Engine
 
+- [x] ~~**Unify `${...}` into one expression grammar.** Collapsed the three divergent `${}` dialects
+  (binding coalesce/default, `when:` boolean/arithmetic, prompt builtin-call) into ONE pure-expression
+  grammar (parse → AST → evaluate / ref-walk): arithmetic (`+ - * / % **`), comparisons, `in`, list
+  literals, and pure builtins now work in every binding, condition, and prompt. Moved flow-invocation
+  out of `${}` into a compile-time whole-value `call(...)` directive (recognized at binding + case-target
+  sites; desugars to an anonymous `call` node); the old `${flow(args)}` span form is now a `LoadError`.
+  The `:-`/`:?` RHS is an expression, so a string default/message must be quoted (`${x:-"today"}`); a
+  prompt `$$` renders a single `$`. New `expr/grammar.py` (parse) + reshaped `expr/expressions.py`
+  (eval + ref-walk) + `expr/template.py` (string surface); three resolve modes; restricted-AST safety
+  boundary. Design + plan under `docs/plans/2026-07-02-expr-unification-*-final.md`.~~ -- a97fc80
+  (branch `dev/engine/expr-unification`, 34 commits; 1379 tests green)
+
 - [x] ~~**Locate the unknown AGENT mode/control `LoadError`.** `build_leaf_node` surfaces an invalid
   `mode:`/`controls:` as `LoadError(f"node {desc.id!r}: {exc}")` with no `.line`, so the error can't
   point the author at the offending YAML line. Thread the node's source line onto the raised
