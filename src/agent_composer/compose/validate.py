@@ -40,11 +40,12 @@ from agent_composer.compile.validation import (
 )
 from agent_composer.expr import (
     ExpressionError,
-    desugar_calls,
     expr_refs_of,
     prompt_refs,
 )
 from agent_composer.expr.grammar import parse_expr
+from agent_composer.expr.template import flow_call_callees_in_spans
+from agent_composer.compose.calls import desugar_call_directives
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node, NodeKind
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
@@ -410,14 +411,16 @@ def validate_node_asserts(
         pre: list[str] = []
         post: list[str] = []
         for a in asserts:
-            # node asserts are node-local — an inline `${call}` belongs in a flow-level assert.
+            # node asserts are node-local — an inline call (a whole-value `call(...)` directive
+            # or the retired `${flow(args)}` span) belongs in a flow-level assert, not here.
             try:
-                _, calls = desugar_calls(a, lambda: "__a")
+                _, directive_calls = desugar_call_directives(a, lambda: "__a")
+                span_callees = flow_call_callees_in_spans(a)
             except ExpressionError:
-                calls = ["(malformed call)"]
-            if calls:
+                directive_calls, span_callees = ["(malformed call)"], []
+            if directive_calls or span_callees:
                 errors.append((
-                    f"node {nid!r} assert {a!r}: an inline `${{call}}` is not allowed in a "
+                    f"node {nid!r} assert {a!r}: an inline call is not allowed in a "
                     f"node-local assert (use a flow-level assert)", line))
                 continue
             # parse-check the boolean grammar at LOAD (located), like flow `classify_asserts`.
