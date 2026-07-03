@@ -254,3 +254,109 @@ def test_unary_minus_on_missing_ref_raises_loudly():
 def test_list_lit_with_missing_element():
     # `[a, 1]` with `a` missing (binding-none): the miss becomes None inside the list.
     assert _eval("[a, 1]", mode=ResolveMode.BINDING_NONE) == [None, 1]
+
+
+# --------------------------------------------------------------------------- #
+# Coalesce / default / required PRECEDENCE — pinned against the exact legacy
+# `_split_top_level` grouping (split on `|` at the top, then parse each atom).
+# Under Option A every bare name is a REF (a literal must be quoted), so in
+# `a:-b | c` the names `a`, `b`, `c` are all references. The grouping MUST be
+# `(a:-b) | c` and `a | (b + 1)` — coalesce (`|`) is the lowest-precedence,
+# n-ary, flat operator; `:-`/`:?` and arithmetic bind tighter.
+# --------------------------------------------------------------------------- #
+
+
+def _ref_name(node):
+    """The NAME of a bare-reference operand: a `refcall` Tree with a single NAME
+    child (Option A: a bare word is a ref). Raises if `node` is not that shape."""
+    from lark import Tree
+
+    assert isinstance(node, Tree) and node.data == "refcall", node
+    return str(node.children[0])
+
+
+def test_default_binds_tighter_than_coalesce_grouping_tree():
+    # STRUCTURAL proof of `(a:-b) | c` (NOT `a:-(b | c)`): the parse tree is a
+    # `coalesce` whose FIRST operand is a `default_expr(a, b)` and whose SECOND
+    # operand is the ref `c`. Under `a:-(b | c)` the top node would instead be a
+    # `default_expr` wrapping a `coalesce` — a shape this asserts against.
+    from lark import Tree
+
+    tree = parse_expr("a:-b | c")
+    assert isinstance(tree, Tree) and tree.data == "coalesce"
+    first, second = tree.children
+    assert isinstance(first, Tree) and first.data == "default_expr"
+    assert _ref_name(first.children[0]) == "a" and _ref_name(first.children[1]) == "b"
+    assert _ref_name(second) == "c"
+
+
+def test_default_coalesce_grouping_default_supplies_then_short_circuits():
+    # `(a:-b) | c` with `a` missing, `b`=10: the default supplies `b` (a absent),
+    # then coalesce short-circuits on the non-None 10 — `c` is never consulted.
+    # `c` is poisoned to None to make "never consulted" observable either way, but
+    # the value pins the grouping: the default fired on `b`, not on `b | c`.
+    assert _eval("a:-b | c", _from({"b": 10, "c": None})) == 10
+
+
+def test_default_coalesce_grouping_falls_through_to_c():
+    # `(a:-b) | c` with `a` AND `b` missing, `c`=20: `a:-b` yields None (both
+    # absent), so the coalesce falls through to `c` -> 20.
+    assert _eval("a:-b | c", _from({"c": 20})) == 20
+
+
+def test_coalesce_arithmetic_grouping_tree():
+    # STRUCTURAL proof of `a | (b + 1)`: a `coalesce` whose second operand is an
+    # `add` node (arithmetic binds tighter than `|`), NOT `(a | b) + 1`.
+    from lark import Tree
+
+    tree = parse_expr("a | b + 1")
+    assert isinstance(tree, Tree) and tree.data == "coalesce"
+    first, second = tree.children
+    assert _ref_name(first) == "a"
+    assert isinstance(second, Tree) and second.data == "add"
+
+
+def test_coalesce_arithmetic_grouping_value():
+    # `a | (b + 1)` with `a` missing, `b`=4 -> 5 (the arithmetic operand supplies it).
+    assert _eval("a | b + 1", _from({"b": 4})) == 5
+
+
+def test_coalesce_arithmetic_short_circuits_arm():
+    # `a | (b + 1)` with `a`=7 -> 7; the `b + 1` arm is never evaluated even though
+    # `b` is missing (arithmetic over a missing ref would otherwise raise loudly).
+    assert _eval("a | b + 1", _from({"a": 7})) == 7
+
+
+def test_coalesce_nary_flat_tree():
+    # `a | b | c` parses to ONE flat 3-operand `coalesce`, not nested pairs.
+    from lark import Tree
+
+    tree = parse_expr("a | b | c")
+    assert isinstance(tree, Tree) and tree.data == "coalesce"
+    assert [_ref_name(c) for c in tree.children] == ["a", "b", "c"]
+
+
+def test_coalesce_nary_all_arms_reachable():
+    # A flat 3-way coalesce: the third arm is reached when the first two miss.
+    assert _eval("a | b | c", _from({"c": 3})) == 3
+    # And each arm wins in turn when it is the first present one.
+    assert _eval("a | b | c", _from({"b": 2, "c": 3})) == 2
+    assert _eval("a | b | c", _from({"a": 1, "b": 2, "c": 3})) == 1
+
+
+def test_nested_one_level_default_ref():
+    # `${x:-${y}}` — one level of nesting is allowed: `x` missing, `y`=9 -> 9.
+    from agent_composer.expr.template import eval_binding
+
+    assert eval_binding("${x:-${y}}", _from({"y": 9})) == 9
+    # Both missing -> None in the binding (BINDING_NONE) mode.
+    assert eval_binding("${x:-${y}}", _from({})) is None
+
+
+def test_two_level_nested_default_rejected():
+    # `${x:-${y:-${z}}}` — TWO levels of nesting is an error (as in legacy). The
+    # unified scanner/grammar must reject it, in the ExpressionError family.
+    from agent_composer.expr.template import scan_template
+
+    with pytest.raises(ExpressionError):
+        scan_template("${x:-${y:-${z}}}")
