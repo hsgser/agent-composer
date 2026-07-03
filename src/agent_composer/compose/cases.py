@@ -459,7 +459,7 @@ def _lift_case_target(
 
 # A clean whole-span case-output ref INTERIOR. Singular only:
 # - `<id>.output[.<seg>…]` (capture group 1 = id, group 2 = dotted rest)
-# Path segments are `_PATH_RE`-style — letter/underscore then alnum/underscore, no `-`.
+# Path segments are reference-path style — letter/underscore then alnum/underscore, no `-`.
 _CASE_OUTPUT_INTERIOR = re.compile(
     r"^([A-Za-z_][A-Za-z0-9_#/]*)\.output((?:\.[A-Za-z_][A-Za-z0-9_#/]*)*)$"
 )

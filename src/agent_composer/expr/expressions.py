@@ -718,9 +718,9 @@ def eval_expr(
 
 # --------------------------------------------------------------------------- #
 # The ONE unified compile-time ref-walk — collects every reference-leaf path a
-# `parse_expr` tree reads. This SUPERSEDES the three divergent ref collectors
-# (`template.binding_refs`, `template.prompt_refs`, the condition `_Evaluator`
-# REF walk). Added ALONGSIDE the legacy paths; later steps swap the call sites.
+# `parse_expr` tree reads. It is the single ref collector: the binding ref-walk
+# (`template.expr_refs_of`), the prompt ref-walk (`template.prompt_refs`), and the
+# condition ref-collection all scan spans and delegate here.
 # --------------------------------------------------------------------------- #
 
 
@@ -749,8 +749,8 @@ def expr_refs(tree: "Tree | Token") -> list[str]:
     Returns:
         `list[str]`:
             The reference paths (dotted, `#` / `/` preserved) in source/traversal
-            order. NOT deduped — matching legacy `binding_refs` / `prompt_refs`, so
-            later caller-swaps are drop-in.
+            order. NOT deduped — every span-scanning caller (`expr_refs_of`,
+            `prompt_refs`) unions these in source order.
     """
     refs: list[str] = []
     _collect_expr_refs(tree, refs)

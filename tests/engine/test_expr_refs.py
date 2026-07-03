@@ -1,9 +1,9 @@
 """Tests for the ONE unified compile-time ref-walk (`expr.expressions.expr_refs`).
 
 `expr_refs(parse_expr(text))` collects every reference-leaf PATH a unified
-`${...}` expression reads, in source order (no dedupe — matching legacy
-`binding_refs` / `prompt_refs`). This is the single walk that later steps swap in
-for `binding_refs`, `prompt_refs`, and the condition ref-collection.
+`${...}` expression reads, in source order (no dedupe). This is the single walk
+behind the binding ref-collection (`expr_refs_of`), the prompt ref-collection
+(`prompt_refs`), and the condition ref-collection.
 
 A `refcall` WITHOUT a `call_suffix` is a reference (its dotted path is collected).
 A `refcall` WITH a `call_suffix` is a builtin call: the callee name contributes

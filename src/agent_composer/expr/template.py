@@ -52,214 +52,9 @@ from agent_composer.expr.expressions import (
 if TYPE_CHECKING:  # `Tree`/`Token` appear ONLY in the `Span.tree` annotation
     from lark import Token, Tree
 
-_PATH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_#/]*(\.[A-Za-z_][A-Za-z0-9_#/]*)*$")
-
 
 class RequiredError(ExpressionError):
     """A `${ref:?message}` whose ref was unbound (the binder maps it to BindingError)."""
-
-
-# --------------------------------------------------------------------------- #
-# AST
-# --------------------------------------------------------------------------- #
-
-
-@dataclass(frozen=True)
-class _Lit:
-    value: Any
-
-
-@dataclass(frozen=True)
-class _Ref:
-    path: str
-
-
-@dataclass(frozen=True)
-class _Default:
-    path: str
-    default: Any  # a literal value, OR a _Coalesce (one nested ${...})
-
-
-@dataclass(frozen=True)
-class _Required:
-    path: str
-    message: str
-
-
-_Atom = Union[_Lit, _Ref, _Default, _Required]
-
-
-@dataclass(frozen=True)
-class _Coalesce:
-    atoms: tuple  # tuple[_Atom, ...]
-
-
-@dataclass(frozen=True)
-class _Text:
-    text: str
-
-
-_Segment = Union[_Text, _Coalesce]
-
-
-# --------------------------------------------------------------------------- #
-# Scanning helpers — quote- AND brace-aware
-# --------------------------------------------------------------------------- #
-
-
-def _split_top_level(s: str, sep: str) -> list:
-    """Split `s` on the single char `sep`, ignoring `sep` inside '...'/\"...\" quotes
-    and inside `${...}` spans (brace depth)."""
-    out: list = []
-    buf: list = []
-    quote: Optional[str] = None
-    depth = 0
-    i, n = 0, len(s)
-    while i < n:
-        c = s[i]
-        if quote is not None:
-            buf.append(c)
-            if c == quote:
-                quote = None
-        elif c in ("'", '"'):
-            quote = c
-            buf.append(c)
-        elif c == "$" and s[i + 1 : i + 2] == "{":
-            depth += 1
-            buf.append("${")
-            i += 2
-            continue
-        elif depth > 0:
-            if c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-            buf.append(c)
-        elif c == sep:
-            out.append("".join(buf))
-            buf = []
-        else:
-            buf.append(c)
-        i += 1
-    out.append("".join(buf))
-    return out
-
-
-def _find_op(s: str) -> tuple:
-    """(op, index) of the FIRST top-level `:-`/`:?` outside quotes and `${...}` spans,
-    else (None, -1)."""
-    quote: Optional[str] = None
-    depth = 0
-    i, n = 0, len(s)
-    while i < n:
-        c = s[i]
-        if quote is not None:
-            if c == quote:
-                quote = None
-        elif c in ("'", '"'):
-            quote = c
-        elif c == "$" and s[i + 1 : i + 2] == "{":
-            depth += 1
-            i += 2
-            continue
-        elif depth > 0:
-            if c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-        elif c == ":" and s[i + 1 : i + 2] in ("-", "?"):
-            return (":" + s[i + 1], i)
-        i += 1
-    return (None, -1)
-
-
-def _default_literal(token: str) -> Any:
-    """A `:-` default RHS literal — a bare word is a literal string (no quotes)."""
-    try:
-        return _parse_literal(token)
-    except ExpressionError:
-        return token
-
-
-def _check_path(path: str) -> None:
-    if not _PATH_RE.match(path):
-        raise ExpressionError(f"malformed reference path {path!r}")
-
-
-# --------------------------------------------------------------------------- #
-# Parse
-# --------------------------------------------------------------------------- #
-
-
-def parse_binding(s: str) -> list:
-    """Tokenize a binding string into template segments (`_Text` | `_Coalesce`).
-    Handles `$$` -> `$` and brace-balanced (quote-aware) `${...}` spans."""
-    segs: list = []
-    buf: list = []
-    i, n = 0, len(s)
-    while i < n:
-        if s[i] == "$" and s[i + 1 : i + 2] == "$":
-            buf.append("$")
-            i += 2
-        elif s[i] == "$" and s[i + 1 : i + 2] == "{":
-            if buf:
-                segs.append(_Text("".join(buf)))
-                buf = []
-            depth, j, quote = 1, i + 2, None
-            while j < n and depth:
-                ch = s[j]
-                if quote is not None:
-                    if ch == quote:
-                        quote = None
-                elif ch in ("'", '"'):
-                    quote = ch
-                elif ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                if depth:
-                    j += 1
-            if depth:
-                raise ExpressionError(f"unbalanced '${{' in binding {s!r}")
-            segs.append(parse_interior(s[i + 2 : j], nested_ok=True))
-            i = j + 1
-        else:
-            buf.append(s[i])
-            i += 1
-    if buf:
-        segs.append(_Text("".join(buf)))
-    return segs
-
-
-def parse_interior(interior: str, *, nested_ok: bool) -> _Coalesce:
-    """Parse the inside of a `${...}` into a coalesce of atoms."""
-    return _Coalesce(tuple(parse_atom(a.strip(), nested_ok=nested_ok) for a in _split_top_level(interior, "|")))
-
-
-def parse_atom(s: str, *, nested_ok: bool) -> _Atom:
-    if not s:
-        raise ExpressionError("empty coalesce operand")
-    op, idx = _find_op(s)
-    if op == ":?":
-        path, msg = s[:idx].strip(), s[idx + 2 :].strip()
-        _check_path(path)
-        return _Required(path, msg)
-    if op == ":-":
-        path, rhs = s[:idx].strip(), s[idx + 2 :].strip()
-        _check_path(path)
-        if rhs.startswith("${") and rhs.endswith("}"):  # a nested ${...} default — ONE level
-            if not nested_ok:
-                raise ExpressionError(
-                    f"only one nested '${{...}}' default is allowed; use '|' for chains: {s!r}"
-                )
-            return _Default(path, parse_interior(rhs[2:-1], nested_ok=False))
-        return _Default(path, _default_literal(rhs))
-    # no op: a literal (number/bool/null/quoted), else a bare ref
-    try:
-        return _Lit(_parse_literal(s))
-    except ExpressionError:
-        _check_path(s)
-        return _Ref(s)
 
 
 # --------------------------------------------------------------------------- #
@@ -267,12 +62,12 @@ def parse_atom(s: str, *, nested_ok: bool) -> _Atom:
 # (`compose.calls`) and the prompt-span parser further down.
 #
 # `InlineCall` is the plain-data record a desugared call produces (the directive
-# path builds one per call); `_split_kv` / `_arg_source` / `_find_paren_end` /
-# `_split_calls_aware` are the paren/quote/span-aware splitters + arg-literal
-# coercion the directive recognizer reuses. Keyword args only; each arg VALUE is a
-# full binding — a `${…}`-bearing value (or a quoted scalar) stays a string, else it
-# is a literal (so `window=30` binds int 30). The literal grammar is a deliberate
-# YAML-1.1 SUBSET — see `_arg_source`.
+# path builds one per call); `_split_kv` / `_arg_source` / `_default_literal` /
+# `_find_paren_end` / `_split_calls_aware` are the paren/quote/span-aware splitters +
+# arg-literal coercion the directive recognizer reuses. Keyword args only; each arg
+# VALUE is a full binding — a `${…}`-bearing value (or a quoted scalar) stays a string,
+# else it is a literal (so `window=30` binds int 30). The literal grammar is a
+# deliberate YAML-1.1 SUBSET — see `_arg_source`.
 # --------------------------------------------------------------------------- #
 
 
@@ -284,6 +79,15 @@ class InlineCall:
     id: str
     callee: str
     args: dict  # name -> a literal value or a `${…}` binding string (see `_arg_source`)
+
+
+def _default_literal(token: str) -> Any:
+    """A bare arg token -> its typed literal — a word that isn't a number/bool/null
+    spelling is a literal string (no quotes)."""
+    try:
+        return _parse_literal(token)
+    except ExpressionError:
+        return token
 
 
 def _split_kv(pair: str) -> tuple:
@@ -319,7 +123,7 @@ def _arg_source(value: str) -> Any:
 
 def _find_span_end(s: str, start: int) -> Optional[int]:
     """Index of the `}` closing a `${…}` span whose interior begins at `start`
-    (brace-depth + quote aware), or None if unbalanced. Mirrors `parse_binding`."""
+    (brace-depth + quote aware), or None if unbalanced."""
     depth, quote, i, n = 1, None, start, len(s)
     while i < n:
         c = s[i]
@@ -370,9 +174,8 @@ def _find_paren_end(s: str, start: int) -> Optional[int]:
 
 def _split_calls_aware(s: str, sep: str) -> list:
     """Split `s` on the single char `sep` at top level — ignoring `sep` inside quotes,
-    `${…}` spans (brace depth), and parentheses (call args). The desugar's splitter:
-    `_split_top_level` predates inline calls and is paren-blind, so calls (which add
-    top-level bare parens) need this one."""
+    `${…}` spans (brace depth), and parentheses (call args). Paren-aware so a call's
+    top-level bare parens do not swallow the separator."""
     out: list = []
     buf: list = []
     quote: Optional[str] = None
@@ -473,9 +276,8 @@ def expr_refs_of(source: str) -> list[str]:
 
     The raw-string ref-walk: scan `source` into template segments and union
     (source order, NOT deduped) the [`expr_refs`][agent_composer.expr.expressions.expr_refs]
-    of each `${...}` span. Replaces the legacy `binding_refs(parse_binding(source))`
-    two-call idiom at every compile-time call site (edge inference, item-capture,
-    on-shape resolution, output typing).
+    of each `${...}` span. This is the compile-time reference walk at every call site
+    (edge inference, item-capture, on-shape resolution, output typing).
 
     Literal runs contribute nothing. `item`-headed refs ARE collected (the caller skips
     them for edge minting — the rule stays at the caller, per `expr_refs`).
@@ -494,71 +296,6 @@ def expr_refs_of(source: str) -> list[str]:
             that already frame parse errors keep their `except ExpressionError` handling.
     """
     return template_refs(scan_template(source))
-
-
-def _eval_coalesce(c: _Coalesce, resolve: Callable[[str], Any], item: Any) -> Any:
-    for atom in c.atoms:
-        v = _eval_atom(atom, resolve, item)
-        if v is not None:  # first non-None wins (a present falsy 0/False/"" wins)
-            return v
-    return None
-
-
-def _eval_atom(atom: _Atom, resolve: Callable[[str], Any], item: Any) -> Any:
-    if isinstance(atom, _Lit):
-        return atom.value
-    if isinstance(atom, _Ref):
-        return _resolve_path(atom.path, resolve, item)
-    if isinstance(atom, _Default):
-        v = _resolve_path(atom.path, resolve, item)
-        if v is not None:
-            return v
-        d = atom.default
-        return _eval_coalesce(d, resolve, item) if isinstance(d, _Coalesce) else d
-    if isinstance(atom, _Required):
-        v = _resolve_path(atom.path, resolve, item)
-        if v is None:
-            raise RequiredError(atom.message)
-        return v
-    raise ExpressionError(f"unknown atom {atom!r}")  # defensive
-
-
-def _resolve_path(path: str, resolve: Callable[[str], Any], item: Any) -> Any:
-    parts = path.split(".")
-    if parts[0] == "item":  # MAP-body-local scope (not a pool head)
-        if item is None:
-            return None
-        value = item
-        for step in parts[1:]:
-            value = value.get(step) if isinstance(value, dict) else None
-        return value
-    return resolve(path)
-
-
-# --------------------------------------------------------------------------- #
-# Compile-time ref collection — every reference path a binding reads,
-# including the one nested-default ref. No evaluation.
-# --------------------------------------------------------------------------- #
-
-
-def binding_refs(segments: list) -> list:
-    refs: list = []
-    for seg in segments:
-        if isinstance(seg, _Coalesce):
-            _collect_refs(seg, refs)
-    return refs
-
-
-def _collect_refs(c: _Coalesce, refs: list) -> None:
-    for atom in c.atoms:
-        if isinstance(atom, _Ref):
-            refs.append(atom.path)
-        elif isinstance(atom, _Required):
-            refs.append(atom.path)
-        elif isinstance(atom, _Default):
-            refs.append(atom.path)
-            if isinstance(atom.default, _Coalesce):
-                _collect_refs(atom.default, refs)
 
 
 def binding_co_skips(source: Any) -> bool:
@@ -901,11 +638,8 @@ def _reject_unknown_prompt_builtin(tree: Tree | Token) -> None:
 # `"stance (positive|negative|neutral)"` safe. Only span interiors go through
 # `parse_expr`. `$$` -> a literal `$` everywhere (the universal-escape decision).
 #
-# It is a NEW `Segment` type, deliberately NOT the legacy `_Text`/`_Coalesce`
-# (whose `_Coalesce` holds legacy `_Atom`s, not a `parse_expr` Lark tree): reusing
-# them would entangle this path with `parse_binding`. Added ALONGSIDE the legacy
-# `render_template_record` / `parse_binding` / `eval_binding` / `prompt_refs`; later
-# steps switch callers over and delete the legacy code.
+# The `Segment` types (`Literal` / `Span`) carry a `parse_expr` Lark tree per span —
+# there is ONE grammar for a span interior, shared with conditions and prompts.
 # --------------------------------------------------------------------------- #
 
 
@@ -1052,8 +786,8 @@ def template_refs(segments: list) -> list[str]:
     `expr_refs` over the span segments.
 
     Literal runs contribute nothing. Matches the no-dedupe / source-order convention
-    of [`expr_refs`][agent_composer.expr.expressions.expr_refs], so callers switched
-    from `binding_refs` / `prompt_refs` see the same shape.
+    of [`expr_refs`][agent_composer.expr.expressions.expr_refs] — the shared shape every
+    ref-walk caller (`expr_refs_of`, `prompt_refs`) sees.
 
     Args:
         segments (`list[Segment]`):

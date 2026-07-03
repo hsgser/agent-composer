@@ -2,8 +2,8 @@
 
 A flow-level pass: for every SINK binding in the flow — each built node's
 `inputs` (the InputBindings from the binding pass), a mapped `call`'s `over:`, and a `case` node's
-`on:`/`when:` refs — run `parse_binding`->`binding_refs`; each `${<id>[.output.…]}`
-ref becomes a data `Edge(from_=<id>, to=<consumer>, input_group=<sink key>)`.
+`on:`/`when:` refs — collect its `${...}` reference paths (`expr_refs_of`); each
+`${<id>[.output.…]}` ref becomes a data `Edge(from_=<id>, to=<consumer>, input_group=<sink key>)`.
 
 A coalesce `${a | b}` sink yields TWO edges that SHARE one `input_group` (the sink
 input name). An `${input.X}` read mints a `START_ID->reader` input-producer DATA edge;

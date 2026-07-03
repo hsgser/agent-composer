@@ -257,8 +257,8 @@ def test_list_lit_with_missing_element():
 
 
 # --------------------------------------------------------------------------- #
-# Coalesce / default / required PRECEDENCE — pinned against the exact legacy
-# `_split_top_level` grouping (split on `|` at the top, then parse each atom).
+# Coalesce / default / required PRECEDENCE — pinned against the grammar's grouping
+# (split on `|` at the top, then parse each operand).
 # Under Option A every bare name is a REF (a literal must be quoted), so in
 # `a:-b | c` the names `a`, `b`, `c` are all references. The grouping MUST be
 # `(a:-b) | c` and `a | (b + 1)` — coalesce (`|`) is the lowest-precedence,

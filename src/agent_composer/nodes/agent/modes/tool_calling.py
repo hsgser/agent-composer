@@ -41,7 +41,7 @@ MAX_TOOL_ITERATIONS = 8
 
 def _slug_call_id(call_id: str) -> str:
     """Path-safe slug for a tool-call id embedded in a node id / `${...}` ref.
-    `_PATH_RE` (expr/template.py) allows `_ # /` but not `-`; provider call ids may be
+    The reference-path grammar allows `_ # /` but not `-`; provider call ids may be
     uuids (Ollama) containing dashes, which break ref parsing on resume. Map every
     non-[A-Za-z0-9_] char to `_`. The REAL id is kept verbatim in `pending["call_id"]`
     and the human-input `slot` for the ToolMessage / resume-id match."""
@@ -134,12 +134,12 @@ def agent_step(
                 "call_id": call_id,  # REAL id: matched to the ToolMessage tool_call_id on resume
                 "args": call.get("args") or {},
             }
-            hi_id = f"__ask#{slug}"  # slug keeps the node id / answer ref `_PATH_RE`-safe
+            hi_id = f"__ask#{slug}"  # slug keeps the node id / answer ref path-safe
             human_input = {
                 "kind": "human_input",
                 "node_id": hi_id,
                 "prompt": str(call.get("args", {}).get("question", "")),
-                "slot": call_id,  # REAL id: mints the resume-node id, never parsed by _PATH_RE
+                "slot": call_id,  # REAL id: mints the resume-node id, never parsed as a ref path
             }
             resume = {
                 "kind": "resume_agent",

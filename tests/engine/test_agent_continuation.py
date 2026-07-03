@@ -86,12 +86,13 @@ def test_ask_user_pauses_resumes_finishes(monkeypatch, cid):
 
 
 def test_slugged_hi_id_is_path_safe():
-    # The minted human-input node id must satisfy `_PATH_RE` so the resume answer ref
-    # `${__ask#<slug>.output}` parses — a raw dashed uuid would not.
-    from agent_composer.expr.template import _PATH_RE
+    # The minted human-input node id must parse as a reference path so the resume answer
+    # ref `${__ask#<slug>.output}` parses — a raw dashed uuid would not.
+    from agent_composer.expr.grammar import parse_expr
     from agent_composer.nodes.agent.modes.tool_calling import _slug_call_id
 
-    assert _PATH_RE.match("__ask#" + _slug_call_id("adebc542-e4a3-4b7c-8f12-deadbeef0000"))
+    slug = _slug_call_id("adebc542-e4a3-4b7c-8f12-deadbeef0000")
+    parse_expr("__ask#" + slug + ".output")  # no ExpressionError == path-safe
 
 
 def test_two_pause_agent_does_not_deadlock(monkeypatch):

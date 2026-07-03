@@ -124,9 +124,8 @@ def _classify_path(
     """Return an error message for a bad reference path, or None if acceptable.
 
     `path` is a single dotted ref the binding actually reads (`expr.template`'s
-    `binding_refs` already split the coalesce, dropped literals, stripped `:-`/`:?`,
-    and surfaced the one nested-default ref). Empty path segments are rejected at
-    parse, so the head is always present here.
+    `expr_refs_of` already collected the per-span reference paths). Empty path
+    segments are rejected at parse, so the head is always present here.
 
     - `${input.X}` closed-checks against the flow's declared inputs.
     - `${<node>.output[.X]}` (node-first) checks against real node ids; the second
