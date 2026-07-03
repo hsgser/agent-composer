@@ -324,8 +324,10 @@ nodes:
 | `21-inline-call.yaml` | an INLINE `call(enrich, topic=${input.topic})` call directive — desugars to a synth `call` node on the in-file def; loads resolver-free |
 | `22-case-value.yaml` | the **value-case**: `output: ${gate.output}` = the taken branch's value (desugars to the branch coalesce — seed 02's hand-written join) |
 | `23-asserts-scopes.yaml` | **asserts at every scope**: FLOW (boundary/post + a named `call` node's `.output` in a flow assert), DEF-child (a `defs:` callable's `asserts:`, enforced at the call seam), and NODE (per-node contract — `${name}` PRE, `${output}` POST) |
+| `27-expr-ops.yaml` | the **unified `${...}` grammar** — arithmetic (`+ - * / % **`, unary minus, parens), string `+`, list literals + `list + list`, comparison / `and`/`or`/`not` / `in`/`not in`, `\|` / quoted `:-` / quoted `:?`, the `upper`/`lower`/`join`/`render_as_json` builtins (in bindings, a prompt, and `asserts:`), `$$` escape |
+| `28-refine-loop.yaml` | the **`loop`** node — `until:` post-check predicate + `max:` guard over an in-file `defs:` body, the `'a -> 'a` carried-record contract; reuses the new expression forms (arithmetic + a builtin) in the body; loads resolver-free |
 
-Every node kind (AGENT/CODE/MODEL/TOOL/call/case) and every settled convention appears in
+Every node kind (AGENT/CODE/MODEL/TOOL/call/case/loop) and every settled convention appears in
 at least one seed; the effects (`HUMAN_INPUT`/`WAIT`) are **pinned as a DRAFT proposal**
 (17) ahead of building them. Tagged data is modelled as a discriminant record (a `Literal`
 field) routed by `case … on <field>` — the `kind: match` + payload-union design was dropped.
