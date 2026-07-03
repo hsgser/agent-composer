@@ -125,6 +125,23 @@ def test_keyword_literal_values_coerce_like_named_form():
     assert synth.inputs == {"n": 30, "flag": True, "z": None, "s": "hi"}
 
 
+def test_bare_bool_word_arg_stays_string():
+    # deliberate: inline bare literals are a YAML-1.1 SUBSET — `yes`/`on`/`off`/`no` stay
+    # strings (no boolean coercion), avoiding the YAML bool footgun. (A named call's YAML
+    # `inputs:` map WOULD coerce `yes` -> True; the directive form intentionally does not.)
+    descriptors = {"use": _code("use", {"topic": "call(f, flag=yes)"})}
+    new_descriptors, _, _ = desugar_inline_calls(descriptors, None, next_id=_ids())
+    assert new_descriptors["__call_0"].inputs == {"flag": "yes"}
+
+
+def test_unbalanced_directive_parens_left_literal():
+    # a `call(` with no matching close paren is NOT a whole-value directive — left literal.
+    descriptors = {"use": _code("use", {"topic": "call(f, x=1"})}
+    new_descriptors, _, _ = desugar_inline_calls(descriptors, None, next_id=_ids())
+    assert new_descriptors["use"].inputs["topic"] == "call(f, x=1"
+    assert not any(nid.startswith("__call_") for nid in new_descriptors)
+
+
 def test_directive_in_outputs_and_asserts_is_desugared():
     # a directive placed in the flow `outputs:` map and in a flow-level assert both
     # desugar on the shared traversal.

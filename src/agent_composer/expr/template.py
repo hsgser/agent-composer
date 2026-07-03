@@ -263,24 +263,16 @@ def parse_atom(s: str, *, nested_ok: bool) -> _Atom:
 
 
 # --------------------------------------------------------------------------- #
-# Inline call desugar — `${ f(arg=...) }` -> a synth `outputs.<id>` ref
+# Shared call-parsing helpers — reused by the whole-value `call(...)` directive
+# (`compose.calls`) and the prompt-span parser further down.
 #
-# An inline call is applicative expression syntax: `f x` written inside a binding
-# instead of `let t = f x in … t`. `desugar_calls` is the pure string→string +
-# plain-data half: it scans a binding's `${…}` spans, finds each call operand
-# `<ident>(<args>)` (in coalesce-operand position), mints a fresh id via `next_id`,
-# emits an `InlineCall`, and rewrites the operand to `outputs.<id>`. The compose
-# layer (`compose.calls`) turns each `InlineCall` into a synth `call` node — so the
-# runtime sees only ordinary `call` nodes (pure load-time sugar, no eval-time call).
-#
-# Keyword args only; each arg VALUE is a full binding — a `${…}`-bearing value (or a
-# quoted scalar) stays a string (ref / coalesce / embedded / template), else it is a
-# literal (so `window=30` binds int 30). The literal grammar is a deliberate YAML-1.1
-# SUBSET — see `_arg_source`. A nested inline call in an arg value desugars inner-first
-# (recursion). The existing
-# `parse_binding`/`parse_atom` grammar is untouched: by the time it runs, no calls
-# remain. This module knows nothing of the `__call_` id convention (it lives in
-# `compose.calls`) — it only calls `next_id()`.
+# `InlineCall` is the plain-data record a desugared call produces (the directive
+# path builds one per call); `_split_kv` / `_arg_source` / `_find_paren_end` /
+# `_split_calls_aware` are the paren/quote/span-aware splitters + arg-literal
+# coercion the directive recognizer reuses. Keyword args only; each arg VALUE is a
+# full binding — a `${…}`-bearing value (or a quoted scalar) stays a string, else it
+# is a literal (so `window=30` binds int 30). The literal grammar is a deliberate
+# YAML-1.1 SUBSET — see `_arg_source`.
 # --------------------------------------------------------------------------- #
 
 
@@ -292,88 +284,6 @@ class InlineCall:
     id: str
     callee: str
     args: dict  # name -> a literal value or a `${…}` binding string (see `_arg_source`)
-
-
-def desugar_calls(s: str, next_id: Callable[[], str]) -> tuple:
-    """Rewrite every inline call in binding string `s` to a `${<id>.output}` ref.
-
-    Returns `(new_s, calls)`; `calls` lists the `InlineCall`s discovered, with each
-    nested call preceding its enclosing call (inner-first). `next_id()` mints each
-    synth id. A string with no inline call round-trips unchanged (modulo coalesce
-    whitespace); an unbalanced `${`/paren is left verbatim for the downstream parser
-    to locate. Raises `ExpressionError` on a malformed call (e.g. a positional arg)."""
-    calls: list = []
-    out: list = []
-    i, n = 0, len(s)
-    while i < n:
-        if s[i] == "$" and s[i + 1 : i + 2] == "$":
-            out.append("$$")  # a literal `$` escape — never a span start
-            i += 2
-        elif s[i] == "$" and s[i + 1 : i + 2] == "{":
-            j = _find_span_end(s, i + 2)
-            if j is None:  # unbalanced `${` — leave the rest for parse_binding to error
-                out.append(s[i:])
-                break
-            interior, span_calls = _desugar_interior(s[i + 2 : j], next_id)
-            calls.extend(span_calls)
-            out.append("${" + interior + "}")
-            i = j + 1
-        else:
-            out.append(s[i])
-            i += 1
-    return "".join(out), calls
-
-
-def _desugar_interior(interior: str, next_id: Callable[[], str]) -> tuple:
-    """Desugar the inside of one `${…}`: split on top-level `|` (coalesce operands),
-    desugar each operand, rejoin. Only an operand that IS a call is rewritten."""
-    calls: list = []
-    operands: list = []
-    for op in _split_calls_aware(interior, "|"):
-        new_op, op_calls = _desugar_operand(op, next_id)
-        operands.append(new_op)
-        calls.extend(op_calls)
-    return "|".join(operands), calls
-
-
-def _desugar_operand(op: str, next_id: Callable[[], str]) -> tuple:
-    """If `op` is exactly `<ident>(<args>)`, desugar it to `outputs.<id>` (recursing
-    into each arg value inner-first), emitting the nested calls then this call; else
-    return `op` unchanged."""
-    matched = _match_call(op)
-    if matched is None:
-        return op, []
-    callee, args_str = matched
-    calls: list = []
-    args: dict = {}
-    for pair in _split_calls_aware(args_str, ","):
-        if not pair.strip():
-            continue  # `f()` — no args
-        name, value = _split_kv(pair)
-        new_value, inner = desugar_calls(value, next_id)  # inner-first recursion
-        calls.extend(inner)
-        args[name] = _arg_source(new_value)
-    cid = next_id()
-    calls.append(InlineCall(id=cid, callee=callee, args=args))
-    return cid + ".output", calls   # node-first ref shape
-
-
-def _match_call(op: str) -> Optional[tuple]:
-    """`op` (one coalesce operand) -> `(callee, args_str)` if it is exactly
-    `<ident>(<balanced parens>)` (the callee ident allows `-` for flow ids), else
-    None. Trailing content after the close paren (e.g. `.field`) -> None: not a clean
-    inline call — left to the downstream grammar (inline calls have no dotted access)."""
-    op2 = op.strip()
-    m = re.match(r"([A-Za-z_][A-Za-z0-9_-]*)\s*\(", op2)
-    if m is None:
-        return None
-    open_idx = m.end() - 1
-    close_idx = _find_paren_end(op2, open_idx + 1)
-    if close_idx is None:
-        return None  # unbalanced parens — fall through to the downstream parser
-    if op2[close_idx + 1 :].strip():
-        return None  # trailing content (dotted access, etc.) — not a bare call
-    return m.group(1), op2[open_idx + 1 : close_idx]
 
 
 def _split_kv(pair: str) -> tuple:
