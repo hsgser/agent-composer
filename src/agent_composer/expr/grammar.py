@@ -56,11 +56,6 @@ from lark.exceptions import LarkError
 # the base of `template.RequiredError`, so parse failures here stay in one family.
 from agent_composer.expr.expressions import ExpressionError
 
-# This grammar started from `expressions._GRAMMAR` (the legacy `when:` dialect)
-# and adds the power, refcall (ref-or-call), coalesce, and default/required
-# layers on top. Whoever deletes the legacy grammar later can diff the two to
-# confirm nothing from `expressions._GRAMMAR` was dropped here.
-#
 # The unified grammar. Precedence, lowest to highest:
 #   coalesce (`|`) -> default/required (`:-`/`:?`) -> or -> and -> not
 #   -> comparison (incl. in / not in) -> sum -> product -> unary minus
@@ -146,8 +141,8 @@ NULL.3: /null\b/ | /none\b/
 """
 
 # The shared LALR parser instance (built once at import). `maybe_placeholders`
-# False mirrors `expressions._PARSER` so optional branches drop rather than
-# inserting `None` placeholders into the tree.
+# False so optional branches drop rather than inserting `None` placeholders into
+# the tree.
 _PARSER = Lark(_GRAMMAR, parser="lalr", maybe_placeholders=False)
 
 

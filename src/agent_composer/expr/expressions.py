@@ -15,7 +15,7 @@ import re
 from enum import Enum
 from typing import Any, Callable
 
-from lark import Lark, Token, Transformer, Tree
+from lark import Token, Tree
 
 from agent_composer.state.pool import TypedVariablePool
 
@@ -143,133 +143,6 @@ def _eval_comparison(op: str, lhs: Any, rhs: Any) -> bool:
     raise ExpressionError(f"unsupported operator: {op!r}")
 
 
-_GRAMMAR = r"""
-?start: or_expr
-
-?or_expr: and_expr (OR and_expr)*
-?and_expr: not_expr (AND not_expr)*
-?not_expr: NOT not_expr   -> negate
-         | comparison
-?comparison: sum
-           | sum COMP_OP sum   -> compare
-           | sum IN sum        -> compare_in
-           | sum NOT_IN sum    -> compare_notin
-
-// arithmetic: numbers only at eval; a single value bubbles up unchanged.
-?sum: product
-    | sum "+" product   -> add
-    | sum "-" product   -> sub
-?product: factor
-        | product "*" factor   -> mul
-        | product "/" factor   -> div
-        | product "%" factor   -> mod
-?factor: atom
-       | "-" factor   -> neg
-?atom: REF | NUMBER | STRING | BOOL | NULL
-     | list_lit
-     | "(" or_expr ")"
-
-// list literal: a value (the `in [...]` / `!= []` RHS) — elements are literals/refs
-// (seeds 05/10 use `[]` and `["alpha", ...]`). Nested arithmetic isn't needed here.
-list_lit: "[" [or_expr ("," or_expr)*] "]"
-
-COMP_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
-REF: /\$\{[^}]+\}/
-STRING: /"[^"]*"/ | /'[^']*'/
-NUMBER: /\d+(\.\d+)?/
-
-NOT_IN.5: /not\s+in\b/
-IN.4: /in\b/
-AND.4: /and\b/
-OR.4: /or\b/
-NOT.4: /not\b/
-BOOL.3: /true\b/ | /false\b/
-NULL.3: /null\b/ | /none\b/
-
-%import common.WS
-%ignore WS
-"""
-
-
-class _Evaluator(Transformer):
-    """Transforms a parsed `when:`/`asserts:` tree bottom-up: terminals resolve to
-    VALUES (a `${ref}` via the resolve callable, literals to themselves), arithmetic
-    nodes compute numbers, comparisons/boolean ops fold to bools."""
-
-    def __init__(self, resolve: Callable[[str], Any]):
-        super().__init__()
-        self._resolve = resolve
-
-    # --- terminals -> values (bottom of the transform) --- #
-    def REF(self, tok):
-        return self._resolve(str(tok)[2:-1])
-
-    def NUMBER(self, tok):
-        s = str(tok)
-        return float(s) if "." in s else int(s)
-
-    def STRING(self, tok):
-        return str(tok)[1:-1]
-
-    def BOOL(self, tok):
-        return str(tok).lower() == "true"
-
-    def NULL(self, tok):
-        return None
-
-    def list_lit(self, items):
-        # elements are already values (refs/literals transformed bottom-up); an empty
-        # `[]` yields []. This is the `in [...]` / `!= []` RHS value (seeds 05/10).
-        return list(items)
-
-    # --- arithmetic (operands already values; inline ops filtered) --- #
-    def add(self, items):
-        return _arith("+", items[0], items[1])
-
-    def sub(self, items):
-        return _arith("-", items[0], items[1])
-
-    def mul(self, items):
-        return _arith("*", items[0], items[1])
-
-    def div(self, items):
-        return _arith("/", items[0], items[1])
-
-    def mod(self, items):
-        return _arith("%", items[0], items[1])
-
-    def neg(self, items):
-        v = items[0]
-        if type(v) not in (int, float):
-            raise ExpressionError(f"unary minus requires a number, got {v!r}")
-        return -v
-
-    # --- comparisons (operands already values; COMP_OP/IN/NOT_IN kept) --- #
-    def compare(self, items):
-        lhs, op, rhs = items
-        return _eval_comparison(str(op), lhs, rhs)
-
-    def compare_in(self, items):
-        return _eval_comparison("in", items[0], items[2])
-
-    def compare_notin(self, items):
-        return _eval_comparison("not in", items[0], items[2])
-
-    # --- boolean combinators --- #
-    def negate(self, items):
-        operand = [i for i in items if not isinstance(i, Token)]
-        return not operand[-1]
-
-    def or_expr(self, items):
-        return any(i for i in items if isinstance(i, bool))
-
-    def and_expr(self, items):
-        return all(i for i in items if isinstance(i, bool))
-
-
-_PARSER = Lark(_GRAMMAR, parser="lalr", maybe_placeholders=False)
-
-
 _WHOLE_SPAN_RE = re.compile(r"^\$\{(.*)\}$", re.DOTALL)
 
 
@@ -381,10 +254,9 @@ def evaluate_when_record(expression: str, record: dict) -> bool:
 
 # --------------------------------------------------------------------------- #
 # The ONE unified evaluator — walks a tree from `expr.grammar.parse_expr` against
-# a `resolve` callable. This SUPERSEDES the three divergent `${...}` evaluators
-# (binding coalesce/default in `template`, `when:`/`asserts:` boolean in `_Evaluator`
-# above, prompt builtin-call in `template`). It is added ALONGSIDE the legacy paths;
-# later steps switch the call sites over and delete the legacy code.
+# a `resolve` callable. It is the single `${...}` evaluator: the binding path
+# (coalesce/default/required), the `when:`/`asserts:` boolean path, and the prompt
+# builtin-call path all parse with `parse_expr` and evaluate here.
 # --------------------------------------------------------------------------- #
 
 
@@ -586,8 +458,7 @@ class _EvalExpr:
     # The operator KEYWORD tokens interleaved among the operands. A value operand may ALSO
     # be a top-level `Token` (a bare `${ref}` WRAPPED_REF, or a bare NUMBER/STRING/BOOL/NULL),
     # so a blanket "drop every Token" filter would wrongly discard the operand — only these
-    # keyword token TYPES are the operators to skip. (The legacy `Transformer` did not hit
-    # this: it resolved terminals to values bottom-up before the combinator ran.)
+    # keyword token TYPES are the operators to skip.
     _OP_TOKEN_TYPES = frozenset({"NOT", "AND", "OR"})
 
     def _operands(self, node: Tree) -> list:
