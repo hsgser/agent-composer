@@ -27,6 +27,7 @@ Imports flow DOWN/peer only: `compose.parser` (descriptors) + `compose.errors`
 from __future__ import annotations
 
 import itertools
+import re
 from dataclasses import replace
 from typing import Any, Callable, Optional
 
@@ -35,6 +36,12 @@ from agent_composer.expr import (
     InlineCall,
     desugar_calls,
     expr_refs_of,
+)
+from agent_composer.expr.template import (
+    _arg_source,
+    _find_paren_end,
+    _split_calls_aware,
+    _split_kv,
 )
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.parser import (
@@ -163,13 +170,94 @@ def _desugar_value(
     value: str, mint: Callable[[], str], calls: list, host: str, line: Optional[int]
 ) -> str:
     """Desugar one binding string, accumulating its inline calls; map an
-    `ExpressionError` (a malformed inline call) to a located `LoadError`."""
+    `ExpressionError` (a malformed inline call) to a located `LoadError`.
+
+    Two coexisting forms are recognized:
+    - a WHOLE-VALUE `call(<flow-id>, kw=...)` directive (the compile-time form) —
+      handled by `desugar_call_directives`;
+    - otherwise the legacy inline `${flow(args)}` span form — `desugar_calls`.
+    The whole-value directive is checked FIRST; a value that is not a whole-value
+    `call(...)` falls through to the legacy span scan (so a mid-value `call(` or a
+    quoted-scalar `call(x)` is left for the legacy path / treated as a literal)."""
     try:
+        new_value, found = desugar_call_directives(value, mint)
+        if found:  # a whole-value `call(...)` directive — done, no legacy scan
+            calls.extend(found)
+            return new_value
         new_value, found = desugar_calls(value, mint)
     except ExpressionError as exc:
         raise LoadError(f"{host}: {exc}", line=line) from exc
     calls.extend(found)
     return new_value
+
+
+def desugar_call_directives(value: str, mint: Callable[[], str]) -> tuple:
+    """Recognize a WHOLE-VALUE `call(<flow-id>, kw=...)` directive, else no-op.
+
+    A directive is recognized IFF the whole trimmed `value` is exactly `call( … )`:
+    a leading `call`, balanced parens, and nothing non-whitespace after the close
+    paren. Its FIRST arg is the POSITIONAL flow id (a bare identifier, may be
+    hyphenated — flow ids allow `-`); every remaining arg is a `name=value` keyword.
+    Each keyword value passes through `_arg_source` (so `window=30` -> int 30, a
+    quoted scalar unwraps, a `${…}`-bearing value stays a binding string). An arg
+    value may ITSELF be a whole-value `call(...)` — desugared inner-first.
+
+    Returns `(new_value, calls)`: if `value` is a directive, `new_value` is the synth
+    `${<id>.output}` ref and `calls` lists the `InlineCall`s (each nested call before
+    its enclosing one, inner-first, mirroring `desugar_calls`). If `value` is NOT a
+    whole-value directive, returns `(value, [])` unchanged (the caller falls through to
+    the legacy span form). Raises `ExpressionError` on a positional arg after the flow
+    id (message mentions "keyword") or a malformed `name=value` keyword."""
+    match = _match_directive(value)
+    if match is None:
+        return value, []
+    flow_id, args_str = match
+    calls: list = []
+    args: dict = {}
+    for pair in _split_calls_aware(args_str, ","):
+        if not pair.strip():
+            continue  # a trailing comma / an empty kwarg slot
+        name, arg_value = _split_kv(pair)  # raises if no top-level `=` (positional -> loud)
+        new_value, inner = desugar_call_directives(arg_value, mint)  # inner-first recursion
+        calls.extend(inner)
+        args[name] = _arg_source(new_value)
+    cid = mint()
+    calls.append(InlineCall(id=cid, callee=flow_id, args=args))
+    return "${" + cid + ".output}", calls
+
+
+def _match_directive(value: str) -> Optional[tuple]:
+    """`value` -> `(flow_id, remaining_args_str)` if it is a whole-value `call(...)`
+    directive, else None. Whole-value means: trimmed, a leading `call`, balanced
+    parens (via `_find_paren_end`), and nothing after the close paren. The flow id is
+    the first top-level arg (a bare identifier, may be hyphenated). A positional first
+    arg is REQUIRED to be a bare id; a non-directive shape (mid-value, trailing
+    content, unbalanced parens, or a non-`call` head) returns None.
+
+    Returns `remaining_args_str` = the raw args substring AFTER the flow id's comma
+    (empty when `call(f)` has no kwargs). A positional arg after the flow id is left
+    for `_split_kv` to reject (so its "keyword" message surfaces)."""
+    s = value.strip()
+    m = re.match(r"call\s*\(", s)
+    if m is None:
+        return None
+    open_idx = m.end() - 1
+    close_idx = _find_paren_end(s, open_idx + 1)
+    if close_idx is None:
+        return None  # unbalanced parens — not a directive
+    if s[close_idx + 1 :].strip():
+        return None  # trailing content after `)` — not whole-value
+    args_str = s[open_idx + 1 : close_idx]
+    parts = _split_calls_aware(args_str, ",")
+    first = parts[0].strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", first):
+        return None  # the first arg is not a bare flow id — not a directive
+    # everything after the first comma is the remaining (keyword) args; the loop over
+    # this substring never re-sees the positional flow id, so a positional arg among
+    # the REMAINING args (e.g. `call(f, 30)`) reaches `_split_kv` and fails loudly.
+    comma = args_str.find(",")
+    remaining = args_str[comma + 1 :] if comma != -1 else ""
+    return first, remaining
 
 
 def _desugar_outputs(outputs: Any, mint: Callable[[], str], line: Optional[int]) -> tuple:
