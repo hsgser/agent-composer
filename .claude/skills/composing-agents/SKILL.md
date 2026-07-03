@@ -100,16 +100,22 @@ Allowed only for the **leaf kinds** (`agent`, `code`, `model`, `tool`,
 A whole-string `${ref}` resolves to the **typed value**; embedded in surrounding
 text it is **stringified**.
 
-**Operators inside `${...}`:**
+**Operators inside `${...}`** — one expression grammar, everywhere:
 
 | Form | Meaning |
 |------|---------|
+| `${a + b}`, `${a * b + 1}` | arithmetic — `+ - * / % **`, unary minus |
+| `${a == b}`, `${x in [1, 2]}` | comparisons / membership / `and`/`or`/`not` |
+| `${[a, b]}`, `${upper(x)}` | list literal / pure builtin call |
 | `${X:-default}` | value, else `default` if absent |
 | `${X:?msg}` | required — fail with `msg` if absent |
 | `${a \| b \| c}` | first present among peers — **the branch-join coalesce** |
-| `$$` | a literal `$` |
+| `$$` | a literal `$` (outside a span) |
 
-Nesting is allowed: `${a:-${b:-lit}}`.
+Nesting a ref is allowed: `${a:-${b:-"lit"}}`. The `:-`/`:?` RHS is an
+expression, so a string default must be **quoted** (`${x:-"today"}`; bare `today`
+reads a variable). A child-flow call is the whole-value `call(...)` directive
+(see below), never a `${flow(args)}` span.
 
 ## Types
 
@@ -290,15 +296,29 @@ Both gate a node on another **settling** even when no value flows. `depends_on:
 [x]` also **co-skips** the dependent if `x` skipped; `runs_after: [x]` orders only
 (the dependent still runs). Use these for `wait`, side-effecting tools, etc.
 
-## The three expression contexts (different power)
-- **Bindings** (`input:`/`output:` values): `${ref}`, a literal, `:-`/`:?`, `|`.
-  **No arithmetic** — transforms belong in nodes.
-- **`when:` / `asserts:`**: boolean — `== != < <= > >=`, `in`/`not in`,
-  `and`/`or`/`not`, parens, operands may use arithmetic (`+ - * / %`). **No
-  function calls.**
-- **Prompts**: free text with embedded bare `${name}` (stringified).
+## The three expression contexts (one grammar)
+One `${...}` grammar; the context decides what happens to the result:
+- **Bindings** (`input:`/`output:` values): **evaluated** to a typed value — refs,
+  literals, arithmetic (`+ - * / % **`), list literals, comparisons, `:-`/`:?`,
+  `|`, and pure builtins. A child-flow call is the whole-value `call(...)`
+  directive, not a `${...}` span.
+- **`when:` / `asserts:`**: **tested** as a boolean — `== != < <= > >=`,
+  `in`/`not in`, `and`/`or`/`not`, parens, arithmetic operands. Bare or
+  `${...}`-wrapped are equivalent.
+- **Prompts**: free text with embedded `${...}` spans (each stringified).
 
 > Bindings wire, conditions test, nodes compute.
+
+## Inline `call(...)` — a flow call as a binding's whole value
+`call(f, arg=${ref}, k=lit)` written as a binding's **whole value** (or a `case`
+`then:`/`else:` target) desugars at load into an anonymous `call` node; the host
+becomes `${<synth>.output}`. Keyword args only; nesting allowed
+(`call(a, x=call(b, y=1))`). It is recognized **only** as the entire trimmed
+value — a `call(` mid-value or inside `${...}` is literal text. The old
+`${flow(args)}` form (a flow call *inside* braces) is a **load error**: hoist an
+embedded flow call to a named `call` node, and split a coalesce-of-calls
+(`${a() | b()}`) into per-node outputs. Pure builtins (`${upper(x)}`) stay legal
+inside `${}`.
 
 ## Prompts see only LOCAL inputs
 Inside a `prompt:` you may reference only names the node declares in its own
@@ -327,5 +347,5 @@ result. For a *guaranteed* gate use `human_input`; for "ask only if needed" use
 - [ ] Every prompt references only the node's own local input names.
 - [ ] Each `case` has an `else:` (or its `Literal` cases are exhaustive); branches are joined with `|`.
 - [ ] `tool` ids are registered; `code` `module:function` is importable; `call`/`uses:` targets resolve on the search path.
-- [ ] No arithmetic in bindings; no function calls in `when:`/`asserts:`.
+- [ ] A child-flow call is written `call(f, ...)` as a whole value, never `${flow(args)}`; string `:-` defaults are quoted.
 - [ ] It loads cleanly (`ac run` / `load_flow`) before you wire a model.

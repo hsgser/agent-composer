@@ -170,16 +170,21 @@ named record is **type-checked at compile time** (`${analyze.output.rating.categ
 | `${system.X}` | host-ambient (run id / clock / tenant); reserved |
 | `${name}` (bare) | **inside an AGENT prompt or a `case` `when:`** — that node's own declared input `name` |
 
-**Operator forms** inside `${…}` (bash/Compose family + our coalesce):
+**Operator forms** inside `${…}` — one expression grammar (arithmetic + our coalesce):
 
 | Form | Means |
 |---|---|
+| `${a + b}`, `${a * b + 1}` | arithmetic — `+ - * / % **`, unary minus |
+| `${a == b}`, `${x in [1, 2]}` | comparisons / membership / `and`/`or`/`not` |
+| `${[a, b]}`, `${upper(x)}` | list literal / pure builtin call |
 | `${X:-default}` | value, else `default` if X is null/absent |
 | `${X:?err}` | value, else **fail** with message `err` (required) |
 | `${a \| b \| c}` | first-present among **peers** — n-ary coalesce (branch-joins) |
 | `$$` | a literal `$` (escape; not interpolated) |
 
-Nesting is allowed: `${a:-${b:-lit}}`. Rule of thumb: `:-` for *value-or-default*, `|` for
+Nesting a ref is allowed: `${a:-${b:-"lit"}}`. The `:-`/`:?` RHS is an
+expression, so a **string** default must be quoted (`${x:-"today"}`; bare
+`today` reads a variable). Rule of thumb: `:-` for *value-or-default*, `|` for
 *whichever-ran*.
 
 **Whole-string vs embedded:** a value that is *exactly* `${ref}` resolves to the **typed** value
@@ -196,11 +201,13 @@ maps, and for any record/payload with a generic-typed field. (Quoted values — 
 
 ## Three expression contexts
 
-| Context | Grammar |
+One `${…}` grammar; the context decides what happens to the result:
+
+| Context | What it does |
 |---|---|
-| **Bindings** (`input:`/`output:` values) | `${ref}` / literal / `:-` `:?` / `\|`. **No arithmetic** — transforms go in nodes. |
-| **`when:` / `asserts:`** | boolean (`== != < <= > >= in not in`, `and`/`or`/`not`, parens) over operands that may use **simple arithmetic** (`+ - * / %`, parens, unary minus). Numbers only; **no function calls**. |
-| **Prompts** | free text with embedded `${name}` (stringified). |
+| **Bindings** (`input:`/`output:` values) | **evaluated** to a typed value — refs / literals / arithmetic / lists / `:-` `:?` / `\|` / pure builtins. (A child-flow call is the whole-value `call(…)` directive, not a `${…}` span.) |
+| **`when:` / `asserts:`** | **tested** as a boolean — `== != < <= > >= in not in`, `and`/`or`/`not`, parens, arithmetic operands. Bare or `${…}`-wrapped are equivalent. |
+| **Prompts** | free text with embedded `${…}` spans (each stringified). |
 
 "Bindings wire, conditions test, nodes compute."
 

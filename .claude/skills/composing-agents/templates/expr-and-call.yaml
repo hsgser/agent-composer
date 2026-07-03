@@ -1,0 +1,63 @@
+# Expressions + inline call — arithmetic inside ${} and a call(...) directive together.
+#
+# ONE grammar lives inside every `${...}` — the same operators work in a binding, a
+# `when:`, or a prompt span. This flow shows two of its powers side by side:
+#
+#   1. ARITHMETIC in a binding: `${input.bonus + 7}` computes a value at wiring time
+#      (the grammar also has `- * / % **`, comparisons, `in`, `and`/`or`/`not`, list
+#      literals `[...]`, and pure builtins like `upper(x)`).
+#   2. INLINE `call(...)`: a child-flow call written as a binding's WHOLE VALUE —
+#      `call(critique, text=${draft.output})` — desugars AT LOAD into an anonymous
+#      `call` node; the host binding becomes `${<synth>.output}`. Keyword args only;
+#      the callee resolves DEFS-FIRST (the in-file `critique` def), so this loads
+#      resolver-free.
+#
+# (A flow call is NOT an expression — write it as call(...), never `${critique(...)}`.
+#  A string `:-` default must be quoted: `${x:-"n/a"}`; a bare word reads a variable.)
+#
+# Run it with:
+#   ac run expr-and-call.yaml --input topic="tabs vs spaces" --input bonus=3
+
+id: expr-and-call
+name: expr_and_call
+description: Draft on a topic, critique via an inline call(), and score with arithmetic.
+
+input:
+  topic: str
+  bonus: int = 0            # default-fill: omitted -> 0
+
+defs:
+  critique:                 # an in-file callable (resolver-free) — a one-agent sub-flow
+    input:
+      text: str
+    nodes:
+      judge:
+        kind: agent
+        input:
+          text: ${input.text}
+        output: str
+        prompt: "In one sentence, critique this draft: ${text}"
+    output: ${judge.output}
+
+nodes:
+  draft:
+    kind: agent
+    input:
+      topic: ${input.topic}
+    output: str
+    prompt: "Write two sentences about ${topic}."
+
+  review:
+    kind: agent
+    input:
+      # INLINE call directive: desugars to a synth `call` node (call: critique) whose
+      # value this input binds — equivalent to a separate `kind: call` node.
+      note: call(critique, text=${draft.output})
+      # ARITHMETIC in a binding: base 7 plus the caller's bonus, computed at wiring time.
+      score: ${input.bonus + 7}
+    output: str
+    prompt: |-
+      Draft critique: ${note}
+      Score: ${score}/10. Write a one-line verdict.
+
+output: ${review.output}

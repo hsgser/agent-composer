@@ -96,14 +96,34 @@ text it is stringified.
 
 ### Operators inside `${...}`
 
+A `${...}` is **one expression**. The same grammar works everywhere `${...}`
+appears — bindings, conditions, prompts. Inside it you may write:
+
 | Form | Meaning |
 |------|---------|
+| `${a + b}`, `${a * b + 1}` | arithmetic — `+ - * / % **`, unary minus |
+| `${a == b}`, `${x in [1, 2]}` | comparisons — `== != < <= > >=`, `in` / `not in` |
+| `${a and b}`, `${not a}` | boolean — `and` / `or` / `not` |
+| `${[a, b, c]}` | a list literal (elements are themselves expressions) |
+| `${upper(name)}`, `${join(items, ", ")}` | a pure builtin call (with dotted access on the result: `${fn(x).field}`) |
 | `${X:-default}` | value, else `default` if absent |
 | `${X:?msg}` | required — fail with `msg` if absent |
 | `${a \| b \| c}` | first present among peers (n-ary coalesce — for branch joins) |
-| `$$` | a literal `$` |
+| `$$` | a literal `$` (outside a span) |
 
-Nesting is allowed: `${a:-${b:-lit}}`.
+The `:-` default and `:?` message RHS are themselves expressions, so a **string**
+default must be quoted: `${input.as_of:-"today"}`, not `:-today` (bare `today`
+would read a *variable* named `today`). Nesting a ref is allowed:
+`${a:-${b:-"lit"}}`.
+
+A whole-string `${expr}` resolves to the **typed value** (a number stays a
+number, a list a list); embedded in surrounding text it is stringified.
+
+!!! note "Flow calls are not expressions"
+    A `${...}` computes over values — it does **not** invoke a flow. To call a
+    child flow inline, use the `call(...)` directive (see [`call` / `map`](#call--map--composition-over-child-flows)),
+    not `${flow(args)}` (which is a load error).
+
 
 ## Types
 
@@ -368,6 +388,41 @@ each:
     ticker: ${item}
 ```
 
+#### Inline `call(...)` — a flow call as a binding's whole value
+
+Declaring a whole `call` node for a one-off child call is verbose. The `call(...)`
+**directive** is sugar: written as a binding's **whole value**, it desugars at
+load into an anonymous `call` node, and the host binding is rewritten to reference
+that node's output.
+
+```yaml
+# these two are equivalent —
+news: call(enrich, topic=${input.topic})   # inline directive (sugar)
+
+# desugars to:
+__call_0: { kind: call, call: enrich, input: { topic: ${input.topic} } }
+news: ${__call_0.output}
+```
+
+Rules:
+
+- **Whole-value only.** `call(...)` is recognized only when it is the *entire*
+  trimmed value (a binding value or a `case` `then:`/`else:` route target). A
+  `call(` in the *middle* of a value, or inside a `${...}` span, is literal text.
+- **Keyword args only** — `call(f, x=1, note=${a.output})`. Each arg value is a
+  `${...}` expression or a literal (`window=30` binds the int `30`). A positional
+  arg is a load error.
+- **Nesting is allowed** — `call(outer, x=call(inner, y=1))`.
+- **A flow call inside `${...}` is retired.** The old `${flow(args)}` form (a flow
+  call *inside* braces) is a load error that points at the `call(...)` directive.
+  An **embedded** flow call (`pe=${relevance(t=${x})}` — a call inside surrounding
+  text or a `${}` span) must be **hoisted** to a named `call` node and referenced
+  by output. A **coalesce of calls** (`${a(x=1) | b(y=2)}`) has no whole-value form
+  and is a load error — hoist each call to its own node, then coalesce the outputs.
+  (Pure builtins like `${upper(x)}` stay legal inside `${}` — only *flow* callees
+  moved out.)
+
+
 ### `loop` — re-run a body under a predicate or a fixed count
 
 `loop` runs a child flow (the **body**) over and over, threading one **carried
@@ -476,18 +531,24 @@ For a *guaranteed* gate use `human_input`; for "ask only if needed" use
 
 ## Expression contexts
 
-Three places take expressions, with different power:
+One `${...}` grammar serves every context — the difference is what each context
+*does* with the result, not what it can parse:
 
-- **Bindings** (`input:` / `output:` values): `${ref}`, a literal, `:-`/`:?`,
-  and `|`. **No arithmetic** — transforms belong in nodes.
-- **`when:` / `asserts:`**: boolean expressions — `== != < <= > >=`, `in` /
-  `not in`, `and` / `or` / `not`, parentheses, over operands that may use
-  arithmetic (`+ - * / %`). No function calls. A condition may be written bare
-  (`a.output > 5`), with braces on a ref (`${a.output} > 5`), or with braces around
-  the whole expression (`${a.output > 5}`) — all three are equivalent.
-- **Prompts**: free text with embedded bare `${name}` (stringified).
+- **Bindings** (`input:` / `output:` values): the expression is **evaluated** to a
+  typed value. Refs, literals, arithmetic (`+ - * / % **`), list literals,
+  comparisons, `:-`/`:?`, `\|`, and pure builtins all work. To invoke a child flow
+  as a binding's whole value, use the `call(...)` directive — not a `${...}` span.
+- **`when:` / `asserts:`**: the expression is **tested** as a boolean. Same
+  operators; a condition may be written bare (`a.output > 5`), with braces on a ref
+  (`${a.output} > 5`), or with braces around the whole expression
+  (`${a.output > 5}`) — all three are equivalent (an expression field is already in
+  expression mode, so the `${}` wrapper is a redundant no-op).
+- **Prompts**: free text with embedded `${...}` spans (each stringified into the
+  text); spans may use the full grammar, but reference only the node's own declared
+  inputs.
 
 > Bindings wire, conditions test, nodes compute.
+
 
 ## Asserts
 
