@@ -46,7 +46,6 @@ from agent_composer.compile.model import Edge
 from agent_composer.expr import (
     ExpressionError,
     binding_co_skips,
-    desugar_calls,
     expr_refs_of,
 )
 from agent_composer.nodes.binding import ParamDecl
@@ -351,16 +350,17 @@ def reconcile_case_edges(
 
 
 # --------------------------------------------------------------------------- #
-# `then:/else: ${call}` — an inline-call branch target
+# `then:/else:` — an inline-call branch target
 #
 # A `case` branch may route to a FRESH owned call instead of a placed node id:
-# `then: ${ take(stance="pro") }` (and `else:` symmetric). It desugars to a synth
+# `then: call(take, stance="pro")` (and `else:` symmetric). It desugars to a synth
 # `__call_<n>` node (the same machinery as an inline-binding call); the then:/else:
 # target is rewritten to that synth id (which is then both the CaseNode handle and
 # the control-edge target, exactly like a plain `then: id`). Accepted grammar: a
-# SINGLE bare whole-span `${call}` — a route target resolves to exactly one node id, so
-# a coalesce / embedded text / dotted call is a located LoadError. Sound because the
-# case-route veto skip-floods the non-chosen synth branch even when its call args carry data edges.
+# whole-value `call(...)` directive — a route target resolves to exactly one node id, so
+# a coalesce / embedded text / dotted call (or any `${...}` span) is a located LoadError.
+# Sound because the case-route veto skip-floods the non-chosen synth branch even when its
+# call args carry data edges.
 #
 # Runs in `_assemble` AFTER `desugar_inline_calls` (sharing its `next_id` minter — else
 # the ids collide) and BEFORE `expand_case_outputs`, so the synth call's args (which may
@@ -373,10 +373,9 @@ def desugar_case_call_targets(
     descriptors: dict, mint: Callable[[], str], *, node_lines: "dict[str, int] | None" = None
 ) -> dict:
     """Rewrite each `case` then:/else: that is an inline call — a whole-value
-    `call(<flow-id>, kw=...)` directive OR a single bare inline `${call}` span — to a synth
-    call node id (minting its `CallDescriptor`, `over=None`); return the new descriptor map
-    (augmented with the synth nodes). A plain node id (no `${`, not a `call(...)` directive)
-    passes through unchanged."""
+    `call(<flow-id>, kw=...)` directive — to a synth call node id (minting its
+    `CallDescriptor`, `over=None`); return the new descriptor map (augmented with the synth
+    nodes). A plain node id (no `${`, not a `call(...)` directive) passes through unchanged."""
     lines = node_lines or {}
     synth: dict = {}
     new_descriptors: dict = {}
@@ -401,17 +400,15 @@ def desugar_case_call_targets(
 def _lift_case_target(
     target: Any, mint: Callable[[], str], synth: dict, *, host: str, line: Optional[int]
 ) -> Any:
-    """A then:/else: target rewritten to a single node id. Accepts THREE forms and
+    """A then:/else: target rewritten to a single node id. Accepts TWO forms and
     rejects everything else with a located `LoadError`:
 
     - a whole-value `call(<flow-id>, kw=...)` directive (the compile-time form) -> lift
       its synth call node(s) into `synth`, return the OUTER call's synth id;
-    - a single bare whole-span inline `${call}` (the legacy span form) -> lift the same
-      way, return its synth id;
     - a plain node id (no `${`, not a `call(...)` directive) -> passed through unchanged.
 
-    A coalesce / embedded text / dotted call (in either spelling) is a `LoadError` — a
-    route target must resolve to exactly one node id."""
+    Anything else — a coalesce / embedded text / dotted call, or any `${...}` span — is a
+    `LoadError`: a route target must resolve to exactly one node id."""
     if not isinstance(target, str):
         return target  # None (handled by the caller) or a native literal
     stripped = target.strip()
@@ -435,16 +432,11 @@ def _lift_case_target(
                 line=line,
             )
         return target
-    try:
-        new_value, calls = desugar_calls(target, mint)
-    except ExpressionError as exc:
-        raise LoadError(f"{host}: {exc}", line=line) from exc
-    if len(calls) == 1 and new_value.strip() == f"${{{calls[0].id}.output}}":   # node-first
-        synth[calls[0].id] = _to_call_descriptor(calls[0], host=host, line=line)
-        return calls[0].id
+    # A `${...}` branch target is the retired inline `${flow(args)}` form: a route target
+    # is a node id or a whole-value call(...) directive (handled above) — nothing else.
     raise LoadError(
-        f"{host}: a branch target must be a node id or a single inline ${{call}} "
-        f"(got {target!r}) — not a coalesce / embedded text / dotted call",
+        f"{host}: a branch target must be a node id or a call(...) directive "
+        f"(got {target!r}) — an inline ${{flow(args)}} target is no longer supported",
         line=line,
     )
 
@@ -461,7 +453,7 @@ def _lift_case_target(
 # Only a CLEAN whole-span ref `${<case>.output[.dotted.path]}` is expanded (incl.
 # embedded-in-text and dotted). A case-value ref in a non-clean position — inside a
 # `|` coalesce / a `:-`/`:?` default / a `when:`/`on:` condition / an assert — is a
-# located `LoadError` (deferred). The `then:/else: ${call}` inline-call branch form
+# located `LoadError` (deferred). The `then:/else: call(...)` inline-call branch form
 # needs the case-route hard-gate veto; see docs/TODO.md.
 # --------------------------------------------------------------------------- #
 
@@ -620,7 +612,7 @@ def _reject_case_refs(strings, case_ids: set, where: str, line: Optional[int]) -
                 raise LoadError(
                     f"{where}: ${{{case_id}.output}} (a case value) is only supported as a "
                     f"whole single reference in a binding — not in a coalesce / default / "
-                    f"condition / assert (only the `then:/else: ${{call}}` value form is supported)",
+                    f"condition / assert (only the `then:/else: call(...)` value form is supported)",
                     line=line,
                 )
 

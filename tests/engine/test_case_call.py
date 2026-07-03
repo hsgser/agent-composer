@@ -1,9 +1,10 @@
-"""`case` `then:/else: ${call}` inline-call branch targets.
+"""`case` `then:/else: call(...)` inline-call branch targets.
 
 A branch target may be an inline call (a fresh owned call) instead of a placed node id; it
 desugars to a synth `__call_<n>` node and the then:/else: is rewritten to that synth id. Sound
-because the case veto skip-floods the non-chosen synth branch. Accepted grammar: a single bare
-whole-span `${call}` (a route target is one node id).
+because the case veto skip-floods the non-chosen synth branch. Accepted grammar: a whole-value
+`call(...)` directive (a route target is one node id); the retired inline `${flow(args)}` span
+target is a LoadError.
 """
 
 import pytest
@@ -27,48 +28,8 @@ defs:
 """
 
 
-def _flow():
-    return f"""
-id: cc
-name: cc
-input:
-  score: float
-{_TAKE_DEF}
-nodes:
-  gate:
-    kind: case
-    cases:
-      - when: "${{input.score}} >= 0.5"
-        then: ${{ take(stance="pro") }}
-    else: ${{ take(stance="con") }}
-output: ${{gate.output}}
-"""
-
-
-def test_then_else_call_desugars_to_synth_branch_nodes():
-    loaded = load_flow(_flow())
-    # both then: and else: inline calls became synth call nodes
-    synth = [nid for nid in loaded.compiled.nodes if nid.startswith("__call_")]
-    assert len(synth) == 2
-    # the gate's control edges target the synth ids (not a placed user node)
-    control_targets = {e.to for e in loaded.compiled.edges if e.source_handle is not None and e.from_ == "gate"}
-    assert control_targets == set(synth)
-
-
-def test_then_call_branch_runs_taken_value():
-    out = run_flow(load_flow(_flow()), {"score": 0.9})
-    assert out.status == "succeeded"
-    assert out.output == "took:pro"
-
-
-def test_else_call_branch_runs_taken_value():
-    out = run_flow(load_flow(_flow()), {"score": 0.2})
-    assert out.status == "succeeded"
-    assert out.output == "took:con"
-
-
 def test_non_bare_then_call_is_rejected():
-    # a route target must resolve to ONE node id: a coalesce of calls is loud.
+    # a `${...}` branch target is the retired inline `${flow(args)}` form -> loud.
     text = f"""
 id: bad
 name: bad
@@ -89,7 +50,7 @@ output: ${{gate.output}}
 
 
 def test_inline_binding_and_then_call_share_minter_no_collision():
-    # an inline-binding call AND a then: ${call} in one flow must get DISTINCT synth ids.
+    # an inline-binding call(...) AND a then: call(...) in one flow must get DISTINCT synth ids.
     text = f"""
 id: both
 name: both
@@ -124,13 +85,13 @@ nodes:
     kind: code
     code: tests.engine._compose_codefns:echo
     input:
-      topic: ${{ enrich(topic=${{input.topic}}) }}
+      topic: call(enrich, topic=${{input.topic}})
     output: str
   gate:
     kind: case
     cases:
       - when: "${{input.score}} >= 0.5"
-        then: ${{ take(stance="pro") }}
+        then: call(take, stance="pro")
     else: use
 output: ${{gate.output}}
 """
@@ -140,9 +101,8 @@ output: ${{gate.output}}
 
 
 # --------------------------------------------------------------------------- #
-# The `call(...)` directive spelling of a then:/else: branch target — the
-# compile-time form that coexists with the legacy `${ take(...) }` span above.
-# Mirrors the legacy tests one-for-one but with `call(take, stance="…")`.
+# The `call(...)` directive spelling of a then:/else: branch target — the only
+# supported inline-call branch form (the legacy `${ take(...) }` span is retired).
 # --------------------------------------------------------------------------- #
 
 
@@ -307,3 +267,24 @@ def test_nested_then_call_directive_branch_runs_taken_value():
     out = run_flow(load_flow(_flow_nested_directive()), {"score": 0.9})
     assert out.status == "succeeded"
     assert out.output == "took:took:pro"
+
+
+def test_then_span_flow_call_target_is_rejected():
+    # the retired inline `${flow(args)}` case target is a LoadError pointing at call(...).
+    text = f"""
+id: bad
+name: bad
+input:
+  score: float
+{_TAKE_DEF}
+nodes:
+  gate:
+    kind: case
+    cases:
+      - when: "${{input.score}} >= 0.5"
+        then: ${{ take(stance="pro") }}
+    else: nope
+output: ${{gate.output}}
+"""
+    with pytest.raises(LoadError):
+        load_flow(text)

@@ -96,19 +96,17 @@ def test_shared_minter_yields_distinct_ids_across_bindings():
     assert synth_ids == {"__call_0", "__call_1"}  # distinct, no collision
 
 
-def test_old_and_new_forms_coexist():
-    # OLD-form `${flow(args)}` still desugars via the legacy path; NEW-form `call(...)`
-    # via the directive path — in the same traversal, sharing one minter.
-    descriptors = {
-        "old": _code("old", {"topic": "${ enrich(topic=${input.topic}) }"}),
-        "new": _code("new", {"topic": "call(summarize, messages=${messages})"}),
-    }
-    new_descriptors, _, _ = desugar_inline_calls(descriptors, None, next_id=_ids())
-    # both hosts rewritten to a synth ref, and two distinct synth call nodes exist.
-    assert new_descriptors["old"].inputs["topic"].startswith("${__call_")
+def test_old_form_rejected_new_form_desugars():
+    # the OLD-form `${flow(args)}` is now a hard-break LoadError; the NEW-form `call(...)`
+    # desugars via the directive path.
+    old_only = {"old": _code("old", {"topic": "${ enrich(topic=${input.topic}) }"})}
+    with pytest.raises(LoadError, match="call\\("):
+        desugar_inline_calls(old_only, None, next_id=_ids())
+    new_only = {"new": _code("new", {"topic": "call(summarize, messages=${messages})"})}
+    new_descriptors, _, _ = desugar_inline_calls(new_only, None, next_id=_ids())
     assert new_descriptors["new"].inputs["topic"].startswith("${__call_")
-    synth = {nid: d for nid, d in new_descriptors.items() if nid.startswith("__call_")}
-    assert {d.call for d in synth.values()} == {"enrich", "summarize"}
+    synth = {d.call for nid, d in new_descriptors.items() if nid.startswith("__call_")}
+    assert synth == {"summarize"}
 
 
 def test_no_arg_directive_recognized():
@@ -140,3 +138,48 @@ def test_directive_in_outputs_and_asserts_is_desugared():
     assert new_asserts[0].startswith("${__call_")
     synth = {d.call for nid, d in new_descriptors.items() if nid.startswith("__call_")}
     assert synth == {"summarize", "score"}
+
+
+# --------------------------------------------------------------------------- #
+# The hard-break: a FLOW call embedded inside a `${...}` span (the retired
+# `${flow(args)}` form) is a LoadError pointing at the call(...) directive.
+# A pure builtin inside `${...}` stays legal.
+# --------------------------------------------------------------------------- #
+
+
+def test_whole_value_flow_call_in_span_is_loud():
+    descriptors = {"use": _code("use", {"topic": "${summarize(messages=${messages})}"})}
+    with pytest.raises(LoadError, match="call\\("):
+        desugar_inline_calls(descriptors, None, next_id=_ids())
+
+
+def test_embedded_flow_call_in_comparison_is_loud():
+    descriptors = {"use": _code("use", {"topic": "${score_one(t=${input.t})} >= -1"})}
+    with pytest.raises(LoadError, match="call\\("):
+        desugar_inline_calls(descriptors, None, next_id=_ids())
+
+
+def test_embedded_flow_call_in_text_is_loud():
+    descriptors = {"use": _code("use", {"topic": "pe=${relevance(t=${input.t})}"})}
+    with pytest.raises(LoadError, match="call\\("):
+        desugar_inline_calls(descriptors, None, next_id=_ids())
+
+
+def test_coalesce_of_flow_calls_in_span_is_loud():
+    descriptors = {"use": _code("use", {"topic": "${a(x=1) | b(y=2)}"})}
+    with pytest.raises(LoadError, match="call\\("):
+        desugar_inline_calls(descriptors, None, next_id=_ids())
+
+
+def test_flow_call_in_outputs_span_is_loud():
+    with pytest.raises(LoadError, match="call\\("):
+        desugar_inline_calls({}, {"result": "${summarize(m=${m})}"}, next_id=_ids())
+
+
+def test_pure_builtin_in_span_still_allowed():
+    # `upper` is a TEMPLATE_FNS builtin — a call to it inside `${...}` is NOT a flow call,
+    # so it passes through untouched (no synth node, no raise).
+    descriptors = {"use": _code("use", {"topic": "${upper(${input.t})}"})}
+    new_descriptors, _, _ = desugar_inline_calls(descriptors, None, next_id=_ids())
+    assert new_descriptors["use"].inputs["topic"] == "${upper(${input.t})}"
+    assert not any(nid.startswith("__call_") for nid in new_descriptors)

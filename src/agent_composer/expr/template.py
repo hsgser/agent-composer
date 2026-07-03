@@ -947,16 +947,17 @@ def prompt_refs(text: str) -> list[str]:
     return template_refs(segments)
 
 
-def _reject_unknown_prompt_builtin(tree: Tree | Token) -> None:
-    """Raise `ExpressionError` if any builtin CALL in a scanned prompt span names a callee
-    absent from `TEMPLATE_FNS`. Walks the parse tree for `refcall`s carrying a `call_suffix`
-    (a call); a bare reference (no suffix) names no builtin and is skipped. This is the
-    compile-time mirror of the render-time `unknown expression function` raise, so the
-    loader can reject an unknown prompt builtin without evaluating."""
+def _call_suffix_callees_absent_from_builtins(tree: "Tree | Token") -> list[str]:
+    """Every callee named by a builtin-CALL inside a parsed `${...}` span `tree` whose
+    name is NOT a `TEMPLATE_FNS` builtin — i.e. a FLOW call embedded in a `${...}`
+    expression. A `refcall` carrying a `call_suffix` child is a call; a bare reference
+    (no suffix) names no callee and is skipped. Returned in tree-walk order (not deduped).
+    An empty list means the span calls only known builtins (or no callee at all)."""
     from lark import Tree as _Tree  # runtime import: `Tree` is TYPE_CHECKING-only above
 
     if not isinstance(tree, _Tree):
-        return
+        return []
+    out: list[str] = []
     for node in tree.iter_subtrees():
         if node.data != "refcall":
             continue
@@ -964,7 +965,19 @@ def _reject_unknown_prompt_builtin(tree: Tree | Token) -> None:
             isinstance(c, _Tree) and c.data == "call_suffix" for c in node.children
         )
         if has_call and str(node.children[0]) not in TEMPLATE_FNS:
-            raise ExpressionError(f"unknown prompt function {str(node.children[0])!r}")
+            out.append(str(node.children[0]))
+    return out
+
+
+def _reject_unknown_prompt_builtin(tree: Tree | Token) -> None:
+    """Raise `ExpressionError` if any builtin CALL in a scanned prompt span names a callee
+    absent from `TEMPLATE_FNS`. Walks the parse tree for `refcall`s carrying a `call_suffix`
+    (a call); a bare reference (no suffix) names no builtin and is skipped. This is the
+    compile-time mirror of the render-time `unknown expression function` raise, so the
+    loader can reject an unknown prompt builtin without evaluating."""
+    bad = _call_suffix_callees_absent_from_builtins(tree)
+    if bad:
+        raise ExpressionError(f"unknown prompt function {bad[0]!r}")
 
 
 # --------------------------------------------------------------------------- #
@@ -1055,6 +1068,22 @@ def scan_template(text: str) -> list[Segment]:
     if buf:
         segments.append(Literal("".join(buf)))
     return segments
+
+
+def flow_call_callees_in_spans(text: str) -> list[str]:
+    """Every FLOW callee (a callee absent from `TEMPLATE_FNS`) named by a call inside a
+    `${...}` span of `text`. The loader uses this to REJECT the retired inline
+    `${ flow(args) }` form: a flow call belongs in the whole-value `call(...)` directive,
+    not inside a `${...}` expression. Pure builtins (`upper`, `join`, …) return nothing —
+    they stay legal inside `${...}`. Returns [] when no span names a flow callee.
+
+    Raises `ExpressionError` if a span interior does not parse (the same parse the
+    downstream template evaluator performs)."""
+    out: list[str] = []
+    for seg in scan_template(text):
+        if isinstance(seg, Span):
+            out.extend(_call_suffix_callees_absent_from_builtins(seg.tree))
+    return out
 
 
 def eval_template(

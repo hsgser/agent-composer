@@ -1,17 +1,21 @@
-"""Inline `${ f(arg=...) }` call desugar — the compose half.
+"""Whole-value `call(<flow-id>, kw=...)` directive desugar — the compose half.
 
-`expr.desugar_calls` is the pure string→data half (find a call operand inside a
-`${…}` span, rewrite it to `${<synth>.output}`, emit an `InlineCall`). This module
-is the loader pass that runs it over a flow's parsed descriptors + `outputs:`
-section and turns each `InlineCall` into a synthetic `call` node (a `CallDescriptor`,
-`over=None`). After it runs, the rest of `_assemble` (build → edge-infer → validate
-→ DAG) sees the synth nodes as ordinary `call` nodes — inline calls are pure
-load-time sugar, no new runtime kind, the synth callee resolves through the SAME
-composite resolver (defs-first) as a named call.
+`desugar_call_directives` (below) is the pure string→data half: a field whose WHOLE
+trimmed value is exactly `call( … )` rewrites to `${<synth>.output}` and emits a
+`CallDescriptor`. This module is the loader pass that runs it over a flow's parsed
+descriptors + `outputs:` section and installs each synth `call` node (`over=None`).
+After it runs, the rest of `_assemble` (build → edge-infer → validate → DAG) sees the
+synth nodes as ordinary `call` nodes — inline calls are pure load-time sugar, no new
+runtime kind, the synth callee resolves through the SAME composite resolver
+(defs-first) as a named call.
+
+The retired inline `${ f(args) }` form — a FLOW call embedded inside a `${...}` span —
+is a hard-break `LoadError` pointing the author at the `call(...)` directive; a pure
+builtin (`upper`, `join`, …) inside `${...}` stays legal.
 
 Binding positions + the flow `asserts:` section: a node's `inputs:` (agent/code/model/call),
 a TOOL's `args:`, a mapped call's `over:`, the flow `outputs:` bindings, AND each flow
-`asserts:` expression (a span-wrapped `${ f(...) }` lifts to a synth node so the assert reads
+`asserts:` expression (a whole-value `call(...)` lifts to a synth node so the assert reads
 its output). NOT `when:`/`on:` (the case condition grammar) and NOT a node-local
 `asserts:` (those stay node-local — no inline call). A `case` descriptor carries no walked
 bindings, so it is untouched.
@@ -21,7 +25,7 @@ top-level node with no map-element scope — use a named `call` node with `over:
 a user node id may not use the reserved synth prefix `__call_`.
 
 Imports flow DOWN/peer only: `compose.parser` (descriptors) + `compose.errors`
-(peer), `expr` (the desugar + ref-walk). Only the loader imports this back.
+(peer), `expr` (the ref-walk + the span flow-call detector). Only the loader imports this back.
 """
 
 from __future__ import annotations
@@ -34,7 +38,6 @@ from typing import Any, Callable, Optional
 from agent_composer.expr import (
     ExpressionError,
     InlineCall,
-    desugar_calls,
     expr_refs_of,
 )
 from agent_composer.expr.template import (
@@ -42,6 +45,7 @@ from agent_composer.expr.template import (
     _find_paren_end,
     _split_calls_aware,
     _split_kv,
+    flow_call_callees_in_spans,
 )
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.parser import (
@@ -169,26 +173,28 @@ def _desugar_descriptor(
 def _desugar_value(
     value: str, mint: Callable[[], str], calls: list, host: str, line: Optional[int]
 ) -> str:
-    """Desugar one binding string, accumulating its inline calls; map an
-    `ExpressionError` (a malformed inline call) to a located `LoadError`.
-
-    Two coexisting forms are recognized:
-    - a WHOLE-VALUE `call(<flow-id>, kw=...)` directive (the compile-time form) —
-      handled by `desugar_call_directives`;
-    - otherwise the legacy inline `${flow(args)}` span form — `desugar_calls`.
-    The whole-value directive is checked FIRST; a value that is not a whole-value
-    `call(...)` falls through to the legacy span scan (so a mid-value `call(` or a
-    quoted-scalar `call(x)` is left for the legacy path / treated as a literal)."""
+    """Desugar one binding string. A WHOLE-VALUE `call(<flow-id>, kw=...)` directive lifts
+    to a synth call node (accumulated in `calls`, the value rewritten to `${<synth>.output}`).
+    A flow call embedded INSIDE a `${...}` span is the retired `${flow(args)}` form — a
+    located `LoadError` pointing at the `call(...)` directive. Any other value (plain refs,
+    pure builtins, literals) is returned unchanged. Maps `ExpressionError` (a malformed
+    directive or an unparseable span) to a located `LoadError`."""
     try:
         new_value, found = desugar_call_directives(value, mint)
-        if found:  # a whole-value `call(...)` directive — done, no legacy scan
+        if found:  # a whole-value `call(...)` directive
             calls.extend(found)
             return new_value
-        new_value, found = desugar_calls(value, mint)
+        flow_callees = flow_call_callees_in_spans(value)
     except ExpressionError as exc:
         raise LoadError(f"{host}: {exc}", line=line) from exc
-    calls.extend(found)
-    return new_value
+    if flow_callees:
+        callee = flow_callees[0]
+        raise LoadError(
+            f"{host}: a flow call {callee!r} inside ${{...}} is not supported — write it "
+            f"as the whole value with the call(...) directive: call({callee}, ...)",
+            line=line,
+        )
+    return value
 
 
 def desugar_call_directives(value: str, mint: Callable[[], str]) -> tuple:
@@ -204,9 +210,9 @@ def desugar_call_directives(value: str, mint: Callable[[], str]) -> tuple:
 
     Returns `(new_value, calls)`: if `value` is a directive, `new_value` is the synth
     `${<id>.output}` ref and `calls` lists the `InlineCall`s (each nested call before
-    its enclosing one, inner-first, mirroring `desugar_calls`). If `value` is NOT a
-    whole-value directive, returns `(value, [])` unchanged (the caller falls through to
-    the legacy span form). Raises `ExpressionError` on a positional arg after the flow
+    its enclosing one, inner-first). If `value` is NOT a whole-value directive, returns
+    `(value, [])` unchanged (the caller then checks the value for a retired span
+    flow-call). Raises `ExpressionError` on a positional arg after the flow
     id (message mentions "keyword") or a malformed `name=value` keyword."""
     match = _match_directive(value)
     if match is None:
