@@ -37,10 +37,10 @@ from typing import Any, Callable, Optional
 
 from agent_composer.expr import (
     ExpressionError,
-    InlineCall,
     expr_refs_of,
 )
 from agent_composer.expr.template import (
+    InlineCall,
     _arg_source,
     _find_paren_end,
     _split_calls_aware,

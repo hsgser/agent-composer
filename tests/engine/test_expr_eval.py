@@ -12,11 +12,11 @@ import pytest
 
 from agent_composer.expr.expressions import (
     ExpressionError,
+    RequiredError,
     ResolveMode,
     eval_expr,
 )
 from agent_composer.expr.grammar import parse_expr
-from agent_composer.expr.template import RequiredError
 
 
 def _eval(text, resolve=None, item=None, mode=ResolveMode.BINDING_NONE):

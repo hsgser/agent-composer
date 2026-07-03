@@ -24,6 +24,10 @@ class ExpressionError(ValueError):
     """A `when:` expression could not be parsed or evaluated."""
 
 
+class RequiredError(ExpressionError):
+    """A `${ref:?message}` whose ref was unbound (the binder maps it to BindingError)."""
+
+
 _VAR_RE = re.compile(r"\$\{([^}]+)\}")
 _NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
@@ -449,8 +453,6 @@ class _EvalExpr:
         head, message = node.children
         v = self._as_value(self._walk(head))
         if v is None:
-            from agent_composer.expr.template import RequiredError
-
             raise RequiredError(self._as_value(self._walk(message)))
         return v
 

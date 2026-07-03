@@ -53,7 +53,7 @@ from lark import Lark, Token, Tree
 from lark.exceptions import LarkError
 
 # Reuse the existing expression error — `expressions.ExpressionError` is already
-# the base of `template.RequiredError`, so parse failures here stay in one family.
+# the base of `expressions.RequiredError`, so parse failures here stay in one family.
 from agent_composer.expr.expressions import ExpressionError
 
 # The unified grammar. Precedence, lowest to highest:

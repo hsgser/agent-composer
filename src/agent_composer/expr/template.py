@@ -53,10 +53,6 @@ if TYPE_CHECKING:  # `Tree`/`Token` appear ONLY in the `Span.tree` annotation
     from lark import Token, Tree
 
 
-class RequiredError(ExpressionError):
-    """A `${ref:?message}` whose ref was unbound (the binder maps it to BindingError)."""
-
-
 # --------------------------------------------------------------------------- #
 # Shared call-parsing helpers — reused by the whole-value `call(...)` directive
 # (`compose.calls`) and the prompt-span parser further down.
