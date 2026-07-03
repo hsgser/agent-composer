@@ -9,6 +9,16 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 ## Engine bugs surfaced but deferred
 
+- [ ] **`and`/`or`/`not`/`in` are not reserved words in the unified `${}` grammar** — the LALR lexer
+  resolves them contextually: in operator position they lex as the keyword token, in operand position as
+  a plain `NAME`/ref. So `${x and and}` parses (the 2nd `and` is a ref named `and`), and bare `${and}`
+  resolves a pool variable named `and`. Consequence: a malformed boolean like `x and and` silently
+  parses instead of erroring, and a variable may shadow a keyword. Harmless today (no one names a var
+  `and`; the condition evaluator is unaffected because it keys off token TYPE), but it weakens
+  malformed-expression detection. Decide whether to reserve `and or not in true false null` as keywords
+  (rejecting them as identifiers) or keep the ergonomic looseness. (Surfaced 2026-07-03 during
+  expr-unification Step 9.)
+
 - [ ] **Prompt strict-floor asymmetry on an explicit `${null}`** — under STRICT_RAISE prompt rendering,
   a whole-single-span `${null}` (a genuine null VALUE, not a missing ref) RAISES (a prompt can't be
   None), but the SAME `${null}` embedded in a multi-span prompt (`x ${null} y`) silently stringifies to
