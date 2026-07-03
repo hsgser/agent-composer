@@ -22,5 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/seeds/expr-loop-showcase` | `main` | gallery seeds showcasing the unified `${...}` expression grammar (27) and the `loop` node (28) | 2026-07-03 |
 

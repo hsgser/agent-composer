@@ -142,6 +142,17 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   which failed the parse and burned a retry. `_strip_code_fence` strips a single wrapping fence before
   `json.loads`.~~ -- 80f90c6
 
+## Gallery
+
+- [x] ~~**Showcase the unified `${...}` grammar + the `loop` node in the seed gallery.** The
+  expr-unification and loop features shipped but no seed demonstrated their new expressive power
+  (arithmetic / string / list ops / builtins inside `${}`, and `kind: loop`), leaving the "gallery
+  doubles as the spec" goal unmet. Added `27-expr-ops.yaml` (every unified-`${...}` form across
+  bindings, a prompt, and `asserts:`) and `28-refine-loop.yaml` (the `loop` node with `until:` +
+  `max:` over an in-file `defs:` body, `'a -> 'a` carried record). Both registered in
+  `test_load.py`'s loadable set (load green resolver-free); README rows added and `loop` joined the
+  "every node kind" line.~~ -- f54d8aa (branch `dev/seeds/expr-loop-showcase`)
+
 ## CLI
 
 - [x] ~~**`cli/utils.py` helpers** referenced by `llm_clients` comments but not built: `ensure_api_key`
