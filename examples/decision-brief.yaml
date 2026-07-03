@@ -110,7 +110,7 @@ nodes:
   finalize:
     kind: agent
     input:
-      audience: ${input.audience:-a general audience}
+      audience: ${input.audience:-"a general audience"}
       decision: ${synth.output}
       brief: ${go_brief.output | no_go_brief.output | more_info_brief.output}
     output: str
