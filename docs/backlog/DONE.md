@@ -24,6 +24,16 @@ This backlog is split four ways:
   loop prune bound, suspend/resume commit re-pointing) are already covered — no new production code.~~
   -- 7ee49d2 (branch `dev/engine/kind-census`)
 
+- [x] ~~**Kind-agnostic refactor — Phase P1: outcome vocab (`Route` + `NodeRouted` + node contract).**
+  Introduced the routing-only outcome `Route(handle)` and the dedicated `NodeRouted(node_id, handle)`
+  event so the engine dispatches CASE routing on the OUTCOME/EVENT, never on `node.kind == CASE`:
+  CASE `run()` now returns `Route`, `eval_node` emits `NodeRouted`, and `engine._on_route` takes the
+  chosen edge + skip-floods siblings. `_on_success` lost both CASE kind-checks (always pool-writes,
+  always advances). Dropped the now-dead `Output.handle` and `NodeSucceeded.edge_source_handle` fields.
+  Added the node-contract seams `is_spawner: ClassVar` and the `on_failure` recovery hook (default
+  re-raise), unused until later phases. Census baseline 22 -> 20.~~
+  -- bd20557 (branch `dev/engine/outcome-route`)
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and
