@@ -22,4 +22,5 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
+| `dev/engine/kind-census` | `main` | Phase P0 of the kind-agnostic refactor: add a `test_kind_census.py` ratchet counting NodeKind-dispatch sites in the engine core + label characterization tests for the behaviors most at risk in the migration. No production code changes. | 2026-07-04 |
 
