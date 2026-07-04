@@ -34,6 +34,18 @@ This backlog is split four ways:
   re-raise), unused until later phases. Census baseline 22 -> 20.~~
   -- bd20557 (branch `dev/engine/outcome-route`)
 
+- [x] ~~**Kind-agnostic refactor — Phase P2: `commit_as` retires the alias maps.** Replaced the two
+  engine-side commit-redirect dicts (`self.alias`, `self.loop_alias`) with a `commit_as` field carried
+  on the node and baked by the `_grow_*` expanders onto each subflow terminal (child END / MAP END-list
+  / agent resume continuation / loop-body END). `_on_success` now computes `target = event.commit_as or
+  node_id` and commits/advances under `target` in ONE unified arm; loop-body ENDs route to `_loop_step`
+  via `target in self.loop_desc` (the loop-route discriminator). `commit_as` lives on `Output`
+  (node-chosen), base `Node` (engine-baked), and `NodeSucceeded`; `eval_node` folds `result.commit_as or
+  node.commit_as` onto the event. The agent multi-pause origin chain is reconstructed off the prior
+  segment's baked `commit_as` (no dict). Census unchanged at 20 (removed data structures, not
+  kind-dispatch).~~
+  -- 84c0bd6 (branch `dev/engine/commit-as`)
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and
