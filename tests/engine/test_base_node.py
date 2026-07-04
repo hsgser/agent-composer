@@ -2,6 +2,7 @@
 
 from agent_composer.events import (
     NodeFailed,
+    NodeRouted,
     NodeStarted,
     NodeSucceeded,
     PauseRequested,
@@ -56,8 +57,8 @@ def test_node_returning_failed_status():
 
 def test_branch_node_carries_handle():
     evs = _events(BranchNode("n", "case_a"))
-    assert isinstance(evs[-1], NodeSucceeded)
-    assert evs[-1].edge_source_handle == "case_a"
+    assert isinstance(evs[-1], NodeRouted)
+    assert evs[-1].handle == "case_a"
 
 
 def test_pause_stops_without_terminal_event():

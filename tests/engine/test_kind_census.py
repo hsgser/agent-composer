@@ -42,7 +42,7 @@ CORE_MODULES = {
 # Ratchet ceiling: the number of kind-dispatch lines allowed in the engine core.
 # LOWER this as each refactor phase removes dispatch; the final phase drives it to 0.
 # (Measured at phase P0 baseline; do not raise it.)
-BASELINE = 22
+BASELINE = 20
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

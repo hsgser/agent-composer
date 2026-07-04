@@ -82,8 +82,15 @@ class NodeSucceeded:
 
     node_id: str
     output: Any = None  # the node's single produced value
-    # CASE routing: which case handle was selected ("default" = fallback).
-    edge_source_handle: Optional[str] = None
+
+
+@dataclass
+class NodeRouted:
+    """A router (CASE) selected an out-edge handle; the engine takes it and skip-floods the
+    siblings. Stores no value."""
+
+    node_id: str
+    handle: str
 
 
 @dataclass

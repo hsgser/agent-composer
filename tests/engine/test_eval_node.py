@@ -10,7 +10,7 @@ AgentLoopError -> NodeFailed) by `test_agent.py`.
 """
 
 from agent_composer.compile.model import END_ID, START_ID, CompiledFlow, Edge
-from agent_composer.events import NodeFailed, NodeStarted, NodeSucceeded, PauseRequested, RunFailed
+from agent_composer.events import NodeFailed, NodeRouted, NodeStarted, NodeSucceeded, PauseRequested, RunFailed
 from agent_composer.nodes.base import Enqueue, Node, NodeKind, Output
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.call import CallNode
@@ -62,11 +62,11 @@ def test_returned_pause_emits_pause_requested():
     assert not any(isinstance(e, (NodeSucceeded, NodeFailed)) for e in evs)
 
 
-def test_routing_handle_on_succeeded():
+def test_routing_emits_node_routed():
     evs = _drive(BranchNode("n", "case_a"))
-    assert isinstance(evs[-1], NodeSucceeded)
-    assert evs[-1].edge_source_handle == "case_a"
-    assert evs[-1].output is None  # routing-only: no value
+    assert isinstance(evs[-1], NodeRouted)
+    assert evs[-1].handle == "case_a"
+    assert not hasattr(evs[-1], "output")  # routing-only: NodeRouted carries no value
 
 
 # --- review lock-ins: every node-side failure path funnels to NodeFailed uniformly --------- #

@@ -15,7 +15,7 @@ import agent_composer.cli.run as climod
 from agent_composer.cli.run import _ProgressReporter
 from agent_composer.compile.model import END_ID, START_ID
 from agent_composer.compose.run import RunResult
-from agent_composer.events import NodeFailed, NodeStarted, NodeSucceeded
+from agent_composer.events import NodeFailed, NodeRouted, NodeStarted, NodeSucceeded
 
 
 def _sink_reporter(verbose: bool = False) -> tuple[_ProgressReporter, StringIO]:
@@ -41,6 +41,19 @@ def test_failure_renders_cross_and_error():
     out = buf.getvalue()
     assert "✗ verdict" in out
     assert "boom" in out
+
+
+def test_routed_renders_check_with_handle():
+    """A router (CASE) emits NodeRouted, not NodeSucceeded — the reporter must still
+    clear the spinner and print a completion line naming the chosen handle."""
+    reporter, buf = _sink_reporter()
+    reporter.handle(NodeStarted("gate"))
+    reporter.handle(NodeRouted("gate", handle="yes"))
+    out = buf.getvalue()
+    assert "✓ gate" in out
+    assert "yes" in out
+    assert "✗" not in out
+    assert "gate" not in reporter._running
 
 
 def test_verbose_prints_output():

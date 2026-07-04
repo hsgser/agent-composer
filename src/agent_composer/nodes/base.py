@@ -52,12 +52,18 @@ class NodeKind(str, Enum):
 
 @dataclass(frozen=True)
 class Output:
-    """A produced value. `handle` is set ONLY by CASE-style routing (the chosen case);
-    every other kind leaves it None. The engine writes `value` into the pool under the node id
-    and maps `handle` onto `NodeSucceeded.edge_source_handle`."""
+    """A produced value. The engine writes `value` into the pool under the node id."""
 
     value: Any = None
-    handle: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Route:
+    """A routing-only outcome (a terminal): carries only the chosen case handle — no value,
+    no post-asserts. Returned by a router (CASE); the engine takes the handle's out-edge and
+    skip-floods the siblings."""
+
+    handle: str
 
 
 @dataclass(frozen=True)
@@ -79,7 +85,7 @@ class Enqueue:
 
 
 # The closed sum a pure `run(inputs)` returns.
-NodeResult = Union[Output, Pause, Enqueue]
+NodeResult = Union[Output, Route, Pause, Enqueue]
 
 
 class Node(ABC):
@@ -112,6 +118,9 @@ class Node(ABC):
     """
 
     kind: ClassVar[NodeKind]
+    # Declares "I may grow the graph" (a spawner returns Enqueue/Grow). Overridden True
+    # by the spawner kinds; unused this phase (wired in a later phase).
+    is_spawner: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -146,6 +155,10 @@ class Node(ABC):
         cap left is a mapped `call`'s `bind_item` (keyword-only); every other kind takes only `inputs`. A
         failure is a `raise`, not a variant — the engine boundary turns it into `NodeFailed`."""
 
+    def on_failure(self, exc: Exception, inputs: dict[str, Any], **caps: Any) -> "NodeResult":
+        """Recovery seam: called by the engine wrapper when run() raises. Default: re-raise."""
+        raise exc
+
     @staticmethod
     def _assert_holds(expr: str, record: dict) -> bool:
         """Evaluate a node assert against `record`; a raising assert (ordered/arith over a
@@ -166,6 +179,6 @@ class Node(ABC):
                 event = next(gen)
         except StopIteration as stop:
             result = stop.value
-            if not isinstance(result, (Output, Pause, Enqueue)):
+            if not isinstance(result, (Output, Route, Pause, Enqueue)):
                 raise RuntimeError(f"node {self.id!r} generator did not return a NodeResult")
             return result

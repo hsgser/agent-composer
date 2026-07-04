@@ -33,6 +33,7 @@ from typing import Any
 from agent_composer.events import (
     NodeExpanded,
     NodeFailed,
+    NodeRouted,
     NodeStarted,
     NodeSucceeded,
     PauseRequested,
@@ -40,7 +41,7 @@ from agent_composer.events import (
 )
 from agent_composer.expr import eval_binding, resolve_reference
 from agent_composer.expr.expressions import _evaluate, _resolve_in_record
-from agent_composer.nodes.base import Enqueue, NodeKind, Output, Pause
+from agent_composer.nodes.base import Enqueue, NodeKind, Output, Pause, Route
 from agent_composer.nodes.binding import bind_params
 from agent_composer.nodes.wait.node import resolve_until
 from agent_composer.state.pool import TypedVariablePool
@@ -103,7 +104,7 @@ def eval_node(node, flow, pool: TypedVariablePool):
         # check — restores the isolation an earlier double-bind gave. Only paid when declared.
         post_input = copy.deepcopy(record) if node.post_asserts else None
         outcome = node.run(record, **caps)
-        if isinstance(outcome, (Output, Pause, Enqueue, list)):
+        if isinstance(outcome, (Output, Route, Pause, Enqueue, list)):
             result = outcome
         elif inspect.isgenerator(outcome):  # a streaming kind: yields StreamChunk, returns a NodeResult
             result = yield from node._drain_node_generator(outcome)
@@ -139,6 +140,9 @@ def eval_node(node, flow, pool: TypedVariablePool):
 
     if isinstance(result, Pause):
         yield PauseRequested(node.id, result.reason)  # suspended; no terminal
+        return
+    if isinstance(result, Route):
+        yield NodeRouted(node.id, result.handle)
         return
     if node.post_asserts:
         # An END_ID node's `${output}` reads its terminal value via the
@@ -177,4 +181,4 @@ def eval_node(node, flow, pool: TypedVariablePool):
                                      error_type="NodeAssertFailed",
                                      locator=SourceSpan(node.id, "assert", a))
                     return
-    yield NodeSucceeded(node.id, output=result.value, edge_source_handle=result.handle)
+    yield NodeSucceeded(node.id, output=result.value)

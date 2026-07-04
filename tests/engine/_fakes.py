@@ -7,7 +7,7 @@ contract and the runtime scheduling in isolation from LLMs/tools.
 from typing import Any, Callable
 
 from agent_composer.events import StreamChunk
-from agent_composer.nodes.base import Node, NodeKind, Output, Pause
+from agent_composer.nodes.base import Node, NodeKind, Output, Pause, Route
 from agent_composer.nodes.binding import ParamDecl
 
 
@@ -116,8 +116,8 @@ class BranchNode(Node):
         super().__init__(node_id, **kw)
         self.handle = handle
 
-    def run(self, inputs: dict) -> Output:
-        return Output(value=None, handle=self.handle)
+    def run(self, inputs: dict) -> Route:
+        return Route(self.handle)
 
 
 class PauseNode(Node):

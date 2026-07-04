@@ -43,6 +43,7 @@ from agent_composer.events import (
     SourceSpan,
     NodeExpanded,
     NodeFailed,
+    NodeRouted,
     NodeSucceeded,
     PauseRequested,
 )
@@ -505,10 +506,13 @@ class FlowEngine:
     def _run_node(self, node_id: str):
         node = self.flow.nodes[node_id]
         succeeded: Optional[NodeSucceeded] = None
+        routed: Optional[NodeRouted] = None
         for event in eval_node(node, self.flow, self.pool):
             yield event
             if isinstance(event, NodeSucceeded):
                 succeeded = event
+            elif isinstance(event, NodeRouted):
+                routed = event
             elif isinstance(event, NodeFailed):
                 self.sm.finish_executing(node_id)
                 raise NodeExecutionError(
@@ -532,6 +536,8 @@ class FlowEngine:
                 return
         if succeeded is not None:
             self._on_success(node_id, succeeded)
+        elif routed is not None:
+            self._on_route(node_id, routed.handle)
 
     # --- pooled path (num_workers>=1): dispatcher + workers ----------------- #
 
@@ -548,6 +554,8 @@ class FlowEngine:
             yield event  # forward to the caller (streaming)
             if isinstance(event, NodeSucceeded):
                 self._on_success(event.node_id, event)
+            elif isinstance(event, NodeRouted):
+                self._on_route(event.node_id, event.handle)
             elif isinstance(event, NodeFailed):
                 self.sm.finish_executing(event.node_id)
                 raise NodeExecutionError(
@@ -1215,24 +1223,26 @@ class FlowEngine:
             return
         node = self.flow.nodes[node_id]
         # (a) the node's ONE value lands in the pool BEFORE successors are scheduled,
-        # type-enforced against the node's declared Shape. CASE is routing-only
-        # (no value) — it writes nothing.
-        if node.kind != NodeKind.CASE:
-            try:
-                self.pool.set(node_id, event.output, declared=node.output_shape)
-            except SegmentError as exc:
-                self.sm.finish_executing(node_id)
-                raise NodeExecutionError(
-                    node_id, str(exc), type(exc).__name__,
-                    locator=SourceSpan(node=node_id, kind="field", key="output"),
-                )
+        # type-enforced against the node's declared Shape.
+        try:
+            self.pool.set(node_id, event.output, declared=node.output_shape)
+        except SegmentError as exc:
+            self.sm.finish_executing(node_id)
+            raise NodeExecutionError(
+                node_id, str(exc), type(exc).__name__,
+                locator=SourceSpan(node=node_id, kind="field", key="output"),
+            )
         self.sm.finish_executing(node_id)
 
-        if node.kind == NodeKind.CASE:
-            newly_ready = self._branch(node_id, event.edge_source_handle or DEFAULT_HANDLE)
-        else:
-            newly_ready = self._advance(node_id)
+        newly_ready = self._advance(node_id)
         for nid in newly_ready:
+            self._schedule(nid)
+
+    def _on_route(self, node_id: str, handle: str) -> None:
+        # A router (CASE) selected an out-edge handle: take it and skip-flood the siblings.
+        # Dispatch rides the NodeRouted event, not node.kind — routing writes no pool value.
+        self.sm.finish_executing(node_id)
+        for nid in self._branch(node_id, handle):
             self._schedule(nid)
 
     def _advance(self, node_id: str) -> list[str]:

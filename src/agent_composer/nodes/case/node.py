@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from agent_composer.expr.expressions import evaluate_when_record
-from agent_composer.nodes.base import Node, NodeKind, Output
+from agent_composer.nodes.base import Node, NodeKind, Route
 
 DEFAULT_HANDLE = "default"
 
@@ -60,13 +60,13 @@ class CaseNode(Node):
         super().__init__(node_id, title=title)
         self.cases = cases
 
-    def run(self, inputs: dict) -> Output:
+    def run(self, inputs: dict) -> Route:
         # Strict CASE: route on the bound input record only — each `when:`
         # interpolates this node's declared inputs as bare `${name}`, not the pool.
-        # Routing-only: the value stays None; `handle` carries the chosen case.
+        # Routing-only: returns a Route carrying the chosen case handle (no value).
         for case in self.cases:
             if case.when is None:
                 raise ValueError(f"node {self.id!r} case {case.handle!r} has no `when` expression")
             if evaluate_when_record(case.when, inputs):
-                return Output(value=None, handle=case.handle)
-        return Output(value=None, handle=DEFAULT_HANDLE)
+                return Route(case.handle)
+        return Route(DEFAULT_HANDLE)

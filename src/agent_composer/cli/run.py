@@ -394,6 +394,11 @@ class _ProgressReporter:
             if self._verbose:
                 self._emit_output(event.output)
             self._refresh()
+        elif name == "NodeRouted":
+            # A router (CASE) produces no value — it selected an out-edge handle.
+            self._running.pop(node_id, None)
+            self._emit(Text(f"✓ {node_id} → {event.handle}", style="green"))
+            self._refresh()
         elif name == "NodeFailed":
             self._running.pop(node_id, None)
             self._emit(Text(f"✗ {node_id}", style="red bold"))

@@ -22,13 +22,15 @@ A node is a **pure function of its bound input record**. It implements
 
 | Return | Meaning |
 |--------|---------|
-| `Output(value, handle=None)` | the one produced value; the engine writes it under the node id. `handle` is set only by routing (the chosen case). |
+| `Output(value)` | the one produced value; the engine writes it under the node id. |
+| `Route(handle)` | a routing-only outcome (a CASE picks an out-edge `handle`); carries no value, writes no pool entry. The engine emits `NodeRouted` and takes the chosen edge, skip-flooding the siblings. |
 | `Pause(reason)` | a leaf wait (HUMAN_INPUT / WAIT / agent control-pause). The engine emits `PauseRequested` and suspends; the answer is delivered as this node's `Output` (the node never re-runs). |
 | `Enqueue(target, inputs)` | grow the live graph — a description the engine splices in (the REF/MAP drivers, agent control-pause). |
 
 A streaming kind is a generator that yields `StreamChunk` and *returns* a
 `NodeResult`. **Failure is not a variant** — a node `raise`s and the engine
-boundary turns it into `NodeFailed`.
+boundary turns it into `NodeFailed`; a node may override `on_failure(exc,
+inputs, **caps) -> NodeResult` to recover (default re-raises).
 
 **Invariants:** a node never receives the pool (the `eval_node` seam binds its
 inputs); a node never writes the pool (it *describes* `Output(value)`, the engine
