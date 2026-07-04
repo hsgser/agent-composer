@@ -86,6 +86,17 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
   runs, OR the engine expands into a per-run copy and never touches `loaded.compiled`. (Lean: per-run
   copy in `run_flow`.)
 
+- [ ] **Streaming as an `Outcome` shape — a second output channel.** A node today can produce
+  incremental chunks via `_drain_node_generator` (`nodes/base.py:158`) yielding `StreamChunk`, but that
+  path is **dormant** (zero producers) and lives *outside* the `Outcome` sum — it is not one of
+  `Output | Route | Pause | Grow`. Open question raised during the kind-agnostic redesign: does streaming
+  become a first-class `Outcome` arm (e.g. a `Stream(chunks)` / a node that emits many partials then one
+  final `Output`), or stay a side channel the engine drains around the pure `run`? A streaming arm
+  complicates the "one value committed per node" model (partials aren't committed, aren't checkpointed,
+  don't unlock dependents) and the durability/replay story (what does resume replay — the final only?).
+  Deferred: no live producer forces the decision yet; revisit when a real flow needs token streaming
+  (the `ac chat` REPL is the likely first caller). (Raised 2026-07-04 during kind-agnostic redesign.)
+
 - [ ] **Seam-injection timing.** Injected seams bind at **compile/load** time, so a
   `CompiledFlow`/`LoadedFlow` is bound to one set of seams. Open: inject at **run** time so one
   compiled artifact runs under different clients (real vs dummy, per-tenant) without recompiling?

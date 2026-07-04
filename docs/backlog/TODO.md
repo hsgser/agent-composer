@@ -42,6 +42,143 @@ under "Roadmap".
 - [ ] sometimes I see Shape sometimes I see Segment. What are the differences among them? should we unify them?
 
 
+## Subflow-node rewrite — make graph-expansion kind-agnostic
+
+Brainstorm (2026-07-03). The lens: *leaf* nodes (agent, code, start, end, human_input, wait, model)
+are pure single nodes (`run` → `Output`/`Pause`); *subflow* nodes (call, map, loop) are "a node that
+IS a flow" — they expand into `__start__ → children → __end__` (`run` → `Enqueue`s). The goal is to
+move all graph-growth semantics out of the engine and into the nodes. Below are the problems to
+address one by one (no scope/sequence decided yet).
+
+- [ ] **Engine owns MAP's fan-in wiring.** The collector `EndNode.list_` + the
+  `e{i} <- ${child#i.end.output}` edges are built inside `_grow_map` (`engine.py:705-715`); they
+  belong in `MapNode`. (Enabler: namespacing is deterministic and `clone_child` is already pure, so
+  the node can compute every id and emit the wiring itself.)
+- [ ] **`_apply_enqueue` branches per kind** (`engine.py:1058` LOOP, `1107` CALL, `1137` MAP), each
+  mirrored by a `_replay_expansions` arm. Collapse to one generic splice once nodes are
+  self-describing.
+- [ ] **LOOP policy lives in the engine** (`_loop_step` + the `loop_alias` hook): predicate, merge,
+  continue/stop, count. Move it into `LoopNode.run` (pure).
+- [ ] **Node return contract is too narrow.** `Enqueue(target, inputs)` can't describe reconvergence
+  wiring or references to sibling nodes spawned in the same enqueue. It needs to become a
+  self-describing subgraph (nodes + edges incl. `__end__` wiring + roots + "commit end under me").
+- [ ] **LOOP grows via a static-end + bespoke hook** instead of self-respawn. Target model: each
+  iteration spawns the body subflow; on body-end it spawns *itself* as a fresh namespaced instance
+  (`loop#k+1`, incremented index + updated carried record baked in); the terminating iteration's
+  `Output` commits under the ORIGINAL loop id (the one shared "subflow result → subflow node id" rule
+  MAP/CALL already use).
+- [ ] **Reconvergence is the only per-kind concept left** (CALL=identity/alias, MAP=list collector,
+  LOOP=predicate chain). Unify under the single "subflow result commits under the subflow node's id"
+  rule.
+- [ ] **Nested-spawner bookkeeping must stay generic** — replay determinism (node subgraph build must
+  be deterministic + re-runnable with effects suppressed for `_replay_expansions`), `MAX_TOTAL_NODES`
+  global budget, and parent-pointer stamping for nested spawners, all derived from whatever subgraph
+  is spliced (not per-kind).
+- [ ] **AGENT is a hybrid** — a leaf that can also enqueue a continuation (mid-loop control-pause);
+  make sure it still fits once growth is generic.
+- [ ] **F1 — AGENT/spawner inside a loop body** can't durably resume (DEFER:75). Deferred behind this
+  rewrite; should fall out for free (a body grown via the generic splice gets the same nested-spawner
+  stamping as any subflow).
+- [ ] **F2 — loop body partial-update / passthrough** — body must emit the entire carried record
+  (`==`); want `output ⊆ carried` with unchanged fields merged through (DEFER:68). Deferred behind
+  this rewrite; becomes pure code (`{**prior, **body_output}`) in `LoopNode.run`. The old plan
+  ([`docs/plans/2026-07-03-complete-loop-implementation.md`](../plans/2026-07-03-complete-loop-implementation.md))
+  is written against the old mechanism.
+
+### `eval_node` / NodeBase contract cleanup — zero `if node.kind` in the engine
+
+Same lens, aimed at the read/dispatch seam (`eval_node`). Today it carries four kind-specific
+islands; the target is an engine that knows only the abstract `NodeBase` contract + a closed
+`Outcome` sum. Target design writeup: [`docs/engine.md`](../engine.md) (Engine / Queue /
+StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + leaf/subflow).
+
+- [ ] **`eval_node` has four `if node.kind ==` islands** — `over_mode` skip-bind + `over` list +
+  `bind_item` cap (MAP, `eval_node.py:69-100`), `until` resolve (WAIT, `76-77`), `${output}`
+  record-vs-pool resolve (END post-assert, `155-171`), and the `_SPAWNER_KINDS` tuple (`53`, `118`).
+  Collapse all four; the engine dispatches on the returned `Outcome`, never on the kind.
+- [ ] **Keep pre/post assert checking in the engine's generic node wrapper (`run_node`), not per
+  kind.** `run_node` wraps the node's abstract `run`: check pre-asserts → `run` → `on_failure` →
+  check post-asserts. It is byte-identical for every kind, so it is protocol (engine side), not a
+  `NodeBase` method. On failure the check raises; the engine keeps the raise→`NodeFailed` event
+  funnel + locator stamp. Preserve `SourceSpan(id,"assert",expr)` and
+  `error_type="NodeAssertFailed"` for both-engine byte-parity.
+- [ ] **Bind assert-refs into the record at the read boundary** (reuse the data-edge ref extractor,
+  `condition_refs`/`expr_refs`) so asserts evaluate against a pure, fully-populated record — **END
+  needs no pool access and stops being special** (deletes `eval_node.py:155-171`). The subflow END
+  asserts (`each#0/n.output.X`, `expand.py:174`) become ordinary bound record entries.
+- [ ] **`is_spawner` trait on `NodeBase`** (default `False`) replaces `_SPAWNER_KINDS`; only a
+  subflow node may return `Grow`.
+- [ ] **Node return contract → `Outcome = Output | Route | Pause | Grow(subgraph)`** — four arms, the
+  ONLY thing the engine matches on (never on kind). Supersedes narrow `Enqueue(target, inputs)` (and
+  folds in the earlier "self-describing subgraph" item above). Decided pieces:
+  - **`Output(value, commit_as=None)`** — `commit_as` (default → the node's own id) lets a subflow
+    terminal publish under its spawner. The spawner *bakes* it onto the terminal (`__end__` for
+    call/map; the terminating iteration for loop, `commit_as=origin_id`), and the terminal echoes it
+    into its `Output`. This **supersedes the `alias` + `loop_alias` maps and the resume continuation
+    re-pointing** (`engine.py:188, 205, 763`): one baked redirect, no engine-side alias table — drops
+    the `state.alias(...)` step from the `Grow` apply. Unifies loop with call/map (loop stops being
+    the "baked-identity" special case; it just bakes `commit_as=origin_id`).
+  - **`Route(handle)`** — CASE, routing-only: stores no value, takes the handle's out-edge, skip-floods
+    the siblings (the existing `_branch`/`_skip_edge`/`disposition` machinery, unchanged). Kills BOTH
+    CASE kind-checks (`engine.py:1220` no-value guard, `engine.py:1231` branch guard). `handle`
+    migrates off `Output` onto `Route`; `queue.done(node)` (all edges) vs `queue.route(node, handle)`
+    (one edge + skip) are selected by the Outcome arm, not by `node.kind`.
+  - **A spawner rehomes its own `post_asserts` onto the terminal**, so they fire in the generic
+    `run_node` post-check against the committed value — deletes the CALL alias-site post-assert special
+    case (`engine.py:1199`). Wrinkle: a post-assert that reads the spawner's *inputs* (not just
+    `${output}`) needs those inputs wired into the terminal's params (the ref-extractor already knows
+    which refs an assert mentions).
+  - **Dependencies / notes:** needs Model A (loop predicate inside `LoopNode.run`) for the loop half;
+    needs the resume path to bake `commit_as` into each continuation clone (role 3 of the old alias).
+    The durable-replay ledger must persist the baked `commit_as`/`post_asserts` on spliced terminals.
+    The `depth`/node-budget bookkeeping that rode alongside `alias` (`engine.py:656,716`) is a
+    SEPARATE concern — tracked under the budget/GC item, not solved by `commit_as`.
+- [ ] **`Grow` carries a `Flow`, not a bespoke `Subgraph`/`ClonedSubgraph`.** A spliced subgraph is
+  just a flow (same `nodes`/`edges`/`wiring` core as `CompiledFlow`); factor a shared `Flow` core so
+  `clone_child`'s `ClonedSubgraph` (`expand.py:55`) and the top-level `CompiledFlow`
+  (`compile/model.py`) are one type. Drops `roots`/`out_node_id` via the `__start__`/`__end__`
+  convention (entry = `__start__`, result = `__end__`).
+- [ ] **`on_failure(exc)` no-op hook on `NodeBase`** (default re-raise) — the error-strategy seam
+  (retry / fallback / fail-branch). Define the signature now; **defer the behavior** to the
+  error-strategy work.
+- [ ] **Budget / GC has no home in a grow-only `splice` (DECIDED — implement).**
+  The target engine models growth as one generic `graph.splice(subgraph)`; it now gains one generic
+  inverse. Three live mechanisms are all decided:
+    - **`MAX_TOTAL_NODES` (`engine.py:62,648`) — KEEP as a pure engine backstop.** DECIDED
+      (2026-07-04): it is already kind-agnostic (counts nodes, not kinds) and is the *only* backstop
+      against unbounded/exponential expansion that isn't a loop cap (nested map fan-out, runaway
+      spawners). Dropping it trades a clean failure for an OOM crash and saves essentially nothing.
+    - **`max_iters` (`engine.py:898`) — MOVE into `LoopNode.should_stop`.** DECIDED (2026-07-04): it
+      is loop-only state, so it belongs on the node, not the engine. Folds into the Model-A loop work.
+      Two meanings ride the same field: a **counted** loop (`times: N`) stops *successfully* — its
+      `should_stop` returns the terminating `Output(carried, commit_as=origin_id)` at the cap; a
+      **while/until** loop treats the cap as a **safety limit** — hitting it is a failure, so
+      `should_stop` raises (`LoopNotConverged`) → `on_failure` → `NodeFailed`, never a silent commit.
+    - **The prune/GC inverse of `splice` — a generic `graph.prune(ids)`.** DECIDED (2026-07-04):
+      replaces today's kind-specific `_prune_iteration` (`engine.py:820`, which drops a committed loop
+      iteration's whole namespace). The prune set rides **on the `Grow` outcome**: a pure node returns
+      exactly one outcome, so the continue arm carries both halves —
+      `Grow(subgraph, prune=<the finished iteration's ids>)`. The engine applies both in one step
+      (`graph.splice(subgraph); graph.prune(prune)`) and stays kind-blind — only the loop knows which
+      namespace is spent; `call`/`map` return an empty `prune`. This keeps the engine's growth *and*
+      its GC as generic operations off the `Outcome`, retiring the last consumer of the
+      `alias`/`loop_alias` cleanup path. The `depth` REF-budget rider (`engine.py:656,716`) belongs
+      here too. Sequence: land alongside the `commit_as`/alias-removal work (pruning currently rides
+      that cleanup path). Open sub-detail: the terminating iteration's own scratch is a bounded
+      one-time residue (prune only fires on continue) — decide whether a final GC sweep reclaims it or
+      it is left as negligible.
+
+- [ ] **Inject the LLM client via `caps`, not baked on the node** — today `AgentNode.run` builds its
+  own client from a baked `llm_config` (`nodes/agent/node.py:217`), so the node holds live I/O and
+  isn't cleanly serializable. Target: the node keeps only `llm_config` (WHICH model — pure config);
+  the engine's capability layer materializes the live client from it and passes it as `caps["llm"]`
+  (`caps` is a `**kwargs` bag, so helpers are reached by name — the same shape as `bind_item`).
+  Needs a **config → client factory** (a capability-provider seam alongside `bind_item`;
+  `model_from_config` at `factory.py:113` already exists). Wins: serializable/durable nodes, a
+  fake-`caps["llm"]` test seam, one place for rate-limit/cache/retry/creds/observability policy.
+  Cost: the node no longer runs standalone without the engine's cap.
+
+
 ## Structured AGENT output — follow-ups
 
 The core structured-output work (declare → generate → enforce → retry) shipped; see
@@ -55,6 +192,24 @@ deferred") as largely inherent for the common native path._
 ## CLI
 
 _None currently open — recently shipped CLI items are archived in [DONE.md](DONE.md)._
+- [ ] compress __start__ and __end__ nodes when printing? should we?
+? seed (str) * hello
+✓ polish#0/__start__
+✓ polish#0/critic
+✓ polish#0/__end__
+✓ polish#1/__start__
+✓ polish#1/critic
+✓ polish#1/__end__
+✓ polish#2/__start__
+✓ polish#2/critic
+✓ polish#2/__end__
+✓ polish#3/__start__
+✓ polish#3/critic
+✓ polish#3/__end__
+✓ polish#4/__start__
+✓ polish#4/critic
+✓ polish#4/__end__
+
 
 ## Tooling
 

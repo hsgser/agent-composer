@@ -15,6 +15,14 @@ This backlog is split four ways:
 
 ## Engine
 
+- [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
+  expr-unification landed the grammar, but six call sites still re-derived references with
+  copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and
+  computed-expression conditions (`${a + b}`, `${x in xs}`) could load or inline incorrectly. Collapsed
+  all six onto a single expr AST walker, so every binding / condition / prompt extracts and rewrites
+  refs identically; dropped the mixed `${ref} op` spelling from the condition examples.~~ -- 6b91a48
+  (branch `dev/engine/unify-ref-extraction`)
+
 - [x] ~~**Unify `${...}` into one expression grammar.** Collapsed the three divergent `${}` dialects
   (binding coalesce/default, `when:` boolean/arithmetic, prompt builtin-call) into ONE pure-expression
   grammar (parse → AST → evaluate / ref-walk): arithmetic (`+ - * / % **`), comparisons, `in`, list

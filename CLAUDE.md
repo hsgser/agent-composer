@@ -46,6 +46,12 @@ published in the doc site under "Roadmap"): [`docs/backlog/TODO.md`](docs/backlo
   following commit.
 - **Consult** these at the start of work so nothing is forgotten across sessions.
 
+
+### Zeroth rule - be very conservative about claims
+
+Do not overclaiming anything if you haven't checked or compared with the code directly.
+Always pull and read reference code before claiming anything.
+
 ### First-class rule — ask when uncertain
 
 **If anything is uncertain, ask the user. Do not make assumptions.**
