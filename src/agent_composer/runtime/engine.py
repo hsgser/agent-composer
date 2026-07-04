@@ -182,11 +182,12 @@ class FlowEngine:
             self._stop = threading.Event()
         self.paused: list[tuple[str, Any]] = []  # (node_id, PauseReason)
         self.deferred: list[str] = []  # became ready while suspending
-        # Runtime graph-expansion bookkeeping: `alias` maps a cloned filler id
-        # (REF child END_ID / MAP END_ID-list / agent resume continuation) -> its spawner id, so the
-        # filler's _commit substitutes the spawner's value + fires its out-edges; `depth`
-        # carries each cloned spawner-eligible id's expansion depth for MAX_REF_DEPTH.
-        self.alias: dict[str, str] = {}
+        # Runtime graph-expansion bookkeeping: the commit redirect a cloned filler carries
+        # (REF child END_ID / MAP END_ID-list / agent resume continuation / loop-body END) now
+        # lives on the node itself as `Node.commit_as` (baked by the `_grow_*` helpers), so
+        # `_on_success` writes the filler's value under the spawner id + fires its out-edges; no
+        # side dict. `depth` carries each cloned spawner-eligible id's expansion depth for
+        # MAX_REF_DEPTH.
         self.depth: dict[str, int] = {}
         self.expansions: list = []  # descriptor ledger (top-level Expansions in
             # dispatcher-fire order; nested expansions ride under their parent
@@ -197,13 +198,12 @@ class FlowEngine:
             # `self.expansions` ever happens. For multi-pause AGENTs, every
             # cloned resume_id AND the original spawner_id are stamped to point at the
             # SAME AgentExpansion.
-        # Loop-back bookkeeping (distinct from `alias`, which commits-and-advances for
-        # CALL/MAP): a loop-body END filler routes to `_loop_step` (predicate -> re-clone the
-        # next iteration OR commit the final carried record + advance out-edges), never the
-        # generic alias-commit. `loop_iter` tracks the live iteration index per loop; `loop_desc`
-        # holds each loop's LoopExpansion so `_loop_step`'s continue-branch grows the same ledger
-        # entry.
-        self.loop_alias: dict[str, str] = {}   # loop-body END filler id -> loop spawner id
+        # Loop-back bookkeeping: a loop-body END filler's baked `commit_as` names the loop spawner,
+        # and `_on_success` routes it to `_loop_step` (predicate -> re-clone the next iteration OR
+        # commit the final carried record + advance out-edges) via `target in self.loop_desc`,
+        # never the generic commit. `loop_iter` tracks the live iteration index per loop;
+        # `loop_desc` holds each loop's LoopExpansion so `_loop_step`'s continue-branch grows the
+        # same ledger entry (and doubles as the loop-route discriminator).
         self.loop_iter: dict[str, int] = {}    # loop spawner id -> current iteration index
         self.loop_desc: dict[str, Any] = {}    # loop spawner id -> its LoopExpansion
         self._cancel = False
@@ -661,8 +661,10 @@ class FlowEngine:
                 if node.kind in _SPAWNER_KINDS:
                     self.depth[nid] = d
                     self._spawner_expansion[nid] = desc
-        self.depth[cloned.out_node_id] = d      # the filler's alias carries the depth
-        self.alias[cloned.out_node_id] = spawner_id
+        self.depth[cloned.out_node_id] = d      # the filler carries the depth
+        # Bake the commit redirect on the cloned child END filler: its Output commits under the
+        # spawner id (and fires the spawner's out-edges) in `_on_success`. Replaces `alias[filler]`.
+        cloned.nodes[cloned.out_node_id].commit_as = spawner_id
         # Reach the CallExpansion from the FILLER id too (not just the cloned spawner subnodes
         # above): _on_success commits the call's value at the filler/alias site and needs the
         # call's input `record` there to evaluate the call's `${output}` post-asserts. Mirrors
@@ -679,8 +681,9 @@ class FlowEngine:
     def _grow_map(self, spawner_id: str, child, records: list, desc, *, schedule: bool,
                   assert_boundary=None):
         """Clone+register the WHOLE MAP fan-in at `spawner_id`: N per-element child
-        clones PLUS the `map_end` LIST EndNode + its fan-in edges/wiring + `alias[map_end]
-        =spawner`, including the N=0 case (an EndNode.list_(n=0) still built + stamped). `child`
+        clones PLUS the `map_end` LIST EndNode + its fan-in edges/wiring + the map_end's baked
+        `commit_as=spawner`, including the N=0 case (an EndNode.list_(n=0) still built + stamped).
+        `child`
         is the clone source (== `enq.target` live, == `flow.nodes[spawner_id].child` on
         replay). `assert_boundary(cloned, i, record)` (live only) runs the per-element eager
         boundary-assert and raises on a violation; None suppresses it (replay). Returns the
@@ -718,11 +721,13 @@ class FlowEngine:
             # N=0: still built + registered even when records==[] (a MAP over [] that fired
             # before a sibling pause) — the END_ID-list is then a 0-incoming root that emits [].
             map_end = EndNode.list_(map_end_id, n=len(records))
+            # Bake the commit redirect on the MAP END-list filler: its list Output commits under
+            # the spawner id in `_on_success`. Replaces `alias[map_end]`.
+            map_end.commit_as = spawner_id
             self.flow.add_subgraph({map_end_id: map_end}, end_edges,
                                    {map_end_id: end_wiring})
             self.sm.register([map_end_id], end_edges)
-        self.depth[map_end_id] = d                          # the filler's alias carries the depth
-        self.alias[map_end_id] = spawner_id
+        self.depth[map_end_id] = d                          # the filler carries the depth
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
         if schedule:
@@ -738,7 +743,8 @@ class FlowEngine:
         AGENT topology). The Enqueue target is the PAIR `[hi_desc, resume_desc]`. Returns the
         `ClonedSubgraph`. Stamps `_spawner_expansion` on BOTH `spawner_id` AND
         `cloned.out_node_id` (the resume id = the NEXT segment's spawner) at `desc` (keep-ALL
-        retention, no pop). alias chains to origin (pop). depth is carried UNCHANGED (a K-pause
+        retention, no pop). The commit redirect chains to origin via the baked `commit_as`
+        (read off the previous segment node). depth is carried UNCHANGED (a K-pause
         agent is NOT recursion)."""
         pair = [hi_desc, resume_desc]
         # Carry the spawner's declared output Shape + self-correction cap onto the resume node so a
@@ -768,10 +774,13 @@ class FlowEngine:
             for nid, node in cloned.nodes.items():
                 if node.kind in _SPAWNER_KINDS:
                     self._spawner_expansion[nid] = desc
-        # Re-point the alias to the latest resume continuation so the FINAL non-pausing Output
-        # commits under the ORIGINAL spawner id (multi-pause chaining): chain to origin.
-        origin = self.alias.pop(spawner_id, spawner_id)
-        self.alias[cloned.out_node_id] = origin
+        # Re-point the commit redirect to the latest resume continuation so the FINAL non-pausing
+        # Output commits under the ORIGINAL spawner id (multi-pause chaining): the origin is read
+        # off the PREVIOUS segment's baked `commit_as` (the current holder of the origin — the
+        # spawner node for segment 0, or the prior resume node for segment 2+), falling back to
+        # `spawner_id` when this is the first segment. Replaces the `alias.pop`/`alias[...]` chain.
+        origin = spawner.commit_as or spawner_id
+        cloned.nodes[cloned.out_node_id].commit_as = origin
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
         # INVARIANT: the resume filler carries the PARENT depth UNCHANGED (no `+1`).
@@ -785,9 +794,9 @@ class FlowEngine:
                    schedule: bool = True):
         """Clone+register ONE loop iteration at callsite `f"{spawner_id}#{iteration}"` (the
         per-iteration namespace, mirroring MAP's `#i`) and schedule its roots. Unlike
-        `_grow_call`/`_grow_map`, the body END filler is registered in `self.loop_alias`
-        (routes to `_loop_step` — predicate re-clone/commit) rather than `self.alias`
-        (commit-and-advance). Records the iteration's seed on the LoopExpansion so durable
+        `_grow_call`/`_grow_map`, the body END filler's baked `commit_as` routes it to `_loop_step`
+        (predicate re-clone/commit) via `target in self.loop_desc` in `_on_success`, rather than
+        the generic commit-and-advance. Records the iteration's seed on the LoopExpansion so durable
         replay can re-grow the live iteration from the recorded seed. `schedule=False`
         suppresses the budget guard + root scheduling (the replay path), mirroring
         `_grow_call`/`_grow_map`.
@@ -810,7 +819,10 @@ class FlowEngine:
                 raise RuntimeError(
                     f"loop expansion exceeded node budget ({MAX_TOTAL_NODES}) at {spawner_id!r}"
                 )
-        self.loop_alias[cloned.out_node_id] = spawner_id
+        # Bake the commit redirect on the body END filler so its Output carries the spawner id to
+        # `_on_success`, which routes it to `_loop_step` (via `target in self.loop_desc`) rather
+        # than committing generically. Replaces `loop_alias[filler] = spawner_id`.
+        cloned.nodes[cloned.out_node_id].commit_as = spawner_id
         self.loop_iter[spawner_id] = iteration
         # Record this iteration's seed on the ledger entry (one slot per iteration grown).
         # `children_per_iter` stays parallel to `records` (one slot per iteration, mirroring
@@ -830,16 +842,15 @@ class FlowEngine:
         the LIVE overlay (bounds a long loop's node budget). The iteration's carried record has
         already threaded forward (into the next iteration's seed on continue, or under the spawner
         id on terminate), and a loop body is an isolated scope no outside node references — so its
-        nodes, edges, sm state, pool entries, and loop_alias/alias/depth/_spawner_expansion
-        bookkeeping are all dead once the iteration finishes.
+        nodes, edges, sm state, pool entries, and depth/_spawner_expansion bookkeeping are all dead
+        once the iteration finishes. The commit redirect (`commit_as`) rides on the body-END filler
+        NODE, so `remove_subgraph` drops it with the node — no separate map to clear.
 
         Everything the iteration populated lives UNDER the `f"{spawner}#{iteration}/"` prefix, so
-        iterating `dead_nodes` catches every per-id key: `_grow_loop` registers the body-END
-        FILLER (`cloned.out_node_id == ns(callsite, end_id)`, itself under the prefix) in
-        `loop_alias`; a nested-spawner body (a future non-leaf loop body) would additionally stamp
-        `alias`/`depth`/`_spawner_expansion` on prefixed sub-ids — all cleared here. NOT touched:
-        the `loop_iter`/`loop_desc` maps (keyed by the bare `spawner_id`, no `#i` prefix — live
-        loop bookkeeping the next iteration reads) and the `LoopExpansion` ledger
+        iterating `dead_nodes` catches every per-id key: a nested-spawner body (a future non-leaf
+        loop body) would stamp `depth`/`_spawner_expansion` on prefixed sub-ids — all cleared here.
+        NOT touched: the `loop_iter`/`loop_desc` maps (keyed by the bare `spawner_id`, no `#i`
+        prefix — live loop bookkeeping the next iteration reads) and the `LoopExpansion` ledger
         (`self.expansions` / `records`/`children_per_iter`), which is the durable replay metadata."""
         prefix = f"{map_callsite(spawner_id, iteration)}/"    # f"{spawner}#{iteration}/"
         with self.sm.lock:                                   # mutate topology + state atomically
@@ -850,27 +861,25 @@ class FlowEngine:
             self.sm.drop(dead_nodes, dead_edges)             # state inverse of register
             for nid in dead_nodes:
                 self.pool.store.pop(nid, None)
-                self.alias.pop(nid, None)
-                self.loop_alias.pop(nid, None)
                 self.depth.pop(nid, None)
                 self._spawner_expansion.pop(nid, None)
 
-    def _loop_step(self, filler_id: str, next_record: dict) -> None:
-        """A loop body END (`filler_id`) fired with `next_record` (the body's output = the next
-        carried record). Decide CONTINUE (clone the next iteration) vs STOP (commit the final
-        carried record under the loop spawner and advance its out-edges) per the loop kind:
-        `while` continues while its predicate is true, `until` (do-while) continues while its
-        predicate is false, `times` continues while fewer than N bodies have run (no predicate).
-        Hitting `max_iters` on a while/until continue is a located run failure.
+    def _loop_step(self, filler_id: str, spawner_id: str, next_record: dict) -> None:
+        """A loop body END (`filler_id`, whose baked `commit_as` named `spawner_id`) fired with
+        `next_record` (the body's output = the next carried record). Decide CONTINUE (clone the
+        next iteration) vs STOP (commit the final carried record under the loop spawner and advance
+        its out-edges) per the loop kind: `while` continues while its predicate is true, `until`
+        (do-while) continues while its predicate is false, `times` continues while fewer than N
+        bodies have run (no predicate). Hitting `max_iters` on a while/until continue is a located
+        run failure.
 
         Raises:
             NodeExecutionError: on the runaway guard (`"LoopMaxExceeded"`, next iteration would
                 reach `max_iters`); when the final carried record fails the spawner's declared
-                `output_shape` on commit (wraps the `SegmentError` as the alias-commit tail does);
+                `output_shape` on commit (wraps the `SegmentError` as the redirect-commit tail does);
                 and as the boundary wrap for any predicate-eval or `_grow_loop` raise (a runtime
                 predicate error or the node-budget guard) — always a `NodeExecutionError` so
                 `run()` yields `RunFailed`, never an uncaught escape."""
-        spawner_id = self.loop_alias.pop(filler_id)
         loop = self.flow.nodes[spawner_id]
         self.sm.finish_executing(filler_id)
         from agent_composer.expr.expressions import evaluate_when_record
@@ -924,7 +933,7 @@ class FlowEngine:
             self._prune_iteration(spawner_id, finished)
             return
         # Predicate false: terminate. Commit the final carried record under the spawner id
-        # (same SegmentError -> NodeExecutionError guard the alias-commit tail uses) and fire
+        # (same SegmentError -> NodeExecutionError guard the redirect-commit tail uses) and fire
         # the spawner's out-edges.
         try:
             self.pool.set(spawner_id, next_record, declared=loop.output_shape)
@@ -985,7 +994,8 @@ class FlowEngine:
                 # Chain `current_spawner` across segments — seg0 = spawner_id, then the
                 # prior segment's resume id (`cloned.out_node_id`). Reuse the ONE AgentExpansion
                 # as `desc` for every segment so `_spawner_expansion` of each resume id points
-                # at the SAME object; `_grow_agent_segment` chains `alias[final_out]=origin`.
+                # at the SAME object; `_grow_agent_segment` chains the origin via the baked
+                # `commit_as` on the final resume node.
                 current = spawner_id
                 for segment in desc.segments:
                     cloned = self._grow_agent_segment(
@@ -1178,64 +1188,53 @@ class FlowEngine:
             raise RuntimeError(f"unhandled spawner kind {spawner.kind}")
 
     def _on_success(self, node_id: str, event: NodeSucceeded) -> None:
-        # A loop-body END filler routes to `_loop_step` (predicate -> re-clone the next
-        # iteration OR commit the final carried record + advance) — NOT the generic
-        # alias-commit below. Checked first because a loop filler is never in `self.alias`.
-        if node_id in self.loop_alias:
-            self._loop_step(node_id, event.output)
+        # The commit target: `commit_as` redirects a subflow terminal's value under its spawner
+        # id (a cloned child END_ID / MAP END_ID-list / agent resume continuation / loop-body END),
+        # else the node commits under its own id. This one line replaces the former `alias` /
+        # `loop_alias` dict lookups.
+        target = event.commit_as or node_id
+        # A loop-body END filler routes to `_loop_step` (predicate -> re-clone the next iteration
+        # OR commit the final carried record + advance) — NOT the generic commit below. `loop_desc`
+        # is keyed by the loop spawner and present from the first body grow onward, so `target`
+        # (the spawner id via commit_as) being a loop key discriminates the loop route.
+        if target in self.loop_desc:
+            self._loop_step(node_id, target, event.output)
             return
-        # An alias filler (cloned child END_ID / MAP END_ID-list / resume continuation) is a pure sink with no
-        # out-edge of its own: substitute the spawner — write the filler's value under
-        # the SPAWNER id (same SegmentError -> NodeExecutionError guard the ordinary tail uses)
-        # and fire the spawner's existing out-edges. The filler's own pool.set is SKIPPED.
-        if node_id in self.alias:
-            spawner_id = self.alias[node_id]
-            spawner = self.flow.nodes[spawner_id]
-            try:
-                self.pool.set(spawner_id, event.output, declared=spawner.output_shape)
-            except SegmentError as exc:
-                self.sm.finish_executing(node_id)
-                raise NodeExecutionError(
-                    node_id, str(exc), type(exc).__name__,
-                    locator=SourceSpan(node=spawner_id, kind="field", key="output"),
-                )
-            # A CALL's value is committed HERE (at the filler/alias site), not in eval_node —
-            # the spawner only yielded an Enqueue. So its node-local POST asserts (which read
-            # `${output}`) must fire HERE, against {**inputs, "output": value}. The call's input
-            # record is recovered from the persisted CallExpansion.record (survives suspend/resume
-            # for free; no new checkpoint field). Leaf post-asserts still fire in eval_node.
-            if spawner.kind == NodeKind.CALL and spawner.post_asserts:
-                from agent_composer.suspension.expansions import CallExpansion
-                desc = self._spawner_expansion.get(node_id)
-                record = desc.record if isinstance(desc, CallExpansion) else {}
-                post_record = {**record, "output": event.output}
-                for a in spawner.post_asserts:
-                    if not spawner._assert_holds(a, post_record):
-                        self.sm.finish_executing(node_id)
-                        raise NodeExecutionError(
-                            node_id, f"node {spawner_id!r} post-assert failed: {a}",
-                            "NodeAssertFailed",
-                            locator=SourceSpan(node=spawner_id, kind="assert", key=a),
-                        )
-            self.sm.finish_executing(node_id)
-            for nid in self._advance(spawner_id):
-                self._schedule(nid)
-            return
-        node = self.flow.nodes[node_id]
-        # (a) the node's ONE value lands in the pool BEFORE successors are scheduled,
-        # type-enforced against the node's declared Shape.
+        # Commit the value under `target` (the spawner id on a redirect, else `node_id`) with the
+        # target's declared Shape (same SegmentError -> NodeExecutionError guard the tail uses),
+        # then advance the target's out-edges. For a redirect the filler's own pool.set is SKIPPED;
+        # `finish_executing` still runs on the FILLER `node_id` (the node that actually ran).
+        target_node = self.flow.nodes[target]
         try:
-            self.pool.set(node_id, event.output, declared=node.output_shape)
+            self.pool.set(target, event.output, declared=target_node.output_shape)
         except SegmentError as exc:
             self.sm.finish_executing(node_id)
             raise NodeExecutionError(
                 node_id, str(exc), type(exc).__name__,
-                locator=SourceSpan(node=node_id, kind="field", key="output"),
+                locator=SourceSpan(node=target, kind="field", key="output"),
             )
+        # A CALL's value is committed HERE (at the filler/redirect site), not in eval_node —
+        # the spawner only yielded an Enqueue. So its node-local POST asserts (which read
+        # `${output}`) must fire HERE, against {**inputs, "output": value}. The call's input
+        # record is recovered from the persisted CallExpansion, looked up by the FILLER `node_id`
+        # (only that id is stamped in `_spawner_expansion` for a CALL — a bare CALL spawner id is
+        # never a key there; keying off `target` would miss the record). Leaf post-asserts still
+        # fire in eval_node.
+        if target != node_id and target_node.kind == NodeKind.CALL and target_node.post_asserts:
+            from agent_composer.suspension.expansions import CallExpansion
+            desc = self._spawner_expansion.get(node_id)
+            record = desc.record if isinstance(desc, CallExpansion) else {}
+            post_record = {**record, "output": event.output}
+            for a in target_node.post_asserts:
+                if not target_node._assert_holds(a, post_record):
+                    self.sm.finish_executing(node_id)
+                    raise NodeExecutionError(
+                        node_id, f"node {target!r} post-assert failed: {a}",
+                        "NodeAssertFailed",
+                        locator=SourceSpan(node=target, kind="assert", key=a),
+                    )
         self.sm.finish_executing(node_id)
-
-        newly_ready = self._advance(node_id)
-        for nid in newly_ready:
+        for nid in self._advance(target):
             self._schedule(nid)
 
     def _on_route(self, node_id: str, handle: str) -> None:

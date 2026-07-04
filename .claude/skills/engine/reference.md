@@ -22,7 +22,7 @@ A node is a **pure function of its bound input record**. It implements
 
 | Return | Meaning |
 |--------|---------|
-| `Output(value)` | the one produced value; the engine writes it under the node id. |
+| `Output(value)` | the one produced value; the engine writes it under the node id. Optional `Output(value, commit_as=<id>)` redirects the write to another id (and fires *that* id's out-edges) — the node-chosen commit target; `None` (the default) commits under the node's own id. |
 | `Route(handle)` | a routing-only outcome (a CASE picks an out-edge `handle`); carries no value, writes no pool entry. The engine emits `NodeRouted` and takes the chosen edge, skip-flooding the siblings. |
 | `Pause(reason)` | a leaf wait (HUMAN_INPUT / WAIT / agent control-pause). The engine emits `PauseRequested` and suspends; the answer is delivered as this node's `Output` (the node never re-runs). |
 | `Enqueue(target, inputs)` | grow the live graph — a description the engine splices in (the REF/MAP drivers, agent control-pause). |
@@ -109,7 +109,7 @@ model made enforceable.
   `supports_native_structured(provider, model)`), with `retries:`-capped self-correction.
   Three-part contract: **generate-tries** (the schema asks), **boundary-enforces**
   (`pool.set(..., declared=output_shape)` validates — on both the primary path and a
-  resumed agent's alias-filler path), **retry-catches** (a deviation is fed back and
+  resumed agent's `commit_as`-redirect path), **retry-catches** (a deviation is fed back and
   re-asked). A bare `str`/`Literal[...]` keeps the text path.
 
 ## Layer ladder (where code goes)

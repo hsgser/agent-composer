@@ -206,4 +206,4 @@ def test_map_synthesizes_one_end_list_node(num_workers):
     assert eng.flow.nodes[map_end_id].kind == NodeKind.END
     into_end = {(e.from_, e.input_group) for e in eng.flow.edges if e.to == map_end_id}
     assert into_end == {("each#0/__end__", "e0"), ("each#1/__end__", "e1")}
-    assert eng.alias[map_end_id] == "each"
+    assert eng.flow.nodes[map_end_id].commit_as == "each"

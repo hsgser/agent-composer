@@ -78,10 +78,17 @@ class StreamChunk:
 
 @dataclass
 class NodeSucceeded:
-    """A node finished and produced its single output value (the engine does the pool write)."""
+    """A node finished and produced its single output value (the engine does the pool write).
+
+    `commit_as` is the commit redirect the engine's `_on_success` reads: when set, the value
+    is written under `commit_as` (and that target's out-edges fire) instead of `node_id`.
+    Folded by `eval_node` from `result.commit_as or node.commit_as` (node-chosen wins over the
+    engine-baked node field); `None` for an ordinary node (commit under `node_id`).
+    """
 
     node_id: str
     output: Any = None  # the node's single produced value
+    commit_as: Optional[str] = None
 
 
 @dataclass

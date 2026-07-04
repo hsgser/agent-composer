@@ -317,13 +317,14 @@ def test_until_stops_when_predicate_becomes_true():
 def test_prune_iteration_drops_all_live_overlay_traces():
     """`_prune_iteration(spawner, i)` clears EVERY live-overlay trace of iteration `#i` — its
     nodes/edges, sm state (node_state/edge_state/executing), pool entries, and the loop-back
-    filler's `loop_alias` — while leaving the durable `LoopExpansion` ledger untouched and the
-    spawner id (no `#i` prefix) alone.
+    filler's baked `commit_as` (which rides on the node, so `remove_subgraph` drops it) — while
+    leaving the durable `LoopExpansion` ledger untouched and the spawner id (no `#i` prefix) alone.
 
     Deterministic grown-#0 setup: drive `LOOP_CHAT` to its first pause. The body's `human_input`
     leaf parks the run with iteration #0 fully grown (its `#0/` nodes registered, the START seed
-    committed to `pool.store`, and `loop_alias['loop#0/__end__'] = 'loop'`) and NO `_loop_step`
-    yet — so the `#0/` overlay is live and un-pruned, the exact state prune must remove.
+    committed to `pool.store`, and the body-END filler `loop#0/__end__` carrying
+    `commit_as == 'loop'`) and NO `_loop_step` yet — so the `#0/` overlay is live and un-pruned,
+    the exact state prune must remove.
     """
     loaded = load_flow(LOOP_CHAT)
     r = run_flow(loaded, {})
@@ -337,7 +338,8 @@ def test_prune_iteration_drops_all_live_overlay_traces():
     assert any(n.startswith(prefix) for n in engine.flow.nodes)
     assert any(n.startswith(prefix) for n in engine.pool.store)
     assert any(n.startswith(prefix) for n in engine.sm.node_state)
-    assert any(k.startswith(prefix) for k in engine.loop_alias)  # the body-END filler
+    # the body-END filler carries the commit redirect back to the spawner
+    assert engine.flow.nodes[f"{spawner}#0/__end__"].commit_as == spawner
 
     # Snapshot the durable ledger BEFORE pruning — it must survive untouched.
     ledger_len = len(engine.expansions)
@@ -346,11 +348,10 @@ def test_prune_iteration_drops_all_live_overlay_traces():
 
     engine._prune_iteration(spawner, 0)
 
-    # Every per-id registry is clean for the `#0/` prefix.
+    # Every per-id registry is clean for the `#0/` prefix. The commit redirect rode on the
+    # body-END filler node, so `flow.nodes` being clean (above) already proves it is gone.
     assert not any(n.startswith(prefix) for n in engine.flow.nodes)
     assert not any(n.startswith(prefix) for n in engine.pool.store)
-    assert not any(k.startswith(prefix) for k in engine.alias)
-    assert not any(k.startswith(prefix) for k in engine.loop_alias)
     assert not any(k.startswith(prefix) for k in engine.depth)
     assert not any(k.startswith(prefix) for k in engine._spawner_expansion)
     assert not any(n.startswith(prefix) for n in engine.sm.node_state)

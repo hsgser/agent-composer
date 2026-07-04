@@ -181,4 +181,9 @@ def eval_node(node, flow, pool: TypedVariablePool):
                                      error_type="NodeAssertFailed",
                                      locator=SourceSpan(node.id, "assert", a))
                     return
-    yield NodeSucceeded(node.id, output=result.value)
+    # Fold the commit redirect onto the terminal: a node-chosen `Output.commit_as` (roadmap)
+    # wins over the engine-baked `node.commit_as` (the subflow-terminal redirect); both default
+    # None so an ordinary node commits under its own id. This is the sole channel `_on_success`
+    # reads to decide the commit target.
+    yield NodeSucceeded(node.id, output=result.value,
+                        commit_as=(result.commit_as or node.commit_as))

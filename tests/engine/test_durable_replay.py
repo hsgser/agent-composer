@@ -52,7 +52,7 @@ def test_grow_call_re_registers_identical_node_ids():
     ids2 = {n for n in e2.flow.nodes if n.startswith("bridge/")}
 
     assert ids1 == ids2 and ids1  # identical, non-empty
-    assert e1.alias["bridge/__end__"] == "bridge"
+    assert e1.flow.nodes["bridge/__end__"].commit_as == "bridge"
     assert e1.sm.node_state["bridge"] == NodeState.EXPANDED
 
 
@@ -85,10 +85,12 @@ def call_in_call_with_inner_pause():
 
 
 def _capture_overlay(engine):
-    """The four overlay maps + the registered topology a replay must reproduce."""
+    """The overlay a replay must reproduce: the registered topology + the commit redirect
+    (baked on the nodes as `commit_as`, the alias-map replacement) + depth + spawner keys +
+    edge_state keys."""
     return {
         "nodes": set(engine.flow.nodes),
-        "alias": dict(engine.alias),
+        "commit_as": {nid: n.commit_as for nid, n in engine.flow.nodes.items() if n.commit_as},
         "depth": dict(engine.depth),
         "spawner_keys": set(engine._spawner_expansion),
         "edge_state_keys": set(engine.sm.edge_state),
@@ -97,7 +99,7 @@ def _capture_overlay(engine):
 
 def test_replay_reproduces_live_overlay_nested_oracle():
     """Replaying `ckpt.expansions` onto a FRESH recompiled flow rebuilds the SAME
-    flow.nodes / alias / depth / _spawner_expansion keys / edge_state (set-equality) the
+    flow.nodes / commit_as / depth / _spawner_expansion keys / edge_state (set-equality) the
     live engine grew. Uses a NESTED (CALL-in-CALL) fixture — a flat fixture is blind to a
     dropped recursion."""
     live = FlowEngine(call_in_call_with_inner_pause(), run_inputs={"payload": "go"})
@@ -112,7 +114,7 @@ def test_replay_reproduces_live_overlay_nested_oracle():
     replayed = _capture_overlay(fresh)
 
     assert replayed["nodes"] == live_overlay["nodes"]
-    assert replayed["alias"] == live_overlay["alias"]
+    assert replayed["commit_as"] == live_overlay["commit_as"]
     assert replayed["depth"] == live_overlay["depth"]
     assert replayed["spawner_keys"] == live_overlay["spawner_keys"]
     assert replayed["edge_state_keys"] == live_overlay["edge_state_keys"]
@@ -216,14 +218,14 @@ def test_durable_call_inner_pause_resumes_on_fresh_flow():
 
 def test_durable_map_inner_pause_resumes_on_fresh_flow():
     """A MAP grown to per-element inner pauses resumes cross-process -> RunSucceeded list,
-    element order preserved. Asserts the map_end fan-in node was rebuilt + aliased."""
+    element order preserved. Asserts the map_end fan-in node was rebuilt + redirect-baked."""
     live_term, dur_term, fresh = _durable_resume(
         map_with_inner_pause, {"items": ["a", "b"]}, "ok")
     assert isinstance(dur_term, RunSucceeded)
     assert dur_term.output == live_term.output
     assert dur_term.output == ["ok", "ok"]                  # one per element, order preserved
     assert "each/__end__" in fresh.flow.nodes               # the LIST fan-in node
-    assert fresh.alias["each/__end__"] == "each"
+    assert fresh.flow.nodes["each/__end__"].commit_as == "each"
 
 
 def _map_n0_via_sibling():
@@ -616,8 +618,9 @@ def test_grow_loop_schedule_false_registers_without_scheduling():
 
 def test_replay_reproduces_live_loop_overlay():
     """Replaying a paused-loop `ckpt.expansions` onto a FRESH recompiled flow rebuilds the SAME
-    live iteration overlay the live engine grew: flow.nodes / loop_alias / sm.node_state
-    (set-equality), the spawner staying EXPANDED, and the ledger re-attached to `loop_desc`.
+    live iteration overlay the live engine grew: flow.nodes / the baked `commit_as` redirect /
+    sm.node_state (set-equality), the spawner staying EXPANDED, and the ledger re-attached to
+    `loop_desc`.
 
     Pruning drops committed iterations before any pause, so exactly ONE iteration (the LIVE one)
     is resident — the replay re-grows that single last-recorded seed at its recorded index."""
@@ -636,10 +639,11 @@ def test_replay_reproduces_live_loop_overlay():
     # Precondition: the live overlay has the `loop#0/` namespace present (un-pruned live iter).
     assert any(n.startswith("loop#0/") for n in live_engine.flow.nodes)
 
-    # Capture the loop-relevant overlay a replay must reproduce (loop_alias, not alias, holds the
-    # body-END filler; also capture sm.node_state and the spawner's own EXPANDED state).
+    # Capture the loop-relevant overlay a replay must reproduce: the body-END filler's baked
+    # `commit_as` (the loop-back redirect, formerly `loop_alias`); also sm.node_state and the
+    # spawner's own EXPANDED state.
     live_nodes = set(live_engine.flow.nodes)
-    live_loop_alias = dict(live_engine.loop_alias)
+    live_commit_as = {nid: n.commit_as for nid, n in live_engine.flow.nodes.items() if n.commit_as}
     live_node_state = set(live_engine.sm.node_state)
     assert live_engine.sm.node_state["loop"] == NodeState.EXPANDED
 
@@ -655,7 +659,7 @@ def test_replay_reproduces_live_loop_overlay():
 
     # Set-for-set overlay equality against the live engine.
     assert set(fresh.flow.nodes) == live_nodes
-    assert dict(fresh.loop_alias) == live_loop_alias
+    assert {nid: n.commit_as for nid, n in fresh.flow.nodes.items() if n.commit_as} == live_commit_as
     assert set(fresh.sm.node_state) == live_node_state
     assert fresh.sm.node_state["loop"] == NodeState.EXPANDED
     assert fresh.loop_desc["loop"] is loop_descs[0]    # the ledger was re-attached

@@ -52,9 +52,17 @@ class NodeKind(str, Enum):
 
 @dataclass(frozen=True)
 class Output:
-    """A produced value. The engine writes `value` into the pool under the node id."""
+    """A produced value. The engine writes `value` into the pool under the node id.
+
+    `commit_as` is the node-CHOSEN commit redirect: when set, the engine writes `value`
+    under `commit_as` instead of the node's own id (and fires that target's out-edges).
+    A `str` target id, or `None` (the common case) to commit under the node's own id.
+    No `run()` sets it today — it is the roadmap seam for a node that names its own commit
+    target; the engine-baked `Node.commit_as` covers the current subflow-terminal redirects.
+    """
 
     value: Any = None
+    commit_as: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +123,12 @@ class Node(ABC):
             Node-local `asserts:` checked against the bound record before `run`.
         post_asserts (`list[str]`):
             Node-local `asserts:` (reading `${output}`) checked after `run`.
+        commit_as (`str`, *optional*):
+            Engine-baked commit redirect: write this node's Output under `commit_as`
+            instead of its own id (and fire that target's out-edges). Set by the
+            `_grow_*` expanders on a subflow terminal (a CALL/MAP child END filler,
+            a MAP END-list filler, an agent resume continuation) to point back at the
+            spawner id; `None` for an ordinary node (commit under its own id).
     """
 
     kind: ClassVar[NodeKind]
@@ -145,6 +159,10 @@ class Node(ABC):
         # Empty for most nodes.
         self.pre_asserts: list[str] = []
         self.post_asserts: list[str] = []
+        # Engine-baked commit redirect (see the class docstring): a subflow terminal
+        # commits its Output under this spawner id instead of its own id. Stamped by the
+        # `_grow_*` expanders; `None` for an ordinary node.
+        self.commit_as: Optional[str] = None
 
     @abstractmethod
     def run(self, inputs: dict[str, Any], **caps: Any) -> "NodeResult":

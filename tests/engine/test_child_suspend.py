@@ -59,8 +59,9 @@ def test_child_suspend_resumes_through_namespaced_end():
                        commands=[resume_command(loaded, res.pause_reasons[0], None)])
     assert done.status == "succeeded"
     eng = res.engine
-    # the namespaced child END_ID is the alias filler for the spawner (no __out resolver).
-    assert eng.alias["call_sub/__end__"] == "call_sub"
+    # the namespaced child END_ID is the redirect filler for the spawner (no __out resolver):
+    # its baked `commit_as` names the spawner id.
+    assert eng.flow.nodes["call_sub/__end__"].commit_as == "call_sub"
     assert not any("/__out" in nid for nid in eng.flow.nodes)
 
 

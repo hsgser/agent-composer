@@ -145,7 +145,7 @@ def test_ref_arm_runs_child_namespaced_and_substitutes_spawner(num_workers):
     assert eng.sm.node_state["sp"] == NodeState.EXPANDED
     assert any(nid.startswith("sp/") for nid in eng.flow.nodes)   # child cloned under "sp/"
     assert eng.pool.get("sp") == EXPECTED_CHILD_VALUE             # substituted under the spawner id
-    assert eng.alias["sp/__end__"] == "sp"                        # the alias filler is the child END_ID
+    assert eng.flow.nodes["sp/__end__"].commit_as == "sp"        # the redirect filler is the child END_ID
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])

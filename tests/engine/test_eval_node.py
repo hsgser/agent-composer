@@ -35,6 +35,41 @@ def test_yields_started_then_succeeded():
     assert evs[-1].output == {"output": "ok"}
 
 
+class _CommitAsNode(Node):
+    """Returns an `Output` (optionally carrying a node-chosen `commit_as`), to exercise
+    `eval_node` folding `result.commit_as or node.commit_as` onto `NodeSucceeded`."""
+
+    kind = NodeKind.CODE
+
+    def __init__(self, node_id, out):
+        super().__init__(node_id)
+        self._out = out
+
+    def run(self, inputs, **caps):
+        return self._out
+
+
+def test_baked_commit_as_rides_onto_succeeded():
+    # `eval_node` folds the engine-baked `node.commit_as` onto the terminal NodeSucceeded so
+    # `_on_success` can commit the value under the spawner id (the alias-map replacement).
+    node = _CommitAsNode("n", Output("v"))
+    node.commit_as = "s"
+    evs = _drive(node)
+    assert isinstance(evs[-1], NodeSucceeded)
+    assert evs[-1].output == "v"
+    assert evs[-1].commit_as == "s"
+
+
+def test_node_chosen_commit_as_wins_over_baked():
+    # A node-CHOSEN `Output(commit_as=...)` overrides the engine-baked `node.commit_as`
+    # (the roadmap seam: a node names its own commit target).
+    node = _CommitAsNode("n", Output("v", commit_as="c"))
+    node.commit_as = "s"
+    evs = _drive(node)
+    assert isinstance(evs[-1], NodeSucceeded)
+    assert evs[-1].commit_as == "c"
+
+
 def test_binding_failure_is_started_then_failed():
     # A required input with NO wiring edge (omitted) -> BindingError inside the bind seam ->
     # NodeFailed. (Param `required` is presence-based; a present-but-null source is the `:?` grammar.)
