@@ -12,6 +12,37 @@ from agent_composer.state.pool import TypedVariablePool
 from tests.engine._fakes import EnqueueNode, drive, stamp_reads
 
 
+# --- _rens_internal — re-namespace a binding source under a callsite (no baking) ---------- #
+
+
+def test_rens_internal_input_and_output_heads():
+    from agent_composer.compile.expand import _rens_internal
+
+    # ${input.k} -> the namespaced child START_ID's output object; ${x.output} node-first.
+    assert _rens_internal("${input.k}", "cs") == "${cs/__start__.output.k}"
+    assert _rens_internal("${x.output.field}", "cs") == "${cs/x.output.field}"
+    # system.X and non-string pass through untouched.
+    assert _rens_internal("${system.now}", "cs") == "${system.now}"
+    assert _rens_internal(5, "cs") == 5
+
+
+def test_rens_internal_computed_whole_span_renamespaces_all_leaves():
+    # A whole-span computed expression `${x.output - y.output}` — the OLD flat-regex
+    # rewriter read the interior as one bogus path and left it UNCHANGED; the parse-based
+    # rewriter re-namespaces every reference leaf.
+    from agent_composer.compile.expand import _rens_internal
+
+    assert (
+        _rens_internal("${x.output - y.output}", "cs")
+        == "${cs/x.output - cs/y.output}"
+    )
+    # embedded text + two separate spans: literal text preserved, both spans re-namespaced.
+    assert (
+        _rens_internal("pre ${x.output} mid ${input.k} post", "cs")
+        == "pre ${cs/x.output} mid ${cs/__start__.output.k} post"
+    )
+
+
 def test_eval_node_emits_node_expanded_for_single_enqueue():
     enq = Enqueue(target="child", inputs={"x": 1})
     events = list(drive(EnqueueNode("sp", enq)))

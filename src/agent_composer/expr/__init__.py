@@ -21,11 +21,14 @@ Never imports: `nodes`, `compile`, `runtime`, `suspension` (they import IT).
 from agent_composer.expr.expressions import (
     ExpressionError,
     RequiredError,
+    condition_refs,
     eval_expr,
     evaluate_when,
     expr_refs,
     first_failing_assert,
     resolve_reference,
+    rewrite_condition_refs,
+    rewrite_expr_refs,
 )
 from agent_composer.expr.grammar import parse_expr
 from agent_composer.expr.template import (
@@ -35,6 +38,7 @@ from agent_composer.expr.template import (
     expr_refs_of,
     prompt_refs,
     render_template_record,
+    rewrite_template_refs,
     scan_template,
 )
 
@@ -42,6 +46,7 @@ __all__ = [
     "ExpressionError",
     "RequiredError",
     "binding_co_skips",
+    "condition_refs",
     "eval_binding",
     "eval_expr",
     "eval_template",
@@ -53,5 +58,8 @@ __all__ = [
     "prompt_refs",
     "render_template_record",
     "resolve_reference",
+    "rewrite_condition_refs",
+    "rewrite_expr_refs",
+    "rewrite_template_refs",
     "scan_template",
 ]

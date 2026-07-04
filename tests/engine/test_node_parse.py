@@ -195,7 +195,7 @@ def test_case_searched_parses():
     node = parse_nodes(f.nodes)["gate"]
     assert isinstance(node, CaseDescriptor)
     assert node.on is None
-    assert node.cases == [{"when": "${score.output} >= 0.5", "then": "positive"}]
+    assert node.cases == [{"when": "score.output >= 0.5", "then": "positive"}]
     assert node.else_ == "cautious"
 
 

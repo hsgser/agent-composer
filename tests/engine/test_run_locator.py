@@ -20,7 +20,7 @@ def test_post_assert_sets_run_result_locator():
     assert result.status == "failed"
     assert result.locator is not None and result.locator.kind == "assert"
     assert result.locator.node is None
-    assert result.locator.key == "${calc.output} > 100"
+    assert result.locator.key == "calc.output > 100"
 
 
 def test_input_coercion_sets_input_decl_locator():
@@ -38,7 +38,7 @@ def test_boundary_assert_sets_assert_locator():
     assert result.status == "failed"
     assert result.locator is not None and result.locator.kind == "assert"
     assert result.locator.node is None
-    assert result.locator.key == "${input.window} > 0"
+    assert result.locator.key == "input.window > 0"
 
 
 def test_code_wrong_type_output_sets_field_locator():

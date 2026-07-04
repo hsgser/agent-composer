@@ -171,12 +171,12 @@ def test_case_dangling_data_ref_is_loud():
 
 
 def test_case_node_local_ref_does_not_error():
-    # the rewritten node-local ${__r0} is EXCLUDED from _classify_path — a case whose
+    # the rewritten node-local __r0 is EXCLUDED from _classify_path — a case whose
     # source IS a real node passes (the node-local rewrite never trips "unknown node").
     nodes, flow_inputs, producers, outputs, flow_wiring = _load("02-case.yaml")
-    # seed 02 gate: param __r0 wired to ${score.output} (score is real); when uses ${__r0}.
+    # seed 02 gate: param __r0 wired to ${score.output} (score is real); when uses __r0.
     gate = nodes["gate"]
     assert [p.name for p in gate.params] == ["__r0"]
     assert flow_wiring["gate"] == {"__r0": "${score.output}"}
-    assert gate.cases[0].when == "${__r0} >= 0.5"  # node-local — must NOT be classified
+    assert gate.cases[0].when == "__r0 >= 0.5"  # node-local — must NOT be classified
     validate_references(nodes, flow_inputs, producers, outputs, flow_wiring)  # no raise

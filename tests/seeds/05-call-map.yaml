@@ -47,4 +47,4 @@ output:                       # multi-output: the flow returns one object
   briefs: ${research_each.output}
 
 asserts:                       # boolean checks over ${inputs}/${outputs}; a false fails the run
-  - ${input.topics} != []                 # the bundle must be non-empty
+  - input.topics != []                 # the bundle must be non-empty

@@ -28,7 +28,6 @@ Nothing imports this back.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from agent_composer.compile.model import Edge
@@ -40,10 +39,10 @@ from agent_composer.compile.validation import (
 )
 from agent_composer.expr import (
     ExpressionError,
+    condition_refs,
     expr_refs_of,
     prompt_refs,
 )
-from agent_composer.expr.grammar import parse_expr
 from agent_composer.expr.template import flow_call_callees_in_spans
 from agent_composer.compose.calls import desugar_call_directives
 from agent_composer.nodes.agent import AgentNode
@@ -53,10 +52,6 @@ from agent_composer.nodes.wait import WaitNode
 from agent_composer.state.segments import SegmentType, Shape
 from agent_composer.compose.errors import LoadError
 
-# Extracts every `${...}` ref from a node-level `asserts:` boolean expression (a flat
-# `${ref}` template — no nested spans). Prompt scope uses `expr.prompt_refs` (brace-aware,
-# call-aware) instead. Mirrors `compile.validation._VAR_RE`.
-_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 # Heads forbidden in a strict prompt (always trigger the bespoke hint).
 # `input`/`system`/`item` are the pool-style heads; a node-id head (e.g. `${other.output}`)
 # is detected separately by `head in valid_targets`.
@@ -423,16 +418,16 @@ def validate_node_asserts(
                     f"node {nid!r} assert {a!r}: an inline call is not allowed in a "
                     f"node-local assert (use a flow-level assert)", line))
                 continue
-            # parse-check the boolean grammar at LOAD (located), like flow `classify_asserts`.
+            # parse-check + collect refs on the ONE unified condition walk (any spelling).
             try:
-                parse_expr(a)
+                refs = condition_refs(a)
             except ExpressionError as exc:
                 errors.append((
                     f"node {nid!r} assert {a!r}: not a valid boolean expression ({exc})", line))
                 continue
             reads_output = False
-            for ref in _VAR_RE.findall(a):
-                segs = [p.strip() for p in ref.strip().split(".")]
+            for ref in refs:
+                segs = ref.split(".")
                 head = segs[0] if segs else ""
                 if head == "output":
                     reads_output = True

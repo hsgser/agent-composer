@@ -22,17 +22,12 @@ Layer: compile — imports `nodes`/`model`/`expr` (ladder-legal); never `runtime
 from __future__ import annotations
 
 import copy
-import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from agent_composer.compile.model import Edge, START_ID
+from agent_composer.expr import rewrite_template_refs
 from agent_composer.nodes.base import Node
-
-# A `${...}` span (the interior captured). Mirrors the assert/template scanners — a span's
-# interior is a reference path here (the synthesized/cloned refs are plain `outputs.`/`inputs.`/
-# `item` reads, not coalesces), so a flat scan is the right rewrite primitive.
-_SPAN_RE = re.compile(r"\$\{([^}]+)\}")
 
 
 def ns(callsite: str, child_id: str) -> str:
@@ -96,31 +91,28 @@ def _rens_internal(src: Any, callsite: str) -> Any:
     - `${system.X}` (run-global) and other heads untouched.
 
     Legacy plural heads (`outputs.X` / `inputs.X`) are rejected at parse time.
-    """
+
+    Routes every `${...}` span through `rewrite_template_refs` + the ONE parse tree, so an
+    embedded / coalesce / whole-expression span is re-namespaced leaf-by-leaf (the old flat
+    `${...}` regex only handled a simple single-path span)."""
     if not isinstance(src, str):
         return src
 
-    def _sub(m: "re.Match[str]") -> str:
-        interior = m.group(1)
-        parts = interior.split(".")
+    def _rename(path: str) -> "str | None":
+        parts = path.split(".")
         if len(parts) >= 2 and parts[0] == "input":
-            # ${input.k[.rest]} → ${<callsite>/<start>.output.k[.rest]}
+            # input.k[.rest] -> <callsite>/<start>.output.k[.rest]
             key = parts[1]
             rest = ".".join(parts[2:])
             new = f"{ns(callsite, START_ID)}.output.{key}"
-            if rest:
-                new += f".{rest}"
-            return "${" + new + "}"
-        # Node-first: ${<X>.output[.rest]} → ${<callsite>/<X>.output[.rest]}
+            return new + (f".{rest}" if rest else "")
+        # Node-first: <X>.output[.rest] -> <callsite>/<X>.output[.rest]
         if len(parts) >= 2 and parts[1] == "output":
-            node_id = parts[0]
-            new = f"{ns(callsite, node_id)}.output"
-            if len(parts) > 2:
-                new += "." + ".".join(parts[2:])
-            return "${" + new + "}"
-        return m.group(0)
+            new = f"{ns(callsite, parts[0])}.output"
+            return new + ("." + ".".join(parts[2:]) if len(parts) > 2 else "")
+        return None  # system.X / any other head untouched
 
-    return _SPAN_RE.sub(_sub, src)
+    return rewrite_template_refs(src, _rename)
 
 
 def clone_child(child, callsite: str, record: dict) -> ClonedSubgraph:

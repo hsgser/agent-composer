@@ -32,7 +32,7 @@ nodes:
       - when: negative
         then: apologize
     # The Literal cases are exhaustive (positive | negative) — no `else:` needed.
-    # On a searched case (no `on:`), use `when: "${score.output} >= 0.5"` etc.
+    # On a searched case (no `on:`), use `when: "score.output >= 0.5"` etc.
 
   thank:
     kind: agent

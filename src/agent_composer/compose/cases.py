@@ -46,7 +46,9 @@ from agent_composer.compile.model import Edge
 from agent_composer.expr import (
     ExpressionError,
     binding_co_skips,
+    condition_refs,
     expr_refs_of,
+    rewrite_condition_refs,
 )
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.case import DEFAULT_HANDLE, Case, CaseNode
@@ -59,11 +61,6 @@ from agent_composer.compose.calls import (
 )
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.parser import CaseDescriptor
-
-# A `${...}` span in a `when:`/`on:` expression. A `when:` is a flat boolean
-# expression with no nested braces, so the simple form matches every ref (the same
-# pattern the strict `when:` checker + `evaluate_when_record` use).
-_REF_SPAN = re.compile(r"\$\{([^}]+)\}")
 
 
 @dataclass(frozen=True)
@@ -92,10 +89,14 @@ def _outputs_producer(ref: str) -> Optional[str]:
 
 
 def _refs_in(expr: str) -> list[str]:
-    """The distinct `${...}` ref paths an expression reads, in first-seen order."""
+    """The distinct reference paths a `when:` expression reads, in first-seen order.
+
+    Routes through `condition_refs` (parse the WHOLE `when:` value, all three spellings —
+    bare / mixed / whole-span) so it agrees with `_rewrite_when`, which rewrites the same
+    parsed leaves. Raises `ExpressionError` on a malformed `when:` (the caller frames it
+    as a located `LoadError`)."""
     out: list[str] = []
-    for span in _REF_SPAN.findall(expr):
-        path = span.strip()
+    for path in condition_refs(expr):
         if path not in out:
             out.append(path)
     return out
@@ -290,7 +291,13 @@ def _desugar_searched(desc: CaseDescriptor) -> CaseDesugar:
             raise LoadError(
                 f"case node {desc.id!r}: each searched case needs a string `when:` expression"
             )
-        for ref in _refs_in(when):
+        try:
+            refs = _refs_in(when)
+        except ExpressionError as exc:
+            raise LoadError(
+                f"case node {desc.id!r}: `when:` {when!r} is not a valid boolean expression: {exc}"
+            ) from exc
+        for ref in refs:
             if ref not in ref_to_local:
                 ref_to_local[ref] = f"__r{len(ref_to_local)}"
 
@@ -320,14 +327,12 @@ def _desugar_searched(desc: CaseDescriptor) -> CaseDesugar:
 
 
 def _rewrite_when(when: str, ref_to_local: dict[str, str]) -> str:
-    """Rewrite each `${<ref>}` span in `when` to its bare local `${__rN}`."""
-
-    def sub(m: "re.Match[str]") -> str:
-        path = m.group(1).strip()
-        local = ref_to_local.get(path)
-        return f"${{{local}}}" if local is not None else m.group(0)
-
-    return _REF_SPAN.sub(sub, when)
+    """Rewrite each reference in `when` to its bare local `__rN`, honouring all three
+    condition spellings. A `${<ref>}` (mixed) becomes `${__rN}`, a bare `<ref>`
+    (whole-span / bare) becomes `__rN`; the surrounding expression is preserved. A ref
+    with no allocated local is left untouched. Shares `rewrite_condition_refs` with
+    `_refs_in`, so extraction and rewrite parse the SAME leaves."""
+    return rewrite_condition_refs(when, lambda path: ref_to_local.get(path))
 
 
 def reconcile_case_edges(

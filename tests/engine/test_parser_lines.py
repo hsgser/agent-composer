@@ -49,7 +49,7 @@ def test_node_field_lines_aliases_legacy_outputs():
 def test_assert_lines_flow_level_keyed_by_node_none():
     text = (_ERRORS / "e18-false-boundary-assert.yaml").read_text()
     m = assert_lines(text)
-    assert m[(None, "${input.window} > 0")] == 15
+    assert m[(None, "input.window > 0")] == 15
 
 
 def test_input_decl_lines_locates_decl():

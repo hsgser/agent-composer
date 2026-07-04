@@ -59,7 +59,7 @@ One `${...}` grammar; the context decides what happens to the result:
 | Context | Where | What it does |
 |---------|-------|--------------|
 | **Bindings** | `input:` / `output:` values | **evaluated** to a typed value — refs, literals, arithmetic, lists, `:-` / `:?` / `\|`, pure builtins. Child-flow call = `call(...)` directive. |
-| **Conditions** | `when:` / `asserts:` | **tested** as a boolean: `== != < <= > >=`, `in`/`not in`, `and`/`or`/`not`, parens, arithmetic operands. Bare or `${...}`-wrapped are equivalent. |
+| **Conditions** | `when:` / `asserts:` | **tested** as a boolean: `== != < <= > >=`, `in`/`not in`, `and`/`or`/`not`, parens, arithmetic operands. Canonical **bare** form (no `${}`); `${...}`-wrapped spellings load and evaluate identically. |
 | **Prompts** | `prompt:` text | free text with embedded `${...}` spans (each stringified) |
 
 > Bindings wire, conditions test, nodes compute. A heavy transform still belongs
@@ -132,10 +132,10 @@ Reference its object fields downstream as `${node.output.field}`.
 **Loop until done.** Use a `loop` node to re-run a body under one of three drivers,
 threading a carried record `'a -> 'a` (the body's `output:` shape EQUALS its
 `input:`). The `input:` is the SEED carried record. Pick EXACTLY ONE driver:
-`while: not ${done}` is a PRE-check over the carried record (0+ runs, stop when the
-predicate goes false); `until: ${done}` is a POST-check / do-while (1+ runs, stop
+`while: not done` is a PRE-check over the carried record (0+ runs, stop when the
+predicate goes false); `until: done` is a POST-check / do-while (1+ runs, stop
 when the predicate becomes TRUE); `times: N` runs exactly N times with no
-predicate. `not` sits OUTSIDE the `${...}` span. `max:` is a required runaway guard
+predicate. Predicates use the canonical bare form (no `${}`). `max:` is a required runaway guard
 for `while:`/`until:` — but REDUNDANT and REJECTED with `times:`. A body that pauses
 (a `human_input` leaf) makes the loop a chat REPL — run/resume threads each turn,
 and the pause is DURABLE (a mid-loop checkpoint resumes in a fresh process). A long

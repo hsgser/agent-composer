@@ -83,7 +83,7 @@ Everywhere you wire data you use a `${...}` reference:
 | `${input.X}` | field `X` of the flow's input |
 | `${node.output}` | node `node`'s whole value |
 | `${node.output.field}` | dot into an object value |
-| `${name}` (bare) | **inside an AGENT/HUMAN_INPUT `prompt:` or a `case` `when:`** — that node's own declared input |
+| `${name}` / bare `name` | that node's own declared input — as `${name}` inside an AGENT/HUMAN_INPUT `prompt:`, or bare `name` in a `case` `when:` |
 
 A whole-string `${ref}` resolves to the **typed value**; embedded in surrounding
 text it is stringified.
@@ -280,7 +280,7 @@ Searched form — first true `when:` wins (a boolean expression, no `on:`):
 gate:
   kind: case
   cases:
-    - when: "${score.output.signal} >= 0.5"
+    - when: "score.output.signal >= 0.5"
       then: bullish
   else: cautious
 ```
@@ -438,7 +438,7 @@ turn:
   input:                       # the SEED carried record
     messages: []
     exited: false
-  while: not ${exited}         # pre-check predicate, over the carried record
+  while: not exited            # pre-check predicate, over the carried record
   max: 100                     # required runaway guard
 ```
 
@@ -453,13 +453,12 @@ turn:
 
 **`while:` — pre-check (0+ runs).** A predicate evaluated on the carried record
 *before* each iteration; 0 iterations run if the seed already fails it. It is a
-record-scoped boolean over bare `${name}` refs — every ref must name a **carried
-record field** (a typo'd name is rejected at load, not silently read as falsy) —
-and, like every condition, **`not` sits OUTSIDE the `${...}` span**: write
-`while: not ${exited}`, never `while: ${not exited}`. **`max:` is required.**
+record-scoped boolean over bare refs — every ref must name a **carried record
+field** (a typo'd name is rejected at load, not silently read as falsy) — written
+in the canonical bare form: `while: not exited`. **`max:` is required.**
 
 **`until:` — post-check / do-while (1+ runs).** Same record-scoped predicate
-syntax as `while:` (bare `${name}`, `not` outside the span), but checked *after*
+syntax as `while:` (bare refs, no `${}`), but checked *after*
 each iteration: the body always runs at least once, and the loop **continues
 while the predicate is FALSE and stops the moment it becomes TRUE**. **`max:` is
 required.**
@@ -470,7 +469,7 @@ retry:
   call: attempt
   input:
     ok: false
-  until: ${ok}                 # post-check; runs once, then stops when ok is true
+  until: ok                    # post-check; runs once, then stops when ok is true
   max: 5                       # required runaway guard
 ```
 
@@ -539,10 +538,11 @@ One `${...}` grammar serves every context — the difference is what each contex
   comparisons, `:-`/`:?`, `\|`, and pure builtins all work. To invoke a child flow
   as a binding's whole value, use the `call(...)` directive — not a `${...}` span.
 - **`when:` / `asserts:`**: the expression is **tested** as a boolean. Same
-  operators; a condition may be written bare (`a.output > 5`), with braces on a ref
-  (`${a.output} > 5`), or with braces around the whole expression
-  (`${a.output > 5}`) — all three are equivalent (an expression field is already in
-  expression mode, so the `${}` wrapper is a redundant no-op).
+  operators. Write conditions in the canonical **bare** form (`a.output > 5`) — no
+  `${}`. Braces on a ref (`${a.output} > 5`) or around the whole expression
+  (`${a.output > 5}`) load and evaluate identically (an expression field is already
+  in expression mode, so the `${}` wrapper is a redundant no-op), but bare is the
+  form used throughout the docs and seeds.
 - **Prompts**: free text with embedded `${...}` spans (each stringified into the
   text); spans may use the full grammar, but reference only the node's own declared
   inputs.
@@ -553,17 +553,17 @@ One `${...}` grammar serves every context — the difference is what each contex
 ## Asserts
 
 `asserts:` are boolean invariants; a false (or raising) one fails the run loudly.
-A top-level `asserts:` runs over `${input.X}` (a boundary check, before any node)
-or `${node.output}` (a post check, after the terminal).
+A top-level `asserts:` runs over `input.X` (a boundary check, before any node)
+or `node.output` (a post check, after the terminal).
 
 ```yaml
 asserts:
-  - ${synth.output} in ["go", "no_go", "needs_more_info"]
+  - synth.output in ["go", "no_go", "needs_more_info"]
 ```
 
 A node may also carry its own `asserts:`. A node-local assert is **PRE** if it
 reads only the node's inputs (checked before the node runs) and **POST** if it
-reads `${output}` (checked once the node's value is committed). Both fail the run
+reads `output` (checked once the node's value is committed). Both fail the run
 loudly, exactly like a flow-level assert.
 
 ```yaml
@@ -573,7 +573,7 @@ nodes:
     prompt: ...
     output: str
     asserts:
-      - ${output} in ["go", "no_go"]   # POST — reads the node's own output
+      - output in ["go", "no_go"]   # POST — reads the node's own output
 ```
 
 This holds for a `call` node too: its POST `asserts:` fire when the call's value

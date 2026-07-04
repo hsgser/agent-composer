@@ -226,6 +226,28 @@ def test_while_predicate_unknown_name_is_rejected():
     assert e.value.line is not None
 
 
+# The predicate's carried-name heads are extracted by PARSING the whole `while:` value
+# (via `condition_refs`), so the three condition spellings must all build and all catch a
+# dangling carried name — not just the mixed `not ${exited}` form GOOD uses.
+WHILE_BARE = GOOD.replace("    while: not ${exited}\n", "    while: not exited\n")
+WHILE_WHOLE = GOOD.replace("    while: not ${exited}\n", "    while: ${not exited}\n")
+WHILE_BARE_BAD = GOOD.replace("    while: not ${exited}\n", "    while: not exted\n")
+WHILE_WHOLE_BAD = GOOD.replace("    while: not ${exited}\n", "    while: ${not exted}\n")
+
+
+@pytest.mark.parametrize("src", [WHILE_BARE, WHILE_WHOLE])
+def test_while_predicate_all_spellings_build(src):
+    flow = load_flow(src)
+    assert flow.compiled.nodes["chat_loop"].predicate_kind == "while"
+
+
+@pytest.mark.parametrize("src", [WHILE_BARE_BAD, WHILE_WHOLE_BAD])
+def test_while_predicate_unknown_name_rejected_in_all_spellings(src):
+    with pytest.raises(LoadError) as e:
+        load_flow(src)
+    assert "exted" in str(e.value)
+
+
 @pytest.mark.parametrize("bad", [BAD_MAX_STR, BAD_MAX_FLOAT, BAD_MAX_BOOL])
 def test_non_int_max_is_rejected(bad):
     with pytest.raises(LoadError) as e:

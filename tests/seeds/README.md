@@ -168,7 +168,7 @@ named record is **type-checked at compile time** (`${analyze.output.rating.categ
 | `${<case>.output}` | a `case` node's **taken-branch value** (desugars to a coalesce over its branch targets) |
 | `${item}` | inside a `map` node body only (`kind: map` with `over:`) — the current element |
 | `${system.X}` | host-ambient (run id / clock / tenant); reserved |
-| `${name}` (bare) | **inside an AGENT prompt or a `case` `when:`** — that node's own declared input `name` |
+| `${name}` / bare `name` | that node's own declared input `name` — as `${name}` inside an AGENT prompt, or bare `name` in a `case` `when:` |
 
 **Operator forms** inside `${…}` — one expression grammar (arithmetic + our coalesce):
 
@@ -206,7 +206,7 @@ One `${…}` grammar; the context decides what happens to the result:
 | Context | What it does |
 |---|---|
 | **Bindings** (`input:`/`output:` values) | **evaluated** to a typed value — refs / literals / arithmetic / lists / `:-` `:?` / `\|` / pure builtins. (A child-flow call is the whole-value `call(…)` directive, not a `${…}` span.) |
-| **`when:` / `asserts:`** | **tested** as a boolean — `== != < <= > >= in not in`, `and`/`or`/`not`, parens, arithmetic operands. Bare or `${…}`-wrapped are equivalent. |
+| **`when:` / `asserts:`** | **tested** as a boolean — `== != < <= > >= in not in`, `and`/`or`/`not`, parens, arithmetic operands. Canonical **bare** form (no `${}`); `${…}`-wrapped spellings load and evaluate identically. |
 | **Prompts** | free text with embedded `${…}` spans (each stringified). |
 
 "Bindings wire, conditions test, nodes compute."
@@ -219,7 +219,7 @@ A `case` node **routes only** (no `input:`). Two forms, like SQL:
 gate:                            # searched form — each when: is a boolean
   kind: case
   cases:
-    - when: "${score.output} >= 0.5"
+    - when: "score.output >= 0.5"
       then: positive
   else: cautious                 # unconditional fallback
 
@@ -276,8 +276,8 @@ required, cross-field invariants) are a top-level **`asserts:`** list of boolean
 `${input.X}` / `${node.output}`; any false fails the run.
 ```yaml
 asserts:
-  - ${input.topics} != []                 # non-empty
-  - ${input.window} * 2 <= 365           # arithmetic is allowed here
+  - input.topics != []                 # non-empty
+  - input.window * 2 <= 365           # arithmetic is allowed here
 ```
 
 ## Extensibility — anchors + `x-`

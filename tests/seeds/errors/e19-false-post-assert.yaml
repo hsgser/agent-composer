@@ -1,4 +1,4 @@
-# e19 — a false POST-TERMINAL assert (${X.output}). RUNTIME: flips success to failed.
+# e19 — a false POST-TERMINAL assert (X.output). RUNTIME: flips success to failed.
 id: err-false-post-assert
 name: err_false_post_assert
 input:
@@ -11,5 +11,5 @@ nodes:
     output: int
     code: tests.seeds.fns:const_one     # returns 1
 asserts:
-  - "${calc.output} > 100"      # 1 > 100 is false
+  - "calc.output > 100"      # 1 > 100 is false
 output: ${calc.output}

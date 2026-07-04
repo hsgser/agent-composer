@@ -44,7 +44,7 @@ nodes:
   gate:
     kind: case
     cases:
-      - when: "${score.output} >= 0.5"
+      - when: "score.output >= 0.5"
         then: pro
     else: con
 

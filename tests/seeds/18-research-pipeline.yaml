@@ -98,4 +98,4 @@ output:                                # multi-output: the flow returns one obje
   note: ${pro_note.output | con_note.output | neutral_note.output}
 
 asserts:
-  - ${synth.output.confidence} >= 0 and ${synth.output.confidence} <= 1
+  - synth.output.confidence >= 0 and synth.output.confidence <= 1

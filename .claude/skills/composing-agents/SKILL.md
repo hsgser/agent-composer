@@ -61,7 +61,7 @@ nodes:                       # the body — a map keyed by node id (no per-node 
 output: ${step_a.output}     # one value, OR a multi-field object (see below)
 
 asserts:                     # optional — boolean invariants
-  - ${step_a.output} != ""
+  - step_a.output != ""
 ```
 
 There is **no `edges:` block**, no `__start__`/`__end__`, no per-node `id:`, and
@@ -203,7 +203,7 @@ route:
       then: no_go_brief
   else: more_info_brief        # required unless the Literal cases are exhaustive
 ```
-Searched form (first true `when:` wins, no `on:`): `when: "${score.output} >= 0.5"`.
+Searched form (first true `when:` wins, no `on:`): `when: "score.output >= 0.5"`.
 Routing on a `Literal` is **exhaustiveness-checked** — omitting a tag with no
 `else:` is a compile error.
 

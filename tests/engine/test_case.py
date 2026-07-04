@@ -4,8 +4,9 @@ A `case` node carries no inputs and no built leaf Node; `desugar_case` lowers it
 a strict `CaseNode` plus control + data edges, with NO new NodeKind:
 
 - **searched** (`cases: [{when: "<bool>", then: <t>}]`, `else: <e>`): each distinct
-  `${...}` ref across the `when:`s -> one `CaseNode` input `__rN`
-  (`source=<original ref>`); the `when:` is rewritten to bare `${__rN}`; control
+  ref across the `when:`s -> one `CaseNode` input `__rN`
+  (`source=<original ref>`); the `when:` is rewritten with each ref replaced by its
+  local `__rN` (preserving the original spelling — bare stays bare); control
   edges `gate->then(source_handle=then)` + `gate->else(source_handle="default")`;
   the data edges carry the `__rN` `input_group` (reconciling the data-edge pass's provisional).
 - **`on:`** (`on: ${ref}`, `cases: [{when: <value>, then: <t>}]`): one input
@@ -54,7 +55,7 @@ def _case_desc(seed: str, node_id: str) -> CaseDescriptor:
 
 
 def test_searched_desugar_builds_case():
-    # seed 02: when "${score.output} >= 0.5" then positive, else cautious.
+    # seed 02: when "score.output >= 0.5" then positive, else cautious.
     desc = _case_desc("02-case.yaml", "gate")
     result = desugar_case(desc, {})
     node = result.node
@@ -63,9 +64,9 @@ def test_searched_desugar_builds_case():
     # one distinct ref -> one param __r0, wired to ${score.output}.
     assert [p.name for p in node.params] == ["__r0"]
     assert result.wiring == {"__r0": "${score.output}"}
-    # the case's when is rewritten to the bare local ${__r0}.
+    # the case's when is rewritten to the local __r0 (bare, matching the seed's spelling).
     assert len(node.cases) == 1
-    assert node.cases[0].when == "${__r0} >= 0.5"
+    assert node.cases[0].when == "__r0 >= 0.5"
     assert node.cases[0].handle == "positive"
 
 
@@ -88,15 +89,55 @@ def test_searched_data_edge_reconciled_to_input_group():
 
 
 def test_searched_multiref_allocates_r0_r1():
-    # seed 10: "${score.output} > 0 and ${input.weight} * 100 <= 5".
+    # seed 10: "score.output > 0 and input.weight * 100 <= 5".
     desc = _case_desc("10-asserts-arithmetic.yaml", "size")
     result = desugar_case(desc, {})
     assert result.wiring == {"__r0": "${score.output}", "__r1": "${input.weight}"}
-    assert result.node.cases[0].when == "${__r0} > 0 and ${__r1} * 100 <= 5"
+    assert result.node.cases[0].when == "__r0 > 0 and __r1 * 100 <= 5"
     # only the ${X.output} ref is a data edge; ${input.X} is not.
     data = {(e.from_, e.to, e.input_group) for e in result.data_edges}
     assert ("score", "size", "__r0") in data
     assert not any(e.from_ == "weight" for e in result.data_edges)
+
+
+# A searched `when:` may be written in any of the three condition spellings — the
+# desugar extracts refs (_refs_in) and rewrites them (_rewrite_when) through the SAME
+# parse, so all three allocate the same __rN, wire the same source, and route the same.
+@pytest.mark.parametrize(
+    "when, expect_when",
+    [
+        ("${score.output} >= 0.5", "${__r0} >= 0.5"),   # mixed
+        ("score.output >= 0.5", "__r0 >= 0.5"),          # bare
+        ("${score.output >= 0.5}", "${__r0 >= 0.5}"),    # whole-span
+    ],
+)
+def test_searched_when_all_spellings_desugar_equivalently(when, expect_when):
+    desc = CaseDescriptor(
+        id="gate",
+        cases=[{"when": when, "then": "positive"}],
+        else_="cautious",
+    )
+    result = desugar_case(desc, {})
+    node = result.node
+    assert [p.name for p in node.params] == ["__r0"]
+    assert result.wiring == {"__r0": "${score.output}"}
+    assert node.cases[0].when == expect_when
+    # the rewritten when: routes identically against a bound record (all spellings evaluate the same).
+    assert evaluate_when_record(node.cases[0].when, {"__r0": 0.7}) is True
+    assert evaluate_when_record(node.cases[0].when, {"__r0": 0.3}) is False
+    # the data edge reconciles to __r0 regardless of spelling.
+    data = {(e.from_, e.to, e.input_group) for e in result.data_edges}
+    assert ("score", "gate", "__r0") in data
+
+
+def test_searched_when_malformed_is_loud():
+    desc = CaseDescriptor(
+        id="gate",
+        cases=[{"when": "score >= >= 5", "then": "positive"}],
+        else_="cautious",
+    )
+    with pytest.raises(LoadError, match="valid boolean expression"):
+        desugar_case(desc, {})
 
 
 # --------------------------------------------------------------------------- #

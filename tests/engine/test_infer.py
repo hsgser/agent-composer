@@ -2,7 +2,9 @@
 
 A flow-level pass: for every SINK binding in the flow — each built node's
 `inputs` (the InputBindings from the binding pass), a mapped `call`'s `over:`, and a `case` node's
-`on:`/`when:` refs — collect its `${...}` reference paths (`expr_refs_of`); each
+`on:`/`when:` refs — collect its reference paths. Binding/template sinks use `expr_refs_of`
+(over `${...}` spans); a `case` `on:`/`when:` is a whole expression, so its refs come from
+`condition_refs` (parses the whole condition, so the bare spelling is seen too). Each
 `${<id>[.output.…]}` ref becomes a data `Edge(from_=<id>, to=<consumer>, input_group=<sink key>)`.
 
 A coalesce `${a | b}` sink yields TWO edges that SHARE one `input_group` (the sink
@@ -11,6 +13,8 @@ input name). An `${input.X}` read mints a `START_ID->reader` input-producer DATA
 """
 
 from pathlib import Path
+
+import pytest
 
 from agent_composer.compile.model import END_ID, START_ID
 from agent_composer.compose.build import build_leaf_node, infer_data_edges
@@ -159,6 +163,39 @@ def test_case_multiref_when_produces_data_edge():
     assert any(e.from_ == "score" for e in case_edges)
     # ${input.weight} is a flow input, not an ${X.output} -> no data edge.
     assert not any(e.from_ == "weight" for e in case_edges)
+
+
+@pytest.mark.parametrize(
+    "when",
+    [
+        "score.output >= 0.5",        # bare (canonical)
+        "${score.output} >= 0.5",     # mixed
+        "${score.output >= 0.5}",     # whole-span
+    ],
+)
+def test_case_when_produces_data_edge_in_every_spelling(when):
+    # A searched `when:` is a condition, not a template: its refs must be extracted with
+    # condition_refs (which parses the whole expression), so the score->gate data edge is
+    # inferred even for the bare spelling (which has no ${...} span for the template walker).
+    text = (
+        "id: f\nname: f\ninput:\n  x: float\nnodes:\n"
+        "  score:\n    kind: code\n    input:\n      x: ${input.x}\n"
+        "    output: float\n    code: m:fn\n"
+        "  gate:\n    kind: case\n    cases:\n"
+        f'      - when: "{when}"\n        then: hi\n    else: lo\n'
+        '  hi:\n    kind: agent\n    prompt: "hi"\n    output: str\n'
+        '  lo:\n    kind: agent\n    prompt: "lo"\n    output: str\n'
+        "output: ${hi.output | lo.output}\n"
+    )
+    f = parse_file(text)
+    descriptors = parse_nodes(f.nodes)
+    built = {
+        nid: build_leaf_node(desc, {})[1]
+        for nid, desc in descriptors.items()
+        if isinstance(desc, (AgentDescriptor, CodeDescriptor))
+    }
+    edges = infer_data_edges(descriptors, built)
+    assert any(e.from_ == "score" and e.to == "gate" for e in edges)
 
 
 def test_no_end_edges_for_case_seed():

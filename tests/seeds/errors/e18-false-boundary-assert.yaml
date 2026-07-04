@@ -12,5 +12,5 @@ nodes:
     output: int
     code: tests.seeds.fns:const_one
 asserts:
-  - "${input.window} > 0"      # false when window <= 0
+  - "input.window > 0"      # false when window <= 0
 output: ${calc.output}

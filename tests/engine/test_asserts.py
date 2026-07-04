@@ -83,6 +83,76 @@ def test_seed18_output_assert_classifies_post_terminal():
 
 
 # --------------------------------------------------------------------------- #
+# the three condition spellings load + classify identically (Class A unification)
+#
+# A condition value can be written three ways that evaluate identically at runtime:
+#   bare        `a > 5`      — no braces
+#   mixed       `${a} > 5`   — braces on the ref leaf, operator outside
+#   whole-span  `${a > 5}`   — braces around the whole expression
+# `classify_asserts` extracts refs by PARSING the whole value (via `condition_refs`),
+# so all three must validate refs the same way and land in the same split. (The old
+# flat-regex extractor read a whole-span interior as one bogus path -> spurious
+# LoadError, and saw no refs in a bare form -> missed validation.)
+# --------------------------------------------------------------------------- #
+
+
+def test_three_spellings_of_boundary_assert_all_classify_boundary():
+    # Same inputs-only invariant written bare / mixed / whole-span -> all boundary,
+    # all validated (a dangling ref in any spelling would raise below).
+    for spelling in (
+        "input.topics != []",        # bare
+        "${input.topics} != []",     # mixed
+        "${input.topics != []}",     # whole-span
+    ):
+        result = classify_asserts(
+            [spelling],
+            flow_inputs={"topics", "as_of"},
+            valid_targets=set(),
+            producers={},
+        )
+        assert result.boundary == [spelling], spelling
+        assert result.post == [], spelling
+
+
+def test_three_spellings_of_output_assert_all_classify_post():
+    view = Shape(
+        seg_type=SegmentType.OBJECT,
+        fields={"confidence": Shape.scalar(SegmentType.NUMBER)},
+        required=frozenset({"confidence"}),
+    )
+    for spelling in (
+        "synth.output.confidence >= 0",        # bare
+        "${synth.output.confidence} >= 0",     # mixed
+        "${synth.output.confidence >= 0}",     # whole-span
+    ):
+        result = classify_asserts(
+            [spelling],
+            flow_inputs={"topic"},
+            valid_targets={"synth"},
+            producers={"synth": view},
+        )
+        assert result.boundary == [], spelling
+        assert result.post == [spelling], spelling
+
+
+def test_dangling_ref_is_loud_in_every_spelling():
+    # The whole-span spelling in particular used to slip past the flat-regex validator
+    # (its interior read as one bogus path); it must now raise like the others.
+    for spelling in (
+        "input.nope != []",
+        "${input.nope} != []",
+        "${input.nope != []}",
+    ):
+        with pytest.raises(LoadError, match="nope"):
+            classify_asserts(
+                [spelling],
+                flow_inputs={"topics"},
+                valid_targets=set(),
+                producers={},
+            )
+
+
+# --------------------------------------------------------------------------- #
 # dangling / bad refs are loud
 # --------------------------------------------------------------------------- #
 

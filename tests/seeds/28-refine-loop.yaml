@@ -48,7 +48,7 @@ nodes:
     input:                                     # the SEED carried record — defines 'a
       draft: ${input.seed}
       score: 0.0
-    until: ${score} >= 0.8                     # post-check predicate over the carried record
+    until: score >= 0.8                        # bare form (canonical); the mixed `${score} >= 0.8` and whole-span `${score >= 0.8}` spellings load and evaluate identically
     max: 5                                     # required runaway guard (LoopMaxExceeded)
 
 output: ${polish.output.draft}                 # the final carried draft

@@ -39,6 +39,23 @@ def test_node_asserts_classify_pre_and_post():
     assert x.pre_asserts == ["${n} >= 0"]         # inputs-only
 
 
+@pytest.mark.parametrize("pre", ["n >= 0", "${n} >= 0", "${n >= 0}"])
+@pytest.mark.parametrize("post", ["output >= 0", "${output} >= 0", "${output >= 0}"])
+def test_node_asserts_classify_same_across_spellings(pre, post):
+    # A node assert's refs are extracted by PARSING the whole value (via condition_refs),
+    # so the bare / mixed / whole-span spellings must classify identically: a `${n}`-only
+    # (input) assert is pre, an `${output}`-reading assert is post.
+    x = load_flow(_flow([post, pre])).compiled.nodes["x"]
+    assert x.post_asserts == [post]
+    assert x.pre_asserts == [pre]
+
+
+@pytest.mark.parametrize("bad", ["nope > 0", "${nope} > 0", "${nope > 0}"])
+def test_reject_unknown_input_ref_in_all_spellings(bad):
+    with pytest.raises(LoadError, match="not a declared input"):
+        load_flow(_flow([bad]))
+
+
 # ---------- rejections (located LoadError) ----------
 
 

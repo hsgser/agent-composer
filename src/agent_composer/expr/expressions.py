@@ -174,6 +174,31 @@ def _parse_condition(expression: str) -> "Tree | Token":
     return parse_expr(text)
 
 
+def condition_refs(expression: str) -> list[str]:
+    """The reference PATHS a condition-field value reads (`when:`/`until:`/`while:`/`asserts:`).
+
+    The condition analog of the template ref-walk ([`expr_refs_of`][agent_composer.expr.template.expr_refs_of])
+    and the prompt ref-walk ([`prompt_refs`][agent_composer.expr.template.prompt_refs]): parse the
+    WHOLE value as ONE expression (via `_parse_condition`, honouring all three spellings — bare
+    `a > 5`, mixed `${a} > 5`, whole `${a > 5}`) and collect its reference leaves via the shared
+    [`expr_refs`][agent_composer.expr.expressions.expr_refs]. Every compile-time consumer of a
+    condition's refs (flow/node `asserts:`, a loop `while:`/`until:` predicate, a searched `case`
+    `when:`) routes here, so the three spellings extract IDENTICALLY — unlike a flat `${...}` regex,
+    which reads a whole-span as one bogus path and a bare form as no refs at all.
+
+    Args:
+        expression (`str`): the condition source — any expression the grammar accepts, any spelling.
+
+    Returns:
+        `list[str]`: the reference paths (dotted, `#`/`/` preserved) in source order, NOT deduped.
+
+    Raises:
+        `ExpressionError`: on a malformed condition (the caller frames it as a located load error).
+    """
+    return expr_refs(_parse_condition(expression))
+
+
+
 def _evaluate(expression: str, resolve: Callable[[str], Any]) -> bool:
     """Parse + evaluate a `when:`/`asserts:` expression on the UNIFIED engine, resolving
     each reference via `resolve`; the result is coerced to `bool`.
@@ -656,3 +681,101 @@ def _collect_expr_refs(node: "Tree | Token", refs: list[str]) -> None:
         return
     for child in node.children:
         _collect_expr_refs(child, refs)
+
+
+# --------------------------------------------------------------------------- #
+# rewrite — the position-splicing analog of the ref-walk (rename reference leaves)
+#
+# `expr_refs` COLLECTS reference paths; these functions REWRITE them. The compile-time
+# passes that re-namespace a source (call/loop/map inlining) or rebind refs to node-local
+# params (searched `case`) used to `.sub` a flat `${...}` regex — which mishandles a
+# whole-span `${a > 5}` (rewrites the whole interior as one path) and a bare `a > 5` (no
+# `${}`, no match). Routing them through the ONE parse tree here fixes both: only the
+# reference LEAVES move, every operator / literal / builtin-callee / whitespace stays
+# verbatim (spliced by source position), and all three spellings rewrite identically.
+# --------------------------------------------------------------------------- #
+
+
+def rewrite_expr_refs(text: str, rename: Callable[[str], "str | None"]) -> str:
+    """Rewrite the reference-leaf PATHS of ONE unified `${...}` expression `text`.
+
+    The rewrite analog of [`expr_refs`][agent_composer.expr.expressions.expr_refs]: it walks
+    the SAME parse tree (`refcall` reference / `WRAPPED_REF` / builtin-call args), but instead
+    of collecting each reference path it asks `rename(path)` for a replacement and splices it
+    in by source position. `rename` returns the new dotted path, or `None` to leave that
+    reference untouched. Everything that is NOT a reference leaf — operators, numbers, string
+    and list literals, a builtin CALL's callee name, parentheses, whitespace — is preserved
+    verbatim. A bare `refcall` (`a.b`) is replaced with the bare new path; a `${a}`
+    `WRAPPED_REF` leaf is replaced with the braced `${new}` (its wrapping preserved).
+
+    Args:
+        text (`str`): the expression source (a bare expression, or a span interior).
+        rename (`Callable[[str], str | None]`): `path -> new_path`, or `None` to keep.
+
+    Returns:
+        `str`: `text` with the renamed reference leaves spliced in.
+
+    Raises:
+        `ExpressionError`: if `text` does not parse (same front end as `parse_expr`).
+    """
+    from agent_composer.expr.grammar import parse_expr
+
+    tree = parse_expr(text)
+    edits: list[tuple[int, int, str]] = []
+    _collect_ref_edits(tree, rename, edits)
+    # Splice right-to-left so earlier offsets stay valid as later ones are replaced.
+    for start, end, replacement in sorted(edits, key=lambda e: e[0], reverse=True):
+        text = text[:start] + replacement + text[end:]
+    return text
+
+
+def _collect_ref_edits(
+    node: "Tree | Token",
+    rename: Callable[[str], "str | None"],
+    edits: "list[tuple[int, int, str]]",
+) -> None:
+    """Walk `node` collecting `(start, end, replacement)` splices for each renamed
+    reference leaf. KEEP IN SYNC with `_collect_expr_refs` — same refcall/WRAPPED_REF/
+    builtin-arg decomposition, but capturing token source positions to edit in place."""
+    if isinstance(node, Token):
+        if node.type == "WRAPPED_REF":
+            new = rename(str(node)[2:-1])
+            if new is not None:
+                edits.append((node.start_pos, node.end_pos, "${" + new + "}"))
+        return
+    if node.data == "refcall":
+        children = node.children
+        call_suffix = next(
+            (c for c in children if isinstance(c, Tree) and c.data == "call_suffix"), None
+        )
+        if call_suffix is None:  # a reference: leading NAME + each trailer's NAME
+            segments = [str(c.children[0]) for c in children[1:]]
+            path = ".".join([str(children[0]), *segments])
+            new = rename(path)
+            if new is not None:
+                start = children[0].start_pos
+                last = children[-1]  # the last trailer Tree, or the leading NAME token itself
+                end = last.children[0].end_pos if isinstance(last, Tree) else last.end_pos
+                edits.append((start, end, new))
+            return
+        # a builtin call: the callee is NOT a reference; rewrite each arg VALUE only.
+        for arg in call_suffix.children:
+            _collect_ref_edits(arg.children[-1], rename, edits)
+        return
+    for child in node.children:
+        _collect_ref_edits(child, rename, edits)
+
+
+def rewrite_condition_refs(expression: str, rename: Callable[[str], "str | None"]) -> str:
+    """Rewrite the reference leaves of a condition-field value (`when:`/`until:`/`while:`/
+    `asserts:`/searched-`case` `when:`), honouring all three spellings.
+
+    The rewrite analog of [`condition_refs`][agent_composer.expr.expressions.condition_refs]:
+    a whole-span `${a > 5}` keeps its outer braces and rewrites the interior; a mixed
+    `${a} > 5` / bare `a > 5` are rewritten in place. `rename(path)` returns the replacement
+    path (or `None` to keep). The value is trimmed first (matching `_parse_condition`)."""
+    text = expression.strip()
+    m = _WHOLE_SPAN_RE.match(text)
+    if m is not None and "}" not in m.group(1):
+        return "${" + rewrite_expr_refs(m.group(1), rename) + "}"
+    return rewrite_expr_refs(text, rename)

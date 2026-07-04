@@ -21,19 +21,12 @@ Imports flow DOWN only: `compile.validation` (the leaf `_classify_path`), `expr`
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from agent_composer.compile.validation import _classify_path
-from agent_composer.expr.expressions import ExpressionError
-from agent_composer.expr.grammar import parse_expr
+from agent_composer.expr.expressions import ExpressionError, condition_refs
 from agent_composer.state.segments import Shape
 from agent_composer.compose.errors import LoadError
-
-# Every `${...}` span in an assert is a plain reference path (the boolean grammar's REF
-# token) — no coalesce / `:-` / `:?` (that grammar is binding-only). So a flat regex scan
-# is the right extraction here (mirrors how compile.validation scans a `when:`/prompt).
-_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 
 
 @dataclass(frozen=True)
@@ -74,18 +67,20 @@ def classify_asserts(
     producer_shapes = {nid: sh for nid, sh in producers.items() if sh is not None}
 
     for expr in assert_list:
-        # 1. parse-check the boolean expression (a bad `when:`/`asserts:` string is loud).
+        # 1. parse-check + collect refs on the ONE unified condition walk. `condition_refs`
+        # parses the WHOLE value as an expression (all three brace spellings) and returns its
+        # reference leaves — so a whole-span `${a <= 10}` and a bare `a <= 10` extract the same
+        # refs a mixed `${a} <= 10` does (a flat `${...}` regex could not).
         try:
-            parse_expr(expr)
+            refs = condition_refs(expr)
         except ExpressionError as exc:
             raise LoadError(
                 f"assert {expr!r} is not a valid boolean expression: {exc}"
             ) from exc
 
-        # 2. validate each ${...} ref + 3. detect any outputs-head ref (-> post-terminal).
+        # 2. validate each ref + 3. detect any outputs-head ref (-> post-terminal).
         is_post = False
-        for ref in _VAR_RE.findall(expr):
-            path = ref.strip()
+        for path in refs:
             err = _classify_path(path, valid_targets, flow_inputs, (), producer_shapes)
             if err is not None:
                 raise LoadError(f"assert {expr!r}: {err}")

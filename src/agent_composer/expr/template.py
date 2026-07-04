@@ -47,6 +47,7 @@ from agent_composer.expr.expressions import (
     _parse_literal,
     eval_expr,
     expr_refs,
+    rewrite_expr_refs,
 )
 
 if TYPE_CHECKING:  # `Tree`/`Token` appear ONLY in the `Span.tree` annotation
@@ -292,6 +293,42 @@ def expr_refs_of(source: str) -> list[str]:
             that already frame parse errors keep their `except ExpressionError` handling.
     """
     return template_refs(scan_template(source))
+
+
+def rewrite_template_refs(source: str, rename: Callable[[str], "str | None"]) -> str:
+    """Rewrite the reference leaves across ALL `${...}` spans of a binding/template value.
+
+    The rewrite analog of [`expr_refs_of`][agent_composer.expr.template.expr_refs_of]: scan
+    `source` for its `${...}` spans (brace/quote aware, `$$` escapes preserved verbatim) and
+    rewrite each span's interior via
+    [`rewrite_expr_refs`][agent_composer.expr.expressions.rewrite_expr_refs] — so a whole-span
+    `${x.output}`, an embedded `"pre ${a} post"`, and a nested `${x :- ${y}}` are all handled
+    uniformly. `rename(path)` returns the replacement path (or `None` to keep). Literal text
+    between spans is preserved exactly (unlike `scan_template`, which collapses `$$` -> `$`,
+    this rewriter re-emits `$$` and every literal char verbatim, since it produces SOURCE).
+
+    A value with no `${` (or a non-string) is returned unchanged. An unbalanced `${` leaves
+    the trailing text as-is (the downstream binding parser reports it, located)."""
+    if not isinstance(source, str) or "${" not in source:
+        return source
+    out: list[str] = []
+    i, n = 0, len(source)
+    while i < n:
+        c = source[i]
+        if c == "$" and source[i + 1 : i + 2] == "$":
+            out.append("$$")  # a literal `$` — never a span start; kept verbatim
+            i += 2
+        elif c == "$" and source[i + 1 : i + 2] == "{":
+            end = _find_span_end(source, i + 2)
+            if end is None:  # unbalanced ${ — leave the rest for the binding parser
+                out.append(source[i:])
+                break
+            out.append("${" + rewrite_expr_refs(source[i + 2 : end], rename) + "}")
+            i = end + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def binding_co_skips(source: Any) -> bool:

@@ -17,7 +17,6 @@ CASE desugar, REF/MAP build happen elsewhere — only leaf kinds here.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional
 
@@ -26,6 +25,7 @@ from agent_composer.compile.validation import shapes_compatible
 from agent_composer.expr import (
     ExpressionError,
     binding_co_skips,
+    condition_refs,
     expr_refs_of,
 )
 from agent_composer.expr.template import prompt_refs
@@ -320,6 +320,31 @@ def _binding_producers(value: Any) -> list[str]:
     return producers
 
 
+def _condition_producers(value: Any) -> list[str]:
+    """The producer node ids a CONDITION expression reads (in source order).
+
+    A `case` `when:`/`on:` is a whole boolean/value expression, not a template — it is
+    written in any of the three condition spellings (bare `a.output > 5`, mixed
+    `${a.output} > 5`, whole-span `${a.output > 5}`), so refs are extracted via
+    `condition_refs` (which parses the whole expression) rather than `expr_refs_of`
+    (which only sees `${...}` spans and would miss the bare spelling). `system.X`
+    produces nothing; an `input.X` ref produces from START_ID.
+    """
+    if not isinstance(value, str):
+        return []
+    try:
+        refs = condition_refs(value)
+    except ExpressionError:
+        return []  # malformed refs surface in the ref-wiring pass, located
+    producers: list[str] = []
+    for ref in refs:
+        producer = _ref_producer(ref)
+        if producer is not None:
+            producers.append(producer)
+    return producers
+
+
+
 def infer_data_edges(
     descriptors: dict[str, NodeDescriptor],
     flow_wiring: dict[str, dict[str, Any]],
@@ -370,7 +395,7 @@ def infer_data_edges(
             sources = [desc.on] if desc.on is not None else []
             sources += [c.get("when") for c in desc.cases]
             for src in sources:
-                for producer in _binding_producers(src):
+                for producer in _condition_producers(src):
                     # provisional case edges (reconciliation drops them); optional
                     # is recomputed there from the desugared __rN/__on binding.
                     emit(producer, node_id, f"{node_id}:{ref_index}", False)
@@ -854,7 +879,16 @@ def build_loop_node(desc: LoopDescriptor, resolver: ChildResolver) -> tuple[Node
     predicate_src = desc.while_ or desc.until_
     if predicate_src:
         pred_kw = "while" if desc.while_ else "until"
-        heads = {m.split(".", 1)[0].strip() for m in re.findall(r"\$\{([^}]+)\}", predicate_src)}
+        # The unified condition ref-walk: works for any spelling (bare `score >= 0.8`,
+        # mixed `${score} >= 0.8`, whole `${score >= 0.8}`), unlike a flat `${...}` regex
+        # which read a whole-span predicate as one bogus head and a bare one as no heads.
+        try:
+            heads = {r.split(".", 1)[0] for r in condition_refs(predicate_src)}
+        except ExpressionError as exc:
+            errors.append(
+                f"loop node {desc.id!r}: `{pred_kw}:` is not a valid boolean expression: {exc}"
+            )
+            heads = set()
         unknown = sorted(heads - carried)
         if unknown:
             errors.append(

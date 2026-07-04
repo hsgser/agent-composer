@@ -9,9 +9,10 @@
 #   - DEF    asserts: a `defs:` callable's top-level `asserts:` — enforced at the REF/MAP
 #            child seam (boundary before the child runs, post after it terminates).
 #   - NODE   asserts: a node's `asserts:` — the per-node contract; node-LOCAL refs only:
-#            bare `${name}` = a declared input (PRE, before _run), `${output}`/`${output.field}`
+#            bare `name` = a declared input (PRE, before _run), `output`/`output.field`
 #            = the node's own output (POST, after _run). Not on a `case` or a mapped `call`;
-#            no inline `${call}` inside (those are flow-level).
+#            no inline `${call}` inside (those are flow-level). Conditions use the bare
+#            spelling — `a > 5`, no `${}` — the canonical form.
 
 id: asserts-scopes
 name: asserts_scopes
@@ -39,8 +40,8 @@ defs:
         output: float
     output: ${raw.output}
     asserts:
-      - "${input.window} >= 5"                       # child BOUNDARY — before the child runs
-      - "${raw.output} >= -1 and ${raw.output} <= 1"  # child POST — after the child terminates
+      - "input.window >= 5"                       # child BOUNDARY — before the child runs
+      - "raw.output >= -1 and raw.output <= 1"  # child POST — after the child terminates
 
 nodes:
   # A `call` to the def. Its OWN `asserts:` are NODE-scope (this call node's contract);
@@ -52,8 +53,8 @@ nodes:
       topic: ${input.topic}
       window: ${input.window}
     asserts:
-      - "${window} >= 5"     # NODE PRE  — bare ${name} = this node's declared input, before _run
-      - "${output} >= -1"      # NODE POST — ${output} = the call's re-exported value, after _run
+      - "window >= 5"     # NODE PRE  — bare `name` = this node's declared input, before _run
+      - "output >= -1"      # NODE POST — `output` = the call's re-exported value, after _run
 
   # A named call whose .output a flow-level assert reads — the hoisted form of what used
   # to be a span-wrapped inline ${call} in the asserts section.
@@ -68,7 +69,7 @@ nodes:
   size:
     kind: case
     cases:
-      - when: "${score.output} > 0 and ${input.weight} * 100 <= 5"
+      - when: "score.output > 0 and input.weight * 100 <= 5"
         then: take
     else: skip
 
@@ -80,7 +81,7 @@ nodes:
     output: str
     prompt: "Write a two-sentence rationale for buying ${topic} (rating ${rating}). No advice."
     asserts:
-      - "${output} != \"\""    # NODE POST — the rationale must be non-empty
+      - "output != \"\""    # NODE POST — the rationale must be non-empty
 
   skip:
     kind: agent
@@ -94,9 +95,9 @@ output:
 
 asserts:
   # FLOW boundary — only ${inputs}/${system}; checked BEFORE any node (fail-fast).
-  - "${input.window} >= 5 and ${input.window} <= 252"
-  - "${input.weight} >= 0 and ${input.weight} <= 1"
-  # FLOW post — reads ${<node>.output} (a node's output); checked AFTER the terminal.
-  - "${score.output} >= -1 and ${score.output} <= 1"
+  - "input.window >= 5 and input.window <= 252"
+  - "input.weight >= 0 and input.weight <= 1"
+  # FLOW post — reads <node>.output (a node's output); checked AFTER the terminal.
+  - "score.output >= -1 and score.output <= 1"
   # FLOW post — reads a named call node's .output (the hoisted inline-call form).
-  - "${score_one_call.output} >= -1"
+  - "score_one_call.output >= -1"

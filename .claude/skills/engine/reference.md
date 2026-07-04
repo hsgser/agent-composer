@@ -159,10 +159,16 @@ node; a coalesce-of-calls (`${a() | b()}`) is likewise rejected. Pure builtins
 (`${upper(x)}`) stay legal inside `${}`.
 
 **Raw-string public API** (what callers outside `expr` use, re-exported from the
-package `__init__`): `eval_binding` (render a binding), `expr_refs_of` (its
+`expr` package `__init__`): `eval_binding` (render a binding), `expr_refs_of` (its
 reference paths), `evaluate_when` (a condition), plus `render_template_record` /
-`prompt_refs` for prompts. Callers pass source strings + a resolver; they never
-touch the grammar or AST.
+`prompt_refs` for prompts. Two families back the reference walkers. Extraction:
+`expr_refs_of` reads only `${...}` spans (bindings, templates, prompts), while
+`condition_refs` parses a WHOLE expression (a `when:`/`on:`/loop predicate/assert
+written bare, mixed, or whole-span) so the bare spelling's refs are seen — using
+the template walker on a bare condition finds nothing. Rewriting (spelling-
+preserving, for the `case` desugar): `rewrite_expr_refs` / `rewrite_template_refs`
+(span walkers) and `rewrite_condition_refs` (whole-expression). Callers pass
+source strings + a resolver; they never touch the grammar or AST.
 
 ## Located errors (precise source lines)
 
