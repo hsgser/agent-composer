@@ -15,6 +15,15 @@ This backlog is split four ways:
 
 ## Engine
 
+- [x] ~~**Kind-agnostic refactor — Phase P0: safety net & kind-dispatch census.** Added
+  `tests/engine/test_kind_census.py`, a self-calibrating ast ratchet counting kind-dispatch sites in
+  the engine core (`runtime/engine.py` + `runtime/eval_node.py`): a distinct line referencing a
+  `NodeKind` member, `_SPAWNER_KINDS`, or `isinstance(_, *Expansion)`. Baseline = 22 (17 engine + 5
+  eval_node); imports and diagnostic `.kind.value` reads excluded. Each later phase lowers the ceiling;
+  P8 drives it to 0. Confirmed the four at-risk behaviors (skip-flood disposition, spawner fan-in,
+  loop prune bound, suspend/resume commit re-pointing) are already covered — no new production code.~~
+  -- 7ee49d2 (branch `dev/engine/kind-census`)
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and
