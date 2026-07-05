@@ -732,8 +732,8 @@ class FlowEngine:
         REBUILDS `self.expansions` by REUSING each deserialized record — a top-level record
         (`is_top_level`) is appended here; a nested one is ALREADY attached under its parent's
         `children` by deserialization, so the fold only walks it. `_apply_grow` is called with
-        `record=rec` so it does NOT re-append (this top-level append owns the ledger); the residual
-        stamps `_spawner_expansion` at THESE SAME objects, so a later in-place `children.append` (an
+        `record=rec` so it does NOT re-append (this top-level append owns the ledger); the stamping
+        step stamps `_spawner_expansion` at THESE SAME objects, so a later in-place `children.append` (an
         AGENT re-pause / a LOOP next iteration after a durable hop) grows a record that IS in the
         ledger."""
         for rec in records:
@@ -771,11 +771,11 @@ class FlowEngine:
         # Mint the one GrowRecord for this grow (live), OR reuse the deserialized one on replay.
         rec = record if record is not None else GrowRecord(
             spawner_id=spawner_id, seed=grow.seed, children=[])
-        # Ledger parent captured BEFORE the residual: the AGENT/CALL residual self-stamps
-        # `_spawner_expansion[spawner_id]`, which would otherwise shadow the ENCLOSING spawner's
-        # record and make `rec` look like its own parent. A nested grow (its spawner is stamped at
-        # the enclosing record) rides under that record's `children`; a top-level grow is a
-        # `self.expansions` root. On replay (`record is not None`) the record is already attached
+        # Ledger parent captured BEFORE the stamping step: a self-restamping spawner (AGENT)
+        # stamps `_spawner_expansion[spawner_id]`, which would otherwise shadow the ENCLOSING
+        # spawner's record and make `rec` look like its own parent. A nested grow (its spawner is
+        # stamped at the enclosing record) rides under that record's `children`; a top-level grow is
+        # a `self.expansions` root. On replay (`record is not None`) the record is already attached
         # (top-level by `_replay_expansions`, nested by deserialization), so this is skipped.
         parent = self._spawner_expansion.get(spawner_id) if record is None else None
         # Eager boundary asserts (live path only): a subflow spawner's child BOUNDARY asserts are
@@ -787,8 +787,8 @@ class FlowEngine:
             self._check_boundary_asserts(spawner_id, grow.seed)
         # REF-depth stamping (kind-blind, driven by the `grow_depth_delta` trait): stamp the derived
         # depth on every spawner in the spliced subgraph AND its terminal(s), and bound a positive
-        # delta by MAX_REF_DEPTH. A None delta (LOOP, non-REF) is a no-op. Runs before the residual
-        # so a depth-budget raise leaves no ledger attach.
+        # delta by MAX_REF_DEPTH. A None delta (LOOP, non-REF) is a no-op. Runs before the ledger
+        # attach so a depth-budget raise leaves no orphan record.
         self._stamp_grow_depth(spawner_id, grow, schedule=schedule)
         # `_spawner_expansion` stamping (kind-blind): point every spawner in the spliced subgraph +
         # its derived terminal(s) at THIS record, so a nested grow nests under it and the CALL
@@ -810,12 +810,13 @@ class FlowEngine:
             self._apply_loop_bookkeeping(spawner_id, grow, rec)
         # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
         # has run and expanded, so it finishes executing and enters EXPANDED. Idempotent for a loop
-        # whose repeated iteration grows re-mark the same spawner; runs on replay too (all four
-        # legacy arms did it unconditionally). Placed AFTER the residual so a boundary-assert /
-        # budget raise in the residual leaves the spawner un-finished for the located failure.
+        # whose repeated iteration grows re-mark the same spawner; runs on replay too (the legacy
+        # arms did it unconditionally). Placed AFTER the boundary/budget stamping steps so a
+        # boundary-assert / depth-budget raise above leaves the spawner un-finished for the located
+        # failure.
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-        # Attach AFTER the residual (attach-after-grow): a residual boundary-assert/budget raise on
+        # Attach AFTER the stamping steps (attach-after-grow): a boundary-assert/budget raise above on
         # the live path leaves NO orphan record in the ledger.
         if record is None:
             if isinstance(parent, GrowRecord):
