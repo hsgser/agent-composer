@@ -39,3 +39,12 @@ def test_loopnode_run_commits_seed_when_while_predicate_false():
     assert isinstance(result, Output)
     assert result.value == seed
     assert result.commit_as == "chat_loop"
+
+
+def test_should_stop_is_the_max_iters_budget():
+    node = LoopNode("l", flow_id="f", child=object(),
+        predicate_kind="while", predicate="${x}", max_iters=3)
+    assert node.should_stop(0) is False
+    assert node.should_stop(2) is False
+    assert node.should_stop(3) is True   # index == budget -> stop
+    assert node.should_stop(4) is True

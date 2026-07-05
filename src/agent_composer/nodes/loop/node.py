@@ -75,6 +75,15 @@ class LoopNode(Node):
             return Output(seed, commit_as=self.id)  # 0 body runs: commit the seed unchanged
         return Grow(loop_iteration_subgraph(self.child, self.id, seed, 0), seed=(seed, 0))
 
+    def should_stop(self, iteration: int) -> bool:
+        """The loop's hard iteration budget: True once `iteration` has reached `max_iters`.
+
+        Pure, node-owned budget policy (`iteration >= self.max_iters`). The engine's loop driver
+        consults this both as the `times` stop-count and as the `while`/`until` runaway guard; the
+        driver decides the CONSEQUENCE (a normal terminate for `times`, a located `LoopMaxExceeded`
+        failure for `while`/`until`)."""
+        return iteration >= self.max_iters
+
     def replay_grow(self, seed: Any):
         """Durable-replay inverse of one iteration's `Grow`: rebuild the LIVE iteration's body
         subgraph from the persisted `(record, index)` seed via the SAME `loop_iteration_subgraph`
