@@ -110,6 +110,23 @@ This backlog is split four ways:
   -- be4ee8e..61fef2f (branch `dev/engine/caps-llm`)
 
 
+- [x] ~~**Kind-agnostic refactor — Phase P8: final sweep & invariant lock-in.** Closing phase of the
+  refactor. Locked in the invariant: the kind-dispatch census (`test_kind_census.py`) `BASELINE` is
+  **0** and the engine core (`runtime/engine.py` + `runtime/eval_node.py`) contains **zero**
+  `NodeKind` references (not even an import) — the engine dispatches only on the abstract node contract
+  + the closed `Outcome` sum (`Output | Route | Pause | Grow`). Reconciled the docs/skills that still
+  taught the retired `Enqueue` contract: the `engine` skill's `node_kind` template + `WIRING.md` now
+  teach the four-arm `Outcome` and the `run(inputs, **caps)` signature; `docs/engine.md` +
+  `docs/nodes.md` gained the `needs_llm` trait rows. Ticked the subflow-rewrite backlog items realized
+  across the refactor (engine no longer owns MAP fan-in → `6abcc91`; per-kind `_apply_enqueue`
+  collapsed to one generic splice → `5d2f5e2..101e595`; four-arm `Outcome` contract → `bd20557..101e595`;
+  `on_failure` hook → `bd20557`). Doc/backlog-only phase (no production code); full engine suite green
+  (1421), seed smoke green (89). Left OPEN by design: the loop-policy items (`_loop_step` still engine-
+  side) and the `depth` REF-budget rider (still kind-shaped in the residuals) — neither blocks the
+  census-0 invariant.~~
+  -- 59ec997 (branch `dev/engine/p8-final-sweep`)
+
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and

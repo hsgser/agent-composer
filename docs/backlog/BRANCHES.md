@@ -22,4 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/engine/p8-final-sweep` | `main` | Kind-agnostic refactor P8: final sweep, doc/template reconciliation, backlog close-out | 2026-07-05 |
