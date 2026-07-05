@@ -268,6 +268,25 @@ def map_subgraph(child, spawner_id: str, records: list) -> Subgraph:
     return Subgraph(nodes=nodes, edges=edges, wiring=wiring, roots=roots)
 
 
+def loop_iteration_subgraph(child, spawner_id: str, record: dict, iteration: int) -> Subgraph:
+    """The pure LOOP builder: ONE loop iteration's body fragment.
+
+    Wraps `clone_child` (the deep-namespaced clone of the child's `START_ID..END_ID` at the
+    per-iteration callsite `map_callsite(spawner_id, iteration)` == `f"{spawner}#{iteration}"`,
+    mirroring MAP's `#i`, seeded with `record`), bakes `commit_as=spawner_id` on the cloned body END
+    filler, and returns a `Subgraph` (the self-describing fragment ONE loop iteration grows into).
+
+    Unlike `call_subgraph`/`map_subgraph`, the baked `commit_as=spawner_id` does NOT route the
+    filler's Output to the generic commit-and-advance: the engine's `_on_success` recognizes
+    `target in self.loop_desc` and hands it to `_loop_step` (the predicate re-clone/commit decision)
+    instead. The filler id (`clone_child`'s `out_node_id`) is kept only as a LOCAL — it is derivable
+    from the subgraph as `ns(callsite, END_ID)` and is NOT a `Subgraph` field. `roots` is the
+    namespaced body START (the sole seed point)."""
+    cloned = clone_child(child, callsite=map_callsite(spawner_id, iteration), record=record)
+    cloned.nodes[cloned.out_node_id].commit_as = spawner_id   # body-END filler routes to _loop_step
+    return Subgraph(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring, roots=cloned.roots)
+
+
 
 # --------------------------------------------------------------------------- #
 # clone_continuation_pair — the agent-pause continuation cloner

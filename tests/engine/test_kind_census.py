@@ -53,7 +53,7 @@ CORE_MODULES = {
 # the three-branch `isinstance(parent_desc, AgentExpansion)` ledger + the BOTH-id spawner-eligible
 # `_SPAWNER_KINDS` stamp. The residuals + the legacy arms are all deleted in the final sub-phase,
 # which drops the ceiling below 20.)
-BASELINE = 26
+BASELINE = 27
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

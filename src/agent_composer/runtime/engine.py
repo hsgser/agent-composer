@@ -47,7 +47,13 @@ from agent_composer.events import (
     NodeSucceeded,
     PauseRequested,
 )
-from agent_composer.compile.expand import clone_child, clone_continuation_pair, map_callsite, ns
+from agent_composer.compile.expand import (
+    clone_child,
+    clone_continuation_pair,
+    loop_iteration_subgraph,
+    map_callsite,
+    ns,
+)
 from agent_composer.compile.model import END_ID, START_ID, CompiledFlow, Edge, NodeState
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.base import Grow, NodeKind
@@ -936,8 +942,11 @@ class FlowEngine:
                     locator=SourceSpan(node=spawner_id, kind="field", key="max"),
                 )
             try:
-                self._grow_loop(
-                    spawner_id, loop.child, next_record, nxt, self.loop_desc[spawner_id])
+                self._apply_grow(
+                    spawner_id,
+                    Grow(loop_iteration_subgraph(loop.child, spawner_id, next_record, nxt),
+                         seed=(next_record, nxt)),
+                )
             except NodeExecutionError:
                 raise
             except Exception as exc:  # noqa: BLE001 — boundary: any grow error -> RunFailed
@@ -1082,6 +1091,8 @@ class FlowEngine:
             self._grow_map_residual(spawner_id, grow)
         elif spawner.kind == NodeKind.AGENT:
             self._grow_agent_residual(spawner_id, grow)
+        elif spawner.kind == NodeKind.LOOP:
+            self._grow_loop_residual(spawner_id, grow)
 
     def _grow_call_residual(self, spawner_id, grow):
         """CALL residual — reproduces `_grow_call` + the `_apply_enqueue` CALL arm's per-kind policy
@@ -1280,6 +1291,32 @@ class FlowEngine:
         # INVARIANT: the resume filler carries the PARENT depth UNCHANGED (no `+1`).
         self.depth[out_id] = self.depth.get(spawner_id, 0)
 
+    def _grow_loop_residual(self, spawner_id, grow):
+        """LOOP residual — the per-iteration bookkeeping `_grow_loop` does beyond the generic
+        splice/schedule (the generic `_apply_grow` already spliced+registered+budget-checked+
+        scheduled the body roots). Reproduces EXACTLY, and ONLY, `_grow_loop`'s `loop_iter`
+        stamp + per-iteration seed recording on the `LoopExpansion`.
+
+        NO depth stamp, NO MAX_REF_DEPTH (a loop is not REF recursion — it is bounded by
+        `max_iters` + MAX_TOTAL_NODES). NO finish/mark: the turn-0 arm finishes+marks the spawner
+        ONCE and every re-grow keeps it EXPANDED, so the residual must NOT re-mark it (matches
+        `_grow_loop`, which deliberately never marks). NO `_spawner_expansion`/depth stamps on cloned
+        subnodes — slice-1 loop bodies are leaf-only (`_grow_loop` stamps none). The
+        `commit_as=spawner_id` bake now lives in the builder (`loop_iteration_subgraph`), so the
+        residual does NOT re-bake it."""
+        record, iteration = grow.seed
+        self.loop_iter[spawner_id] = iteration
+        # `loop_desc` is set by the turn-0 arm (and replay) BEFORE the grow, so it is available here;
+        # it is the ledger `_loop_step` reads. Record this iteration's seed on it (one slot per
+        # iteration grown). `children_per_iter` stays parallel to `records` (slice-1 bodies are
+        # leaf-only so every slot stays [], but the slot is the durable-checkpoint shape a future
+        # nested-spawner body needs — kept in lockstep now so durable replay needs no migration).
+        desc = self.loop_desc[spawner_id]
+        # TRANSITIONAL (P3.5): keep the per-iteration seed slot in lockstep (one slot per iteration).
+        while len(desc.records) <= iteration:
+            desc.records.append(dict(record))
+            desc.children_per_iter.append([])
+
     def _apply_enqueue(self, spawner_id: str, enqueues: list) -> None:
         """Grow the live graph from a spawner's Enqueue(s) (the dispatcher's sole-writer
         expansion). A guarded `if/elif/else` ladder so each arm (CALL, MAP, AGENT)
@@ -1357,7 +1394,11 @@ class FlowEngine:
                 spawner.predicate, seed
             )
             if grow:
-                self._grow_loop(spawner_id, enqueues[0].target, seed, 0, desc)
+                self._apply_grow(
+                    spawner_id,
+                    Grow(loop_iteration_subgraph(enqueues[0].target, spawner_id, seed, 0),
+                         seed=(seed, 0)),
+                )
             else:
                 # 0 body runs: commit the seed as the final carried record, advance out-edges.
                 try:
