@@ -67,3 +67,41 @@ def test_flow_engine_uses_explicit_llm():
     assert eng.llm is sentinel
 
 
+def test_agent_run_uses_injected_llm_over_default(monkeypatch):
+    """When caps['llm'] is supplied, the AGENT node builds its model from the cap and NEVER
+    calls the package `model_from_config`."""
+    import pytest
+    from langchain_core.messages import AIMessage
+    import agent_composer.llm_clients as llm_mod
+    from agent_composer.llm_clients import LLMConfig
+
+    # If the cap were ignored, the node would fall back to the (monkeypatched) package factory.
+    monkeypatch.setattr(
+        llm_mod, "model_from_config",
+        lambda cfg: pytest.fail("used default package factory, not caps['llm']"),
+    )
+
+    class _FakeChat:
+        def __init__(self, reply):
+            self._reply = reply
+            self.calls = 0
+
+        def bind_tools(self, tools):
+            return self
+
+        def invoke(self, messages):
+            self.calls += 1
+            return self._reply
+
+    chat = _FakeChat(AIMessage(content="cap answer"))
+    built = {}
+    cap = lambda cfg: built.setdefault("chat", chat)
+
+    node = AgentNode("a", prompt="hi", llm_config=LLMConfig(), mode="plain")
+    term = list(eval_node(node, None, TypedVariablePool(), llm=cap))[-1]
+    assert term.output == "cap answer"
+    assert built["chat"] is chat
+    assert chat.calls == 1
+
+
+

@@ -27,10 +27,11 @@ typed arrows — `declared_inputs -> NodeResult` vs `answer -> NodeResult` — s
 distinction is an internal variant matched in `run`, NOT a second `NodeKind` (one closed
 `kind = AGENT`).
 
-The node builds its own model (`model_from_config`) and hands the mode the prompt
-rendered against its **declared inputs** (strict AGENT — the prompt sees
+The node builds its chat model from the engine-injected `caps['llm']` provider (a
+`model_from_config`-shaped factory the engine owns; gated by the `needs_llm` trait) and hands
+the mode the prompt rendered against its **declared inputs** (strict AGENT — the prompt sees
 only `${name}` bound inputs, not the pool), the tools/controls, and the model. The engine
-imports an LLM SDK here by design — the old "engine imports no LLM SDK" rule was dropped;
+imports an LLM SDK by design — the old "engine imports no LLM SDK" rule was dropped;
 a mode talks to langchain directly.
 """
 
@@ -80,8 +81,9 @@ class AgentNode(Node):
 
     A `Fresh` entry renders `prompt` against the node's declared inputs and runs the selected
     `mode`'s loop; a `Resume` entry is the delimited continuation of an `ask_user` control pause
-    (see the module docstring for the entry split). The node builds its own chat model from
-    `llm_config` and gives the mode the rendered prompt, tools, and controls.
+    (see the module docstring for the entry split). The node builds its chat model from the
+    engine-injected `caps['llm']` provider (using `llm_config` as the carrier) and gives the mode
+    the rendered prompt, tools, and controls.
 
     Args:
         node_id (`str`):
@@ -174,28 +176,36 @@ class AgentNode(Node):
         the replayed `memo`). The validator + parser read this; `entry` stays the source of truth."""
         return self.entry.prompt if isinstance(self.entry, Fresh) else ""
 
-    def _build_model(self) -> Any:
-        """Resolve this node's `llm_config` to a ready langchain chat model.
-        `llm_config` is a plain dict; `model_from_config` accepts dict|LLMConfig."""
-        from agent_composer.llm_clients import model_from_config
+    def _build_model(self, llm) -> Any:
+        """Build this node's chat model via the injected `llm` provider (caps['llm']),
+        a `model_from_config`-shaped callable. `llm_config` (a plain dict|LLMConfig) is the
+        carrier the provider normalizes."""
+        return llm(self.llm_config if self.llm_config is not None else {})
 
-        return model_from_config(self.llm_config if self.llm_config is not None else {})
-
-    def _ctx(self, prompt: str) -> AgentRunContext:
+    def _ctx(self, prompt: str, llm) -> AgentRunContext:
         """Build the per-run mode context shared by both entry arms. `llm_config` carries
-        forward (config-as-data), so a resumed continuation rebuilds the same model."""
+        forward (config-as-data), so a resumed continuation rebuilds the same model. `llm` is
+        the injected caps['llm'] provider used to construct the chat model."""
         return AgentRunContext(
             node_id=self.id,
             prompt=prompt,
             tools=list(self.tools),
             controls=list(self.controls),
-            model=self._build_model(),
+            model=self._build_model(llm),
             llm_config=self.llm_config,
             output_shape=self.output_shape,
             retries=self.retries,
         )
 
-    def run(self, inputs: dict) -> NodeResult:
+    def run(self, inputs: dict, **caps: Any) -> NodeResult:
+        # caps['llm'] is the engine-owned model factory (the needs_llm gate). Fall back to the
+        # lazy package thunk for a direct node.run(...) with no caps (direct-driver tests). The
+        # import is lazy to avoid an import cycle (runtime.eval_node imports nodes.base).
+        llm = caps.get("llm")
+        if llm is None:
+            from agent_composer.runtime.eval_node import _default_llm
+
+            llm = _default_llm
         # Dispatch on the closed `entry` sum. A mid-loop control pause lowers to a
         # continuation `Grow`; the engine mints the Resume half and the re-entry
         # frame rides as graph data. `llm_config` carries forward.
@@ -214,11 +224,11 @@ class AgentNode(Node):
                     content=str(inputs["answer"]), tool_call_id=self.entry.pending["call_id"]
                 )
             )
-            return agent_step(messages, None, self.entry.iterations, self._ctx(prompt=""))
+            return agent_step(messages, None, self.entry.iterations, self._ctx(prompt="", llm=llm))
         # Fresh: strict AGENT — the prompt interpolates only this node's
         # declared inputs, rendered against the bound record. The selected mode builds the
         # conversation and runs the loop.
-        ctx = self._ctx(prompt=render_template_record(self.entry.prompt, inputs))
+        ctx = self._ctx(prompt=render_template_record(self.entry.prompt, inputs), llm=llm)
         return MODES[self.mode](ctx)
 
     def replay_grow(self, seed: Any):
