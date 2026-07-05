@@ -787,6 +787,12 @@ class FlowEngine:
         # delta by MAX_REF_DEPTH. A None delta (LOOP, non-REF) is a no-op. Runs before the residual
         # so a depth-budget raise leaves no ledger attach.
         self._stamp_grow_depth(spawner_id, grow, schedule=schedule)
+        # `_spawner_expansion` stamping (kind-blind): point every spawner in the spliced subgraph +
+        # its derived terminal(s) at THIS record, so a nested grow nests under it and the CALL
+        # post-assert commit-site recovery finds it. A self-restamping spawner (AGENT) also stamps
+        # its OWN bare id for re-pause idempotency. Runs AFTER `parent` was captured above so the
+        # self-stamp does not shadow the enclosing spawner's record for the ledger attach.
+        self._stamp_spawner_expansion(spawner_id, grow, rec)
         # per-kind residual: stamps, loop retention.
         self._grow_residual(spawner_id, grow, rec, schedule=schedule)
         # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
@@ -806,6 +812,22 @@ class FlowEngine:
         if schedule:
             for root in sg.roots:
                 self._schedule(root)
+
+    def _stamp_spawner_expansion(self, spawner_id, grow, rec) -> None:
+        """Kind-blind `_spawner_expansion` stamping: point every `is_spawner` node in the spliced
+        subgraph AND its derived terminal(s) at `rec`, so a grow nested inside one of them nests its
+        GrowRecord under `rec` and the commit-site post-assert recovery (`_on_success`) finds the
+        seed. A self-restamping spawner (`grow_restamps_self` — AGENT) also stamps its OWN bare id,
+        so an agent that re-pauses at the same spawner id nests the next pause under `rec`."""
+        spawner = self.flow.nodes[spawner_id]
+        sg = grow.subgraph
+        if spawner.grow_restamps_self:
+            self._spawner_expansion[spawner_id] = rec
+        for nid, node in sg.nodes.items():
+            if node.is_spawner:
+                self._spawner_expansion[nid] = rec
+        for term in self._derived_terminals(sg, spawner_id):
+            self._spawner_expansion[term] = rec
 
     def _derived_terminals(self, sg, spawner_id) -> list:
         """The subgraph's terminal filler id(s) — kind-BLIND: the node(s) whose baked
@@ -873,55 +895,10 @@ class FlowEngine:
         residual stamps `_spawner_expansion` at it for nested-grow lookup); `schedule=False` (replay)
         suppresses the eager boundary-assert + MAX_REF_DEPTH budget."""
         spawner = self.flow.nodes[spawner_id]
-        if spawner.kind == NodeKind.CALL:
-            self._grow_call_residual(spawner_id, grow, rec, schedule=schedule)
-        elif spawner.kind == NodeKind.MAP:
-            self._grow_map_residual(spawner_id, grow, rec, schedule=schedule)
-        elif spawner.kind == NodeKind.AGENT:
+        if spawner.kind == NodeKind.AGENT:
             self._grow_agent_residual(spawner_id, grow, rec, schedule=schedule)
         elif spawner.kind == NodeKind.LOOP:
             self._grow_loop_residual(spawner_id, grow, rec, schedule=schedule)
-
-    def _grow_call_residual(self, spawner_id, grow, rec, *, schedule):
-        """CALL residual — the per-kind policy on the live `Grow` path (the generic core already
-        spliced+registered+scheduled and wrote `rec` to the ledger). Preserves, exactly: the eager
-        boundary-assert temp-pool check (suppressed on replay via `schedule=False`); the REF depth
-        stamp (+1 on the cloned spawner-eligible nodes AND the filler) + `MAX_REF_DEPTH` bound (also
-        `schedule`-gated); the one finish/mark-EXPANDED; and the `_spawner_expansion` stamps (cloned
-        spawner-eligible nodes + the filler point at `rec`) that keep nested-grow routing + the
-        `_on_success` CALL post-assert record recovery working.
-
-        The filler id is recovered from the spliced subgraph via the `ns(callsite, END_ID)`
-        convention (callsite == spawner_id), so `Grow`/`Subgraph` need no extra field."""
-        sg = grow.subgraph
-        filler_id = ns(spawner_id, END_ID)          # the cloned child END filler (ns convention)
-
-        # Stamp `_spawner_expansion` at `rec` on the cloned spawner-eligible nodes (a nested
-        # REF/MAP/AGENT nests under THIS record) + on the filler (the CALL post-assert record
-        # recovery keys off it).
-        for nid, node in sg.nodes.items():
-            if node.is_spawner:
-                self._spawner_expansion[nid] = rec
-        self._spawner_expansion[filler_id] = rec
-
-    def _grow_map_residual(self, spawner_id, grow, rec, *, schedule):
-        """MAP residual — the per-kind policy on the live `Grow` path (the generic core already
-        spliced+registered+scheduled the whole fan-in incl. the list-END and wrote `rec`).
-        Preserves, exactly: the per-element eager boundary-assert temp-pool check (suppressed on
-        replay); the REF depth stamp (+1 on the cloned spawner-eligible ELEMENT nodes AND the
-        list-END filler) + `MAX_REF_DEPTH` bound (both `schedule`-gated); the one finish/mark-
-        EXPANDED; and the per-element `_spawner_expansion` stamps (each element node points at `rec`)
-        that keep nested-expansion routing working. A nested grow's element PLACEMENT rides its
-        namespaced spawner_id (`{spawner}#{i}/…`), re-derived on replay — no per-element slot needed.
-
-        The list-END filler id is `ns(spawner_id, END_ID)` (the ns convention)."""
-        sg = grow.subgraph
-
-        # Stamp `_spawner_expansion` (at `rec`) on each cloned spawner-eligible ELEMENT node so a
-        # nested REF/MAP/AGENT nests under THIS record.
-        for nid, node in sg.nodes.items():
-            if node.is_spawner:
-                self._spawner_expansion[nid] = rec
 
     def _grow_agent_residual(self, spawner_id, grow, rec, *, schedule):
         """AGENT residual — the per-kind policy on the live `Grow` path (the generic core already
@@ -939,15 +916,6 @@ class FlowEngine:
         hi_desc = grow.seed["hi_desc"]
         out_id = ns(spawner_id, "__resume#" + hi_desc["slot"])   # the resume terminal (ns convention)
         assert out_id in grow.subgraph.nodes
-
-        # BOTH-id retention (keep-ALL, NO pop): stamp the spawner_id (idempotent for a re-pause) AND
-        # the resume id (the NEXT pause's spawner) at `rec`, so a re-pause's GrowRecord nests under
-        # THIS one. Plus any spawner-eligible cloned subnodes (today none) for parity.
-        self._spawner_expansion[spawner_id] = rec
-        self._spawner_expansion[out_id] = rec
-        for nid, node in grow.subgraph.nodes.items():
-            if node.is_spawner:
-                self._spawner_expansion[nid] = rec
 
         # Origin OVERRIDE of the builder's provisional `commit_as`: re-point the resume terminal so
         # the FINAL non-pausing Output commits under the ORIGINAL spawner id (multi-pause chaining).

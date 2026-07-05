@@ -174,6 +174,12 @@ class Node(ABC):
     #   1     — a nested call, +1 and bounded (CALL/MAP: each child is one deeper level).
     # Overridden by CALL/MAP (1) and AGENT (0); the default None fits LOOP + any non-spawner.
     grow_depth_delta: ClassVar[Optional[int]] = None
+    # Declares "on a grow, also stamp `_spawner_expansion` at MY OWN bare id" (AGENT). An agent
+    # that pauses, resumes, and pauses AGAIN grows twice at the SAME spawner id, so its record must
+    # be findable under its own id for the re-pause to nest under it (re-pause idempotency). Every
+    # other spawner grows at a FRESH namespaced id per instance, so it needs no self-stamp.
+    # Overridden True by AgentNode.
+    grow_restamps_self: ClassVar[bool] = False
 
     def __init__(
         self,

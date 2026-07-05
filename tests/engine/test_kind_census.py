@@ -58,8 +58,11 @@ CORE_MODULES = {
 # dropping the ceiling to 5.
 # P5.3 dropped the `target_node.kind == NodeKind.CALL` conjunct on the commit-site post-assert
 # gate (engine.py) — a redirect-commit post-check is now kind-blind, dropping the ceiling to 4.
-# The 4 that remain are all deleted in P5.4: the `_grow_residual` kind dispatch (4 arms, engine.py).)
-BASELINE = 4
+# P5.4 dismantles the `_grow_residual` 4-arm switch concern by concern (finish/mark, boundary
+# asserts, depth, `_spawner_expansion` stamping, agent commit_as, loop bookkeeping all lifted into
+# the kind-blind growth core behind node traits/hooks). The CALL + MAP arms are fully generic and
+# gone, dropping the ceiling to 2; the AGENT + LOOP arms fall in the final P5.4 commit (-> 0).
+BASELINE = 2
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

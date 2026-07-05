@@ -118,6 +118,7 @@ class AgentNode(Node):
     kind = NodeKind.AGENT
     is_spawner: ClassVar[bool] = True  # grows the graph: a control pause splices a Grow(Subgraph)
     grow_depth_delta: ClassVar[int] = 0  # a K-pause chain is ONE call: carry parent depth, no bound
+    grow_restamps_self: ClassVar[bool] = True  # re-pause nests under this same spawner id (self-stamp)
 
     def __init__(
         self,
