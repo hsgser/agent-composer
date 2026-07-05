@@ -37,7 +37,7 @@ a mode talks to langchain directly.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, ClassVar, Optional, Union
 
 from agent_composer.expr.template import render_template_record
 from agent_composer.nodes.agent.controls import CONTROL_TOOLS
@@ -116,6 +116,7 @@ class AgentNode(Node):
     """
 
     kind = NodeKind.AGENT
+    is_spawner: ClassVar[bool] = True  # grows the graph: a control pause splices a Grow(Subgraph)
 
     def __init__(
         self,

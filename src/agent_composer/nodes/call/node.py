@@ -13,7 +13,7 @@ pre-defaults. `child`/`child_inputs`/`child_asserts` are baked at load by
 coerce+default view for the eager `${input.X}` check).
 """
 
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from agent_composer.nodes.base import Enqueue, Node, NodeKind
 
@@ -48,6 +48,7 @@ class CallNode(Node):
     """
 
     kind = NodeKind.CALL
+    is_spawner: ClassVar[bool] = True  # grows the graph: run() returns a Grow(Subgraph)
 
     def __init__(self, node_id: str, *, flow_id: str, flow_version: Optional[int] = None,
                  child: Any = None, child_inputs: Optional[list] = None, child_asserts: Any = None,

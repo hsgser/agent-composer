@@ -19,7 +19,7 @@ Invariant: a node never writes the pool. It *describes* its one output value as
 
 from abc import ABC, abstractmethod
 from collections.abc import Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Optional, Union
 
@@ -92,8 +92,43 @@ class Enqueue:
     inputs: Any
 
 
+@dataclass(frozen=True)
+class Subgraph:
+    """A self-describing graph fragment a spawner returns for the engine to splice in.
+    A Flow fragment (nodes/edges/wiring) plus `roots` (the entry nodes to schedule). By
+    convention its terminal carries a baked `commit_as=<spawner id>` (see Node.commit_as),
+    so the terminal's Output commits under the spawner on the ordinary success path.
+
+    # TRANSITIONAL: P4/P5 removes `roots` once map/loop synthesize a single real `__start__`
+    # (docs/engine.md:124). Today MAP fans out to N element roots + a 0-incoming list-END, and
+    # the agent continuation's root is the `human_input` leaf — neither is a `__start__` — so the
+    # entry cannot yet be *derived* and must be carried explicitly."""
+
+    nodes: "dict[str, Node]"
+    edges: "list"                     # list[Edge]
+    wiring: "dict[str, dict[str, Any]]"
+    roots: "list[str]"
+
+
+@dataclass(frozen=True)
+class Grow:
+    """A spawner expands into a subgraph. The engine splices `subgraph` generically and
+    (P4) applies `prune`. Fields:
+      - `subgraph`: the Subgraph to splice.
+      - `prune`: ids to retire in the same step (∅ for call/map; a self-respawn loop's finished
+        iteration ids in P4). Defaults to ∅.
+      - `seed`: the PURE BUILDER INPUT the engine persists so a resumed run can rebuild the spliced
+        subgraph without re-running non-deterministic nodes (e.g. an agent's LLM turn). Kind-shaped
+        but OPAQUE to the engine (a call record dict, a map records list, agent segments, a loop
+        (record, index)); it is durability data, NOT a per-kind policy switch."""
+
+    subgraph: Subgraph
+    prune: "frozenset[str]" = field(default_factory=frozenset)
+    seed: Any = None
+
+
 # The closed sum a pure `run(inputs)` returns.
-NodeResult = Union[Output, Route, Pause, Enqueue]
+NodeResult = Union[Output, Route, Pause, Enqueue, Grow]
 
 
 class Node(ABC):
@@ -132,8 +167,8 @@ class Node(ABC):
     """
 
     kind: ClassVar[NodeKind]
-    # Declares "I may grow the graph" (a spawner returns Enqueue/Grow). Overridden True
-    # by the spawner kinds; unused this phase (wired in a later phase).
+    # Declares "I may grow the graph" (a spawner returns Enqueue/Grow). Overridden True by
+    # the spawner kinds (CALL/MAP/AGENT/LOOP); the `eval_node` seam gates the grow path on it.
     is_spawner: ClassVar[bool] = False
 
     def __init__(
@@ -197,6 +232,6 @@ class Node(ABC):
                 event = next(gen)
         except StopIteration as stop:
             result = stop.value
-            if not isinstance(result, (Output, Route, Pause, Enqueue)):
+            if not isinstance(result, (Output, Route, Pause, Enqueue, Grow)):
                 raise RuntimeError(f"node {self.id!r} generator did not return a NodeResult")
             return result

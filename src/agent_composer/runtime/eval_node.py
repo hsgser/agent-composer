@@ -41,7 +41,7 @@ from agent_composer.events import (
 )
 from agent_composer.expr import eval_binding, resolve_reference
 from agent_composer.expr.expressions import _evaluate, _resolve_in_record
-from agent_composer.nodes.base import Enqueue, NodeKind, Output, Pause, Route
+from agent_composer.nodes.base import Enqueue, Grow, NodeKind, Output, Pause, Route
 from agent_composer.nodes.binding import bind_params
 from agent_composer.nodes.wait.node import resolve_until
 from agent_composer.state.pool import TypedVariablePool
@@ -104,7 +104,7 @@ def eval_node(node, flow, pool: TypedVariablePool):
         # check — restores the isolation an earlier double-bind gave. Only paid when declared.
         post_input = copy.deepcopy(record) if node.post_asserts else None
         outcome = node.run(record, **caps)
-        if isinstance(outcome, (Output, Route, Pause, Enqueue, list)):
+        if isinstance(outcome, (Output, Route, Pause, Enqueue, Grow, list)):
             result = outcome
         elif inspect.isgenerator(outcome):  # a streaming kind: yields StreamChunk, returns a NodeResult
             result = yield from node._drain_node_generator(outcome)
@@ -112,15 +112,21 @@ def eval_node(node, flow, pool: TypedVariablePool):
             raise RuntimeError(
                 f"node {node.id!r} run() returned {type(outcome).__name__}, not a NodeResult"
             )
-        if isinstance(result, (Enqueue, list)):
-            # A spawner grows the live graph: normalize to list[Enqueue] and hand it to the
-            # dispatcher's _apply_enqueue via NodeExpanded. Any non-spawner kind
-            # returning an Enqueue/list is a clear error (the graph only grows from spawners).
-            if node.kind not in _SPAWNER_KINDS:
+        if isinstance(result, (Enqueue, list, Grow)):
+            # A spawner grows the live graph: hand the description to the dispatcher's
+            # _apply_expansion via NodeExpanded. Any non-spawner kind returning an
+            # Enqueue/list/Grow is a clear error (the graph only grows from spawners).
+            if not node.is_spawner:
                 raise RuntimeError(
                     f"node {node.id!r} (kind {node.kind.value}) returned an Enqueue but is "
-                    f"not a spawner (CALL/MAP/AGENT); only spawner kinds may grow the graph"
+                    f"not a spawner (CALL/MAP/AGENT/LOOP); only spawner kinds may grow the graph"
                 )
+            if isinstance(result, Grow):
+                # Self-describing expansion: the payload IS the Grow (the engine's
+                # _apply_expansion dispatches on payload type).
+                yield NodeExpanded(node.id, result)
+                return
+            # Legacy path: normalize an Enqueue/list[Enqueue] and hand it on unchanged.
             enqueues = result if isinstance(result, list) else [result]
             yield NodeExpanded(node.id, enqueues)
             return

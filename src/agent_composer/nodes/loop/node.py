@@ -4,7 +4,7 @@ A driver node (like CallNode): `run` returns an `Enqueue` of the baked body chil
 carried record; the engine's `_apply_enqueue`/`_loop_step` own the predicate + re-clone loop-back.
 The node itself is pure and stateless — it never decides whether to iterate.
 """
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from agent_composer.nodes.base import Enqueue, Node, NodeKind
 
@@ -23,6 +23,7 @@ class LoopNode(Node):
     """
 
     kind = NodeKind.LOOP
+    is_spawner: ClassVar[bool] = True  # grows the graph: each iteration splices a Grow(Subgraph)
 
     def __init__(
         self,

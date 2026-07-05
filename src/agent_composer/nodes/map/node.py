@@ -18,7 +18,7 @@ mirror START_ID's coerce+default view). `parallel` is inert (concurrency is the 
 `num_workers`); it is carried for the over case.
 """
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 from agent_composer.nodes.base import Enqueue, Node, NodeKind
 
@@ -56,6 +56,7 @@ class MapNode(Node):
     """
 
     kind = NodeKind.MAP
+    is_spawner: ClassVar[bool] = True  # grows the graph: run() returns a Grow(Subgraph)
 
     def __init__(self, node_id: str, *, flow_id: str, parallel: bool = False,
                  flow_version: Optional[int] = None, child: Any = None,

@@ -50,7 +50,7 @@ from agent_composer.events import (
 from agent_composer.compile.expand import clone_child, clone_continuation_pair, map_callsite, ns
 from agent_composer.compile.model import END_ID, START_ID, CompiledFlow, Edge, NodeState
 from agent_composer.nodes.end import EndNode
-from agent_composer.nodes.base import NodeKind
+from agent_composer.nodes.base import Grow, NodeKind
 from agent_composer.runtime.eval_node import _SPAWNER_KINDS, eval_node
 from agent_composer.runtime.state_manager import StateManager
 from agent_composer.state import SegmentError
@@ -523,11 +523,11 @@ class FlowEngine:
                 self._on_pause(node_id, event.reason)
                 return
             elif isinstance(event, NodeExpanded):
-                # _apply_enqueue runs OUTSIDE eval_node's try/except; wrap any raise
+                # _apply_expansion runs OUTSIDE eval_node's try/except; wrap any raise
                 # (boundary-assert / bounds / unhandled-kind / clone_child error) into
                 # NodeExecutionError so run() yields RunFailed, never an uncaught escape.
                 try:
-                    self._apply_enqueue(node_id, event.enqueues)
+                    self._apply_expansion(node_id, event.enqueues)
                 except NodeExecutionError:
                     raise
                 except Exception as exc:  # noqa: BLE001 — boundary: any apply error -> RunFailed
@@ -566,7 +566,7 @@ class FlowEngine:
             elif isinstance(event, NodeExpanded):
                 # Same wrap as the inline _run_node branch.
                 try:
-                    self._apply_enqueue(event.node_id, event.enqueues)
+                    self._apply_expansion(event.node_id, event.enqueues)
                 except NodeExecutionError:
                     raise
                 except Exception as exc:  # noqa: BLE001 — boundary: any apply error -> RunFailed
@@ -1021,6 +1021,44 @@ class FlowEngine:
                                                 is_top_level=False)
             else:
                 raise ValueError(f"unknown Expansion descriptor {type(desc).__name__!r}")
+
+    def _apply_expansion(self, node_id, payload):
+        """Route a NodeExpanded payload to the correct grower. Heterogeneous during the
+        migration to self-describing spawners (legacy `list[Enqueue]` OR a `Grow`); collapses to
+        Grow-only once every spawner returns `Grow`. The SOLE dispatch point so the serial and
+        pooled NodeExpanded handlers cannot drift."""
+        if isinstance(payload, Grow):
+            self._apply_grow(node_id, payload)
+        else:
+            self._apply_enqueue(node_id, payload)   # legacy list[Enqueue]
+
+    def _apply_grow(self, spawner_id, grow, *, schedule=True, record=None):
+        """Generic growth core (kind-BLIND): splice the node-built Subgraph, register it, enforce
+        MAX_TOTAL_NODES, schedule its roots, and (later) record ONE durable ledger entry. All
+        per-kind policy — depth/refdepth stamping, finish/mark, loop re-grow retention — is
+        delegated to the labelled `_grow_residual` (census-counted; a later phase deletes it).
+        `schedule=False` suppresses scheduling+budget on replay; `record` reuses a deserialized
+        ledger entry on replay."""
+        sg = grow.subgraph
+        with self.sm.lock:
+            self.flow.add_subgraph(sg.nodes, sg.edges, sg.wiring)
+            self.sm.register(list(sg.nodes), sg.edges)
+            if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
+                raise RuntimeError(
+                    f"expansion exceeded node budget ({MAX_TOTAL_NODES}) at spawner {spawner_id!r}")
+        # per-kind residual: depth/refdepth stamping + finish/mark — a later phase deletes this.
+        self._grow_residual(spawner_id, grow)
+        # (durable ledger recording is added when the spawners start returning Grow)
+        if schedule:
+            for root in sg.roots:
+                self._schedule(root)
+
+    def _grow_residual(self, spawner_id, grow):
+        """RESIDUAL, NOT the generic core: the per-kind depth/refdepth stamping + finish/mark
+        policy the kind-blind growth core cannot yet subsume without a behavior change. Kind-shaped
+        ON PURPOSE — counted by the census, removed by the later prune/run_node phases. Filled per
+        kind as each spawner migrates to `Grow`; a no-op stub for now (no node emits `Grow` yet)."""
+        pass
 
     def _apply_enqueue(self, spawner_id: str, enqueues: list) -> None:
         """Grow the live graph from a spawner's Enqueue(s) (the dispatcher's sole-writer

@@ -41,8 +41,9 @@ CORE_MODULES = {
 
 # Ratchet ceiling: the number of kind-dispatch lines allowed in the engine core.
 # LOWER this as each refactor phase removes dispatch; the final phase drives it to 0.
-# (Measured at phase P0 baseline; do not raise it.)
-BASELINE = 20
+# (Measured at P0 baseline 20; dropped to 19 when the `eval_node` grow guard moved from a
+# `node.kind not in _SPAWNER_KINDS` membership test to the kind-blind `not node.is_spawner`.)
+BASELINE = 19
 
 
 def _import_lines(tree: ast.Module) -> set[int]:
