@@ -160,6 +160,11 @@ class Node(ABC):
     # Declares "I may grow the graph" (a spawner returns a `Grow`). Overridden True by
     # the spawner kinds (CALL/MAP/AGENT/LOOP); the `eval_node` seam gates the grow path on it.
     is_spawner: ClassVar[bool] = False
+    # Declares "I bind my inputs PER ELEMENT via a `bind_item` cap rather than once up front"
+    # (MAP). When True, the read seam (`eval_node`) starts the record empty and supplies
+    # `caps['bind_item']`; when False (the common case) it binds `params` once from the pool.
+    # Overridden True by MapNode; every other kind binds up front.
+    binds_per_item: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -201,6 +206,16 @@ class Node(ABC):
     def on_failure(self, exc: Exception, inputs: dict[str, Any], **caps: Any) -> "NodeResult":
         """Recovery seam: called by the engine wrapper when run() raises. Default: re-raise."""
         raise exc
+
+    def bind_reserved(self, node_wiring: dict, pool) -> dict[str, Any]:
+        """Reserved input keys the read seam (`eval_node`) must pre-resolve from
+        `node_wiring` + `pool` before `run`, merged into the bound record.
+
+        Possible keys (per kind): a timed WAIT returns `{"until": <ISO ts>}`; a MAP returns
+        `{"over": <list>}`. Default: `{}` (an ordinary node reserves no keys). `node_wiring`
+        is the flow-owned wiring for this node (`flow.wiring[id]`); `pool` is the live
+        `TypedVariablePool` the seam reads sources from."""
+        return {}
 
     def replay_grow(self, seed: Any) -> "Subgraph":
         """Durable-replay seam (the READ half of `Grow`): rebuild THIS spawner's subgraph from the

@@ -24,6 +24,7 @@ pool (to mirror START_ID's coerce+default view). `parallel` is inert (concurrenc
 from typing import Any, Callable, ClassVar, Optional
 
 from agent_composer.compile.expand import map_subgraph
+from agent_composer.expr import eval_binding, resolve_reference
 from agent_composer.nodes.base import Grow, Node, NodeKind
 
 
@@ -62,6 +63,7 @@ class MapNode(Node):
 
     kind = NodeKind.MAP
     is_spawner: ClassVar[bool] = True  # grows the graph: run() returns a Grow(Subgraph)
+    binds_per_item: ClassVar[bool] = True  # binds call-args PER ELEMENT via `bind_item`, not up front
 
     def __init__(self, node_id: str, *, flow_id: str, parallel: bool = False,
                  flow_version: Optional[int] = None, child: Any = None,
@@ -76,6 +78,20 @@ class MapNode(Node):
         self.child_asserts = child_asserts
         # Render-only: the child's SourceFrame for the CLI error traceback. `run` never reads it.
         self.child_source = child_source
+
+    def bind_reserved(self, node_wiring: dict, pool) -> dict:
+        """Pre-resolve the MAP `over` source into the list `run` maps over.
+
+        Returns `{"over": <list>}`: the `over` source rides `node_wiring["over"]`, evaluated
+        against `pool`. A source that resolves to `None`/non-list is a loud `RuntimeError`
+        (surfaced as a NodeFailed by the read seam)."""
+        over_src = node_wiring["over"]
+        items = eval_binding(over_src, lambda p: resolve_reference(p, pool))
+        if items is None or not isinstance(items, list):
+            raise RuntimeError(
+                f"MAP node {self.id!r}: `over` ({over_src}) did not resolve to a list"
+            )
+        return {"over": items}
 
     def run(self, inputs: dict, *, bind_item: Optional[Callable[[Any], dict]] = None):
         if self.child is None:

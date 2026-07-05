@@ -85,6 +85,16 @@ class WaitNode(Node):
         self.event_spec = event_spec or {}
         self.poll = poll or {}
 
+    def bind_reserved(self, node_wiring: dict, pool) -> dict:
+        """Pre-resolve the timed WAIT `until` source into a concrete ISO ts for `run`.
+
+        Returns `{"until": <ISO ts>}` when `self.is_timed` (the `until` source rides
+        `node_wiring["until"]`); `{}` for the event mode. Its presence in the record is the
+        timed/event discriminator `run` reads."""
+        if self.is_timed:
+            return {"until": resolve_until(node_wiring["until"], pool)}
+        return {}
+
     def run(self, inputs: dict):
         # The engine pre-resolves a timed `until` into inputs["until"] (a concrete ISO ts);
         # its presence is the timed/event discriminator. `resolve_until` is the bind's job now.

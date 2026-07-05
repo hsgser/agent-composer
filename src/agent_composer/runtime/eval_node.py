@@ -39,11 +39,10 @@ from agent_composer.events import (
     PauseRequested,
     SourceSpan,
 )
-from agent_composer.expr import eval_binding, resolve_reference
+from agent_composer.expr import resolve_reference
 from agent_composer.expr.expressions import _evaluate, _resolve_in_record
 from agent_composer.nodes.base import Grow, NodeKind, Output, Pause, Route
 from agent_composer.nodes.binding import bind_params
-from agent_composer.nodes.wait.node import resolve_until
 from agent_composer.state.pool import TypedVariablePool
 
 
@@ -57,26 +56,18 @@ def eval_node(node, flow, pool: TypedVariablePool):
         # WAIT / mapped call driven that way would KeyError on `until`/`over` (caught as NodeFailed).
         node_wiring = {} if flow is None else flow.wiring.get(node.id, {})
         # Read boundary (pure): bind the node from its `params` + the flow-owned
-        # wiring — never the node's own `inputs`. An over-mode call binds per-element via bind_item, so its
-        # record starts empty. (`params or []` covers a no-input node / a direct-construction
-        # test fake; loader-built nodes always carry params.)
-        over_mode = node.kind == NodeKind.MAP            # MAP = mapped iteration (kind-discriminated)
-        if over_mode:
+        # wiring — never the node's own `inputs`. A per-item node (MAP) binds per-element via
+        # bind_item, so its record starts empty. (`params or []` covers a no-input node / a
+        # direct-construction test fake; loader-built nodes always carry params.)
+        per_item = node.binds_per_item          # MAP = per-element bind (trait, not a kind read)
+        if per_item:
             record = {}
         else:
             record = bind_params(node.params or [], node_wiring, pool)
-        # Reserved-key pre-resolve: timed WAIT `until` -> ISO ts; mapped-call `over` -> list
-        # (validated here -> NodeFailed). Both sources come from flow.wiring (the node/flow split).
-        if node.kind == NodeKind.WAIT and node.is_timed:
-            record["until"] = resolve_until(node_wiring["until"], pool)
-        if over_mode:
-            over_src = node_wiring["over"]
-            items = eval_binding(over_src, lambda p: resolve_reference(p, pool))
-            if items is None or not isinstance(items, list):
-                raise RuntimeError(
-                    f"MAP node {node.id!r}: `over` ({over_src}) did not resolve to a list"
-                )
-            record["over"] = items
+        # Reserved-key pre-resolve (node-owned): timed WAIT `until` -> ISO ts; mapped-call `over`
+        # -> list (validated in the hook -> NodeFailed). The hook reads its sources from
+        # `node_wiring` (the node/flow split) + `pool`; default `{}` for an ordinary node.
+        record.update(node.bind_reserved(node_wiring, pool))
         for a in node.pre_asserts:
             if not node._assert_holds(a, record):
                 yield NodeFailed(node.id, error=f"node {node.id!r} pre-assert failed: {a}",
@@ -88,7 +79,7 @@ def eval_node(node, flow, pool: TypedVariablePool):
         # delivers the answer. AGENT lowers a control pause to a continuation `Grow`,
         # carrying its memo as graph data — so a mapped call's `bind_item` is the only cap now.
         caps: dict[str, Any] = {}
-        if over_mode:
+        if per_item:
             # Per-element bind from params + flow.wiring (pure). No system cap — the
             # cloned children share the one live pool, so `${system.X}` resolves directly.
             caps["bind_item"] = lambda el: bind_params(node.params or [], node_wiring, pool, item=el)
