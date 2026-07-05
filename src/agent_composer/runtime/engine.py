@@ -793,7 +793,14 @@ class FlowEngine:
         # its OWN bare id for re-pause idempotency. Runs AFTER `parent` was captured above so the
         # self-stamp does not shadow the enclosing spawner's record for the ledger attach.
         self._stamp_spawner_expansion(spawner_id, grow, rec)
-        # per-kind residual: stamps, loop retention.
+        # Origin `commit_as` override (kind-blind, applied to the derived terminal): re-point the
+        # terminal so a multi-pause AGENT's FINAL non-pausing Output commits under the ORIGINAL agent
+        # id (the origin propagates through the engine-side chain `spawner.commit_as or spawner_id`,
+        # which a pure builder cannot see). A no-op for CALL/MAP/LOOP: their spawner carries no
+        # `commit_as`, so `origin == spawner_id`, which the terminal's `commit_as` already equals.
+        # Runs AFTER the stamps above, which rely on the terminal's PROVISIONAL `commit_as`.
+        self._apply_origin_commit_as(spawner_id, grow)
+        # per-kind residual: loop retention.
         self._grow_residual(spawner_id, grow, rec, schedule=schedule)
         # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
         # has run and expanded, so it finishes executing and enters EXPANDED. Idempotent for a loop
@@ -812,6 +819,19 @@ class FlowEngine:
         if schedule:
             for root in sg.roots:
                 self._schedule(root)
+
+    def _apply_origin_commit_as(self, spawner_id, grow) -> None:
+        """Kind-blind origin `commit_as` override on the derived terminal(s). The origin is the
+        engine-side chained target `spawner.commit_as or spawner_id`: for a multi-pause AGENT,
+        segment N's spawner is segment N-1's resume node whose `commit_as` was overridden to the
+        ORIGINAL agent id, so the FINAL Output commits under that origin (multi-pause chaining). The
+        origin can only be computed engine-side (a pure builder cannot see the prior segment). A
+        no-op for CALL/MAP/LOOP: their spawner has no `commit_as`, so `origin == spawner_id` and the
+        terminal's `commit_as` (already `spawner_id`) is unchanged."""
+        spawner = self.flow.nodes[spawner_id]
+        origin = spawner.commit_as or spawner_id
+        for term in self._derived_terminals(grow.subgraph, spawner_id):
+            self.flow.nodes[term].commit_as = origin
 
     def _stamp_spawner_expansion(self, spawner_id, grow, rec) -> None:
         """Kind-blind `_spawner_expansion` stamping: point every `is_spawner` node in the spliced
@@ -895,34 +915,8 @@ class FlowEngine:
         residual stamps `_spawner_expansion` at it for nested-grow lookup); `schedule=False` (replay)
         suppresses the eager boundary-assert + MAX_REF_DEPTH budget."""
         spawner = self.flow.nodes[spawner_id]
-        if spawner.kind == NodeKind.AGENT:
-            self._grow_agent_residual(spawner_id, grow, rec, schedule=schedule)
-        elif spawner.kind == NodeKind.LOOP:
+        if spawner.kind == NodeKind.LOOP:
             self._grow_loop_residual(spawner_id, grow, rec, schedule=schedule)
-
-    def _grow_agent_residual(self, spawner_id, grow, rec, *, schedule):
-        """AGENT residual — the per-kind policy on the live `Grow` path (the generic core already
-        spliced+registered+scheduled the human_input leaf root and wrote `rec`). Preserves, exactly:
-        the BOTH-id `_spawner_expansion` stamp (spawner_id + resume terminal both point at `rec`, so
-        the NEXT pause nests its GrowRecord UNDER this one); the origin OVERRIDE of the builder's
-        provisional `commit_as`; the one finish/mark-EXPANDED; and the UNCHANGED depth carry (an
-        agent pausing K times is NOT recursion — no `+1`, no `MAX_REF_DEPTH`, nothing gated on
-        `schedule`).
-
-        The resume terminal id is recovered deterministically via the ns convention
-        (`ns(spawner_id, "__resume#" + hi_desc["slot"])`, matching `clone_continuation_pair`), so
-        `Grow`/`Subgraph` need no extra field. `grow.seed` carries the `{hi_desc, resume_desc}` pair."""
-        spawner = self.flow.nodes[spawner_id]
-        hi_desc = grow.seed["hi_desc"]
-        out_id = ns(spawner_id, "__resume#" + hi_desc["slot"])   # the resume terminal (ns convention)
-        assert out_id in grow.subgraph.nodes
-
-        # Origin OVERRIDE of the builder's provisional `commit_as`: re-point the resume terminal so
-        # the FINAL non-pausing Output commits under the ORIGINAL spawner id (multi-pause chaining).
-        # The origin is read off the PREVIOUS segment's baked `commit_as` (the spawner node for the
-        # first pause; the prior resume node for a re-pause), falling back to `spawner_id`.
-        origin = spawner.commit_as or spawner_id
-        self.flow.nodes[out_id].commit_as = origin
 
     def _grow_loop_residual(self, spawner_id, grow, rec, *, schedule):
         """LOOP residual — the per-iteration bookkeeping beyond the generic splice/schedule (the

@@ -60,9 +60,10 @@ CORE_MODULES = {
 # gate (engine.py) — a redirect-commit post-check is now kind-blind, dropping the ceiling to 4.
 # P5.4 dismantles the `_grow_residual` 4-arm switch concern by concern (finish/mark, boundary
 # asserts, depth, `_spawner_expansion` stamping, agent commit_as, loop bookkeeping all lifted into
-# the kind-blind growth core behind node traits/hooks). The CALL + MAP arms are fully generic and
-# gone, dropping the ceiling to 2; the AGENT + LOOP arms fall in the final P5.4 commit (-> 0).
-BASELINE = 2
+# the kind-blind growth core behind node traits/hooks). CALL + MAP fell first (-> 2), then AGENT
+# once its origin `commit_as` override became a generic derived-terminal rule (-> 1); only the LOOP
+# bookkeeping arm remains, deleted in the final P5.4 commit (-> 0).
+BASELINE = 1
 
 
 def _import_lines(tree: ast.Module) -> set[int]:
