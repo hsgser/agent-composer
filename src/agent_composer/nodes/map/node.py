@@ -7,20 +7,24 @@ NO `over` attribute and no `${...}` source on the node. The `over` SOURCE bindin
 `flow.wiring[id]["over"]` (mirroring WaitNode's timed `until`), pre-resolved into `inputs["over"]`
 by the engine's `eval_node` before `run`.
 
-`run` returns a `list[Enqueue]` *description* — one `Enqueue(child, dict(bind_item(el)))` per element
-(the engine's `_apply_enqueue` MAP arm clones the baked child per element + fans the child ENDs into
-one `EndNode.list_`); an empty `over` -> `[]`. The per-element call-args go RAW: the spliced child
-START_ID owns omitted-input defaulting (its params carry default/required), so the driver no longer
-pre-defaults. `child`/`child_inputs`/`child_asserts` are baked at load by
-`compose.build` (`build_call_node`); `child_inputs` is read by compile validation
-(`check_ref_map_types`) AND at runtime by the engine's per-element boundary-assert temp pool (to
-mirror START_ID's coerce+default view). `parallel` is inert (concurrency is the engine's
+`run` returns one `Grow(Subgraph)` — self-describing expansion: it builds the whole MAP fan-in
+subgraph (`map_subgraph` — N per-element child clones PLUS a synthesized `EndNode.list_` fan-in over
+the child ENDs) and the engine's generic `_apply_grow` splices it into the live graph, with a
+per-kind MAP residual (depth/refdepth/finish-mark + the transitional per-element
+boundary-assert/ledger). The `Grow.seed` is the raw list of per-element records (the durable builder
+input); an empty `over` -> a subgraph whose sole node is the list-`END` (it emits `[]`). The
+per-element call-args go RAW: the spliced child START_ID owns omitted-input defaulting (its params
+carry default/required), so the driver no longer pre-defaults. `child`/`child_inputs`/`child_asserts`
+are baked at load by `compose.build` (`build_call_node`); `child_inputs` is read by compile
+validation (`check_ref_map_types`) AND at runtime by the engine's per-element boundary-assert temp
+pool (to mirror START_ID's coerce+default view). `parallel` is inert (concurrency is the engine's
 `num_workers`); it is carried for the over case.
 """
 
 from typing import Any, Callable, ClassVar, Optional
 
-from agent_composer.nodes.base import Enqueue, Node, NodeKind
+from agent_composer.compile.expand import map_subgraph
+from agent_composer.nodes.base import Grow, Node, NodeKind
 
 
 class MapNode(Node):
@@ -29,9 +33,10 @@ class MapNode(Node):
 
     The MAP half of the REF/MAP pair (the REF half is
     [`CallNode`][agent_composer.nodes.call.node.CallNode]). The `over` source is pre-resolved into
-    `inputs["over"]` by the engine bind seam; `run` returns one `Enqueue` per element. The engine
-    clones the baked child per element and fans the child ENDs into one list END. The spliced child
-    START owns omitted-input defaulting, so per-element call-args go raw.
+    `inputs["over"]` by the engine bind seam; `run` returns one `Grow(Subgraph)` — it builds the
+    whole MAP fan-in (N per-element child clones + a synthesized list END) via `map_subgraph`, and
+    the engine's generic `_apply_grow` splices it and grows the live graph. The spliced child START
+    owns omitted-input defaulting, so per-element call-args go raw.
 
     Args:
         node_id (`str`):
@@ -76,8 +81,10 @@ class MapNode(Node):
         if self.child is None:
             raise RuntimeError(f"MAP node {self.id!r}: child flow {self.flow_id!r} not baked")
         # Per-element call-args RAW (no driver pre-default): the spliced child START_ID fills omitted
-        # inputs from its params' declared defaults.
-        return [
-            Enqueue(self.child, dict(bind_item(el)))
-            for el in inputs["over"]
-        ]
+        # inputs from its params' declared defaults. `run` is self-describing — it builds the whole
+        # MAP fan-in subgraph and returns a `Grow` for the engine to splice generically;
+        # `seed=records` is the durable builder input (a resumed run rebuilds the same subgraph via
+        # `map_subgraph(child, self.id, records)`).
+        records = [dict(bind_item(el)) for el in inputs["over"]]
+        sg = map_subgraph(self.child, spawner_id=self.id, records=records)
+        return Grow(sg, seed=records)

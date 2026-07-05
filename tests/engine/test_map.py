@@ -144,22 +144,35 @@ def test_map_over_with_coalesce_resolves_at_run():
     assert result2.output == ["A"]
 
 
-# --- MapNode.run -> list[Enqueue]; the END_ID(list-mode) aggregator joins in over order - #
-def test_map_run_returns_list_of_enqueue():
-    from agent_composer.nodes.base import Enqueue
+# --- MapNode.run -> Grow(Subgraph); the END_ID(list-mode) aggregator joins in over order - #
+def test_map_run_returns_grow():
+    from agent_composer.compile.expand import map_callsite, ns
+    from agent_composer.nodes.base import Grow
     from agent_composer.nodes.map import MapNode
 
-    n = MapNode("m", flow_id="c", child=object(), child_inputs=[])
-    out = n.run({"over": ["A", "B"]}, bind_item=lambda el: {"topic": el})  # no system cap
-    assert isinstance(out, list) and len(out) == 2
-    assert all(isinstance(e, Enqueue) for e in out)
+    from tests.engine.test_expand import _child_flow
+
+    n = MapNode("m", flow_id="c", child=_child_flow(), child_inputs=[])
+    out = n.run({"over": ["A", "B"]}, bind_item=lambda el: {"x": el})  # no system cap
+    assert isinstance(out, Grow)
+    assert out.seed == [{"x": "A"}, {"x": "B"}]
+    for i in range(2):
+        assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.roots
 
 
-def test_map_empty_over_returns_empty_enqueue_list():
+def test_map_empty_over_returns_grow_with_lone_list_end():
+    from agent_composer.compile.expand import ns
+    from agent_composer.compile.model import END_ID
+    from agent_composer.nodes.base import Grow
     from agent_composer.nodes.map import MapNode
 
-    n = MapNode("m", flow_id="c", child=object(), child_inputs=[])
-    assert n.run({"over": []}, bind_item=lambda el: {}) == []
+    from tests.engine.test_expand import _child_flow
+
+    n = MapNode("m", flow_id="c", child=_child_flow(), child_inputs=[])
+    out = n.run({"over": []}, bind_item=lambda el: {})
+    assert isinstance(out, Grow) and out.seed == []
+    assert set(out.subgraph.nodes) == {ns("m", END_ID)}
+    assert ns("m", END_ID) in out.subgraph.roots
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])

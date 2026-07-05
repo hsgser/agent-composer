@@ -2,13 +2,14 @@
 
 `MapNode` discriminates by KIND (`NodeKind.MAP`), not an `over` flag — it carries NO `over`
 attribute and no `${...}` source on the node; the `over` SOURCE rides `flow.wiring[id]["over"]`
-(the engine pre-resolves it into `inputs["over"]` before `run`). `run` returns `list[Enqueue]`,
-one per element (empty `over` -> `[]`).
+(the engine pre-resolves it into `inputs["over"]` before `run`). `run` returns one `Grow(Subgraph)`
+— it builds the whole MAP fan-in (N child clones + a synthesized list END); an empty `over` -> a
+subgraph whose sole node is the list END.
 """
 
 import importlib
 
-from agent_composer.nodes.base import Enqueue, NodeKind
+from agent_composer.nodes.base import Grow, NodeKind
 from agent_composer.nodes.map import MapNode
 
 
@@ -25,19 +26,32 @@ def test_map_node_carries_no_over_attr():
     assert MapNode("d", flow_id="child", child=object()).parallel is False
 
 
-def test_map_node_run_fans_out_one_enqueue_per_element():
-    child = object()
+def test_map_node_run_builds_grow_fan_in_per_element():
+    from agent_composer.compile.expand import map_callsite, ns
+
+    from tests.engine.test_expand import _child_flow
+
+    child = _child_flow()
     n = MapNode("m", flow_id="child", child=child,
                 child_inputs=[], child_asserts=None)
-    enqs = n.run({"over": [1, 2, 3]}, bind_item=lambda el: {"x": el})
-    assert all(isinstance(e, Enqueue) for e in enqs)
-    assert [e.target for e in enqs] == [child, child, child]
-    assert [e.inputs for e in enqs] == [{"x": 1}, {"x": 2}, {"x": 3}]
+    grow = n.run({"over": [1, 2, 3]}, bind_item=lambda el: {"x": el})
+    assert isinstance(grow, Grow)
+    assert grow.seed == [{"x": 1}, {"x": 2}, {"x": 3}]
+    # One namespaced child START root per element.
+    for i in range(3):
+        assert ns(map_callsite("m", i), child.start_id) in grow.subgraph.roots
 
 
-def test_map_node_run_empty_over_is_empty_list():
-    n = MapNode("m", flow_id="child", child=object(), child_inputs=[])
-    assert n.run({"over": []}, bind_item=lambda el: {"x": el}) == []
+def test_map_node_run_empty_over_builds_lone_list_end():
+    from agent_composer.compile.expand import ns
+    from agent_composer.compile.model import END_ID
+
+    from tests.engine.test_expand import _child_flow
+
+    n = MapNode("m", flow_id="child", child=_child_flow(), child_inputs=[])
+    grow = n.run({"over": []}, bind_item=lambda el: {"x": el})
+    assert isinstance(grow, Grow) and grow.seed == []
+    assert set(grow.subgraph.nodes) == {ns("m", END_ID)}
 
 
 def test_map_node_kind_exists_and_package_imports():

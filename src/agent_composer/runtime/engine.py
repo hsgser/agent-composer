@@ -94,6 +94,23 @@ def _append_child(parent, child) -> None:
         parent.children.append(child)
 
 
+def _element_index(nid: str, spawner_id: str) -> "int | None":
+    """The MAP element index `i` a cloned node id belongs to, else None.
+
+    A MAP element clone is namespaced under `map_callsite(spawner_id, i)` (`f"{spawner}#{i}"`) then
+    `ns`-prefixed (`f"{spawner}#{i}/{child_id}"`). Parse the `#{i}` segment right after the
+    `f"{spawner_id}#"` prefix, up to the `/` that `ns` inserts. Returns None for any id that is not a
+    `{spawner_id}#{i}/…` element clone (e.g. the list-END filler `ns(spawner_id, END_ID)`)."""
+    prefix = f"{spawner_id}#"
+    if not nid.startswith(prefix):
+        return None
+    rest = nid[len(prefix):]
+    head = rest.split("/", 1)[0]         # the `{i}` segment before ns's `/`
+    if not head.isdigit():
+        return None
+    return int(head)
+
+
 class _Aborted(Exception):
     pass
 
@@ -1061,6 +1078,8 @@ class FlowEngine:
         spawner = self.flow.nodes[spawner_id]
         if spawner.kind == NodeKind.CALL:
             self._grow_call_residual(spawner_id, grow)
+        elif spawner.kind == NodeKind.MAP:
+            self._grow_map_residual(spawner_id, grow)
 
     def _grow_call_residual(self, spawner_id, grow):
         """CALL residual — reproduces `_grow_call` + the `_apply_enqueue` CALL arm's per-kind policy
@@ -1118,6 +1137,82 @@ class FlowEngine:
                 self._spawner_expansion[nid] = desc
         self.depth[filler_id] = d                    # the filler carries the depth
         self._spawner_expansion[filler_id] = desc
+        if parent_desc is not None:
+            _append_child(parent_desc, desc)
+        else:
+            self.expansions.append(desc)
+
+        self.sm.finish_executing(spawner_id)
+        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
+
+    def _grow_map_residual(self, spawner_id, grow):
+        """MAP residual — reproduces `_grow_map` + the `_apply_enqueue` MAP arm's per-kind policy on
+        the live `Grow` path (the generic core already spliced+registered+scheduled the whole fan-in,
+        incl. the list-END). Preserves, exactly: the per-element eager boundary-assert temp-pool
+        check; the REF depth stamp (+1 on the cloned spawner-eligible ELEMENT nodes AND the list-END
+        filler) + `MAX_REF_DEPTH` bound; the one finish/mark-EXPANDED; and — TRANSITIONAL — the
+        `MapExpansion` ledger write + parent attach + per-element `_spawner_expansion` stamps
+        (`_MapElementSlot(desc, i)`) that keep replay and nested-expansion routing working.
+
+        The per-element `record` comes from `grow.seed` (the list of records) indexed by element `i`;
+        `i` is recovered from a cloned node's id prefix via `_element_index` (the `map_callsite`
+        `#{i}` convention). The list-END filler id is `ns(spawner_id, END_ID)` (the ns convention)."""
+        from agent_composer.expr import first_failing_assert
+        from agent_composer.state.seeding import apply_defaults, coerce_inputs
+        from agent_composer.suspension.expansions import MapExpansion
+
+        spawner = self.flow.nodes[spawner_id]
+        sg = grow.subgraph
+        records = list(grow.seed)                    # the per-element raw records
+        map_end_id = ns(spawner_id, END_ID)          # the list-END filler (ns convention)
+
+        # Per-element eager boundary-assert: the child's BOUNDARY asserts (raw, un-namespaced)
+        # evaluated against a temp pool whose START_ID carries element i's EFFECTIVE inputs (coerce +
+        # default — the same view the spliced element's child START_ID commits). Same logic as the
+        # legacy `_assert_map`. Fired once per element BEFORE any depth/ledger effects.
+        boundary_asserts = []
+        child_asserts = getattr(spawner.child, "child_asserts", None)
+        if child_asserts is not None:
+            boundary_asserts = list(child_asserts.boundary)
+        if boundary_asserts:
+            decls = spawner.child_inputs
+            for i, record in enumerate(records):
+                temp = TypedVariablePool()
+                temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
+                temp.system = dict(self.pool.system)
+                bad = first_failing_assert(boundary_asserts, temp)
+                if bad is not None:
+                    raise RuntimeError(
+                        f"MAP child {spawner_id!r} element {i} boundary assert failed: {bad}"
+                    )
+
+        # REF depth bound (kind-shaped; a later phase removes it). A genuinely deep MAP chain trips
+        # MAX_REF_DEPTH before MAX_TOTAL_NODES.
+        d = self.depth.get(spawner_id, 0) + 1
+        if d > MAX_REF_DEPTH:
+            raise RuntimeError(
+                f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
+            )
+
+        # TRANSITIONAL (P3.5): create the MapExpansion (empty per-element children lists), stamp
+        # depth + `_spawner_expansion` (an `_MapElementSlot(desc, i)`) on each cloned spawner-eligible
+        # ELEMENT node so a nested REF/MAP/AGENT appends to `children_per_element[i]`, stamp depth on
+        # the list-END filler, then attach to the ledger (top-level -> self.expansions, else under
+        # the parent). Attach AFTER (mirroring `_grow_call_residual`). Legacy `_grow_map` stamps depth
+        # on spawner-eligible clones only (inside the `_SPAWNER_KINDS` block), plus the filler.
+        desc = MapExpansion(
+            spawner_id=spawner_id, records=records,
+            children_per_element=[[] for _ in records],
+        )
+        parent_desc = self._spawner_expansion.get(spawner_id)
+        for nid, node in sg.nodes.items():
+            if node.kind in _SPAWNER_KINDS:
+                i = _element_index(nid, spawner_id)
+                if i is None:
+                    continue
+                self.depth[nid] = d
+                self._spawner_expansion[nid] = _MapElementSlot(desc, i)
+        self.depth[map_end_id] = d                   # the list-END filler carries the depth
         if parent_desc is not None:
             _append_child(parent_desc, desc)
         else:

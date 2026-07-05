@@ -46,9 +46,11 @@ CORE_MODULES = {
 # Rose to 21 during the CALL->Grow migration: the live CALL path now grows via the labelled
 # `_grow_residual` CALL arm — a census-counted kind-shaped residual (its `NodeKind.CALL` check
 # + the cloned spawner-eligible `_SPAWNER_KINDS` stamp) that COEXISTS with the still-live legacy
-# `_apply_enqueue`/`_grow_call` replay path. The residual + the legacy arms are all deleted in the
+# `_apply_enqueue`/`_grow_call` replay path. Rose to 23 during the MAP->Grow migration: the live
+# MAP path adds a `_grow_residual` MAP arm (`NodeKind.MAP`) + a `_grow_map_residual` with the same
+# spawner-eligible `_SPAWNER_KINDS` stamp. The residuals + the legacy arms are all deleted in the
 # final sub-phase, which drops the ceiling below 20.)
-BASELINE = 21
+BASELINE = 23
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

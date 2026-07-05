@@ -25,9 +25,10 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from agent_composer.compile.model import Edge, START_ID
+from agent_composer.compile.model import Edge, END_ID, START_ID
 from agent_composer.expr import rewrite_template_refs
 from agent_composer.nodes.base import Node, Subgraph
+from agent_composer.nodes.end.node import EndNode
 
 
 def ns(callsite: str, child_id: str) -> str:
@@ -216,6 +217,55 @@ def call_subgraph(child, callsite: str, record: dict) -> Subgraph:
         wiring=cloned.wiring,
         roots=cloned.roots,
     )
+
+
+def map_subgraph(child, spawner_id: str, records: list) -> Subgraph:
+    """The pure MAP builder: the self-describing fragment a MAP spawner grows into.
+
+    MAP is CALL × N plus a synthesized list-`END` fan-in. For each element `i`, `clone_child`
+    deep-namespaces the child at `map_callsite(spawner_id, i)` (`f"{spawner}#{i}"`), seeded with
+    element `i`'s `record`; every element's namespaced child START (its sole seed point) joins
+    `roots`. The N child END fillers fan into ONE `EndNode.list_(map_end_id, n=N)` (the
+    `map_end_id = ns(spawner_id, END_ID)` filler) via one `e{i}` input group per element (a
+    node-first `${<filler>.output}` wiring + a `<filler>-><map_end>#{i}` edge). The list-END carries
+    `commit_as=spawner_id`, so its list Output commits under the spawner on the success path.
+
+    N=0: the only node is the list-END (`EndNode.list_(n=0)`); it has 0 incoming edges, so it MUST
+    be a root to schedule and emit `[]` (legacy `_grow_map` schedules `map_end_id` when `not
+    records`). The boundary asserts stay on the per-element `ClonedSubgraph` and are re-derived
+    engine-side (the residual reads each element's raw START record view), so they are not carried on
+    the returned `Subgraph`."""
+    map_end_id = ns(spawner_id, END_ID)                  # the END_ID-list filler
+    nodes: dict[str, Node] = {}
+    edges: list[Edge] = []
+    wiring: dict[str, dict[str, Any]] = {}
+    roots: list[str] = []
+    end_wiring: dict[str, str] = {}
+    end_edges: list[Edge] = []
+
+    for i, record in enumerate(records):
+        cloned = clone_child(child, callsite=map_callsite(spawner_id, i), record=record)
+        nodes.update(cloned.nodes)
+        edges.extend(cloned.edges)
+        wiring.update(cloned.wiring)
+        roots.extend(cloned.roots)
+        end_wiring[f"e{i}"] = f"${{{cloned.out_node_id}.output}}"   # node-first
+        end_edges.append(Edge(
+            id=f"{cloned.out_node_id}->{map_end_id}#{i}",
+            from_=cloned.out_node_id, to=map_end_id, input_group=f"e{i}"))
+
+    # ONE EndNode in LIST mode — the MAP fan-in over the N child ENDs (still built + stamped at
+    # N=0). Bake the commit redirect so its list Output commits under the spawner id.
+    map_end = EndNode.list_(map_end_id, n=len(records))
+    map_end.commit_as = spawner_id
+    nodes[map_end_id] = map_end
+    edges.extend(end_edges)
+    wiring[map_end_id] = end_wiring
+    # N=0: the list-END has 0 incoming edges -> it must be a root so it schedules and emits [].
+    if not records:
+        roots.append(map_end_id)
+
+    return Subgraph(nodes=nodes, edges=edges, wiring=wiring, roots=roots)
 
 
 

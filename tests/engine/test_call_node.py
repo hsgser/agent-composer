@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_composer.nodes.base import Enqueue, Grow, NodeKind
+from agent_composer.nodes.base import Grow, NodeKind
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.map import MapNode
 
@@ -43,16 +43,36 @@ def test_call_ref_mode_returns_grow():
     assert out.subgraph.nodes[ns("c", END_ID)].commit_as == "c"
 
 
-def test_map_returns_list_of_enqueue():
-    node = MapNode("m", flow_id="child", child=_child(), child_inputs=[])
-    out = node.run({"over": ["ACME", "BETA"]}, bind_item=lambda el: {"topic": el})
-    assert isinstance(out, list) and len(out) == 2
-    assert [e.inputs for e in out] == [{"topic": "ACME"}, {"topic": "BETA"}]
+def test_map_returns_grow():
+    # MAP is self-describing now: run builds the whole fan-in subgraph (N child clones + a list END)
+    # and returns a Grow whose seed is the raw per-element records (the durable builder input).
+    from agent_composer.compile.expand import map_callsite, ns
+    from agent_composer.compile.model import END_ID
+    from tests.engine.test_expand import _child_flow
+
+    node = MapNode("m", flow_id="child", child=_child_flow(), child_inputs=[])
+    out = node.run({"over": ["ACME", "BETA"]}, bind_item=lambda el: {"x": el})
+    assert isinstance(out, Grow)
+    assert out.seed == [{"x": "ACME"}, {"x": "BETA"}]
+    # One namespaced child START per element is a root; the list END commits under the spawner.
+    for i in range(2):
+        assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.roots
+    assert out.subgraph.nodes[ns("m", END_ID)].commit_as == "m"
 
 
-def test_map_empty_returns_empty_list():
-    node = MapNode("m", flow_id="child", child=_child(), child_inputs=[])
-    assert node.run({"over": []}, bind_item=lambda el: {"topic": el}) == []
+def test_map_empty_returns_grow_with_lone_list_end():
+    from agent_composer.compile.expand import ns
+    from agent_composer.compile.model import END_ID
+    from tests.engine.test_expand import _child_flow
+
+    node = MapNode("m", flow_id="child", child=_child_flow(), child_inputs=[])
+    out = node.run({"over": []}, bind_item=lambda el: {"x": el})
+    assert isinstance(out, Grow)
+    assert out.seed == []
+    # N=0: the sole node is the list END; it has 0 incoming edges so it is a root (emits []).
+    map_end_id = ns("m", END_ID)
+    assert set(out.subgraph.nodes) == {map_end_id}
+    assert map_end_id in out.subgraph.roots
 
 
 def test_call_unbaked_child_raises():
