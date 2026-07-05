@@ -1,18 +1,18 @@
 """`agent_step` — the scratch-free agent loop body.
 
-`agent_step(messages, pending, iterations, ctx) -> Output | Enqueue` carries the
+`agent_step(messages, pending, iterations, ctx) -> Output | Grow` carries the
 re-entry frame as args/return, never scratch. On ENTRY it always invokes the model on
 the passed-in `messages` (no scratch resume-replay branch). On a final answer ->
-`Output(text)`; on a control call -> `Enqueue` of the continuation PAIR (a `human_input`
-descriptor + a `resume_agent` descriptor reading `answer` via the BARE forward-ref
-`${<hi>.output}`).
+`Output(text)`; on a control call -> `Grow` of the continuation subgraph, with the
+PAIR (a `human_input` descriptor + a `resume_agent` descriptor reading `answer` via the
+BARE forward-ref `${<hi>.output}`) carried on `Grow.seed` for durable re-grow.
 """
 
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 
 from agent_composer.nodes.agent.modes.common import AgentRunContext
 from agent_composer.nodes.agent.modes.tool_calling import agent_step
-from agent_composer.nodes.base import Output, Enqueue
+from agent_composer.nodes.base import Grow, Output
 
 
 class _Chat:
@@ -45,13 +45,14 @@ def test_agent_step_entry_always_invokes_model_once():
     assert chat.calls == 1                  # exactly one model turn
 
 
-def test_agent_step_control_call_returns_enqueue_pair_no_scratch():
+def test_agent_step_control_call_returns_grow_pair_no_scratch():
     chat = _Chat([_ai_call("ask_user", {"question": "ok?"})])
     ctx = _ctx(chat, controls=["ask_user"])
     msgs = [SystemMessage(content="s"), HumanMessage(content="go")]
     res = agent_step(msgs, None, 0, ctx)
-    assert isinstance(res, Enqueue)
-    hi, resume = res.target            # the continuation PAIR
+    assert isinstance(res, Grow)
+    hi = res.seed["hi_desc"]           # the continuation PAIR rides on Grow.seed
+    resume = res.seed["resume_desc"]
     assert hi["kind"] == "human_input" and hi["prompt"] == "ok?"
     assert hi["slot"] == "q1"
     assert resume["kind"] == "resume_agent"

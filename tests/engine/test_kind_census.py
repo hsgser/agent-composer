@@ -48,9 +48,12 @@ CORE_MODULES = {
 # + the cloned spawner-eligible `_SPAWNER_KINDS` stamp) that COEXISTS with the still-live legacy
 # `_apply_enqueue`/`_grow_call` replay path. Rose to 23 during the MAP->Grow migration: the live
 # MAP path adds a `_grow_residual` MAP arm (`NodeKind.MAP`) + a `_grow_map_residual` with the same
-# spawner-eligible `_SPAWNER_KINDS` stamp. The residuals + the legacy arms are all deleted in the
-# final sub-phase, which drops the ceiling below 20.)
-BASELINE = 23
+# spawner-eligible `_SPAWNER_KINDS` stamp. Rose to 26 during the AGENT->Grow migration: the live
+# AGENT path adds a `_grow_residual` AGENT arm (`NodeKind.AGENT`) + a `_grow_agent_residual` with
+# the three-branch `isinstance(parent_desc, AgentExpansion)` ledger + the BOTH-id spawner-eligible
+# `_SPAWNER_KINDS` stamp. The residuals + the legacy arms are all deleted in the final sub-phase,
+# which drops the ceiling below 20.)
+BASELINE = 26
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

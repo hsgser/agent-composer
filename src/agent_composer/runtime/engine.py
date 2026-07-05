@@ -1080,6 +1080,8 @@ class FlowEngine:
             self._grow_call_residual(spawner_id, grow)
         elif spawner.kind == NodeKind.MAP:
             self._grow_map_residual(spawner_id, grow)
+        elif spawner.kind == NodeKind.AGENT:
+            self._grow_agent_residual(spawner_id, grow)
 
     def _grow_call_residual(self, spawner_id, grow):
         """CALL residual — reproduces `_grow_call` + the `_apply_enqueue` CALL arm's per-kind policy
@@ -1220,6 +1222,63 @@ class FlowEngine:
 
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
+
+    def _grow_agent_residual(self, spawner_id, grow):
+        """AGENT residual — reproduces `_grow_agent_segment` + the `_apply_enqueue` AGENT arm's
+        per-kind policy on the live `Grow` path (the generic core already spliced+registered+
+        scheduled the human_input leaf root). Preserves, exactly and in the legacy ORDER: the
+        three-branch AgentExpansion ledger; the BOTH-id `_spawner_expansion` retention (keep-ALL,
+        NO pop); the origin OVERRIDE of the builder's provisional `commit_as`; the one
+        finish/mark-EXPANDED; and the UNCHANGED depth carry (an agent pausing K times is NOT
+        recursion — no `+1`, no `MAX_REF_DEPTH`).
+
+        The resume terminal id is recovered deterministically via the ns convention
+        (`ns(spawner_id, "__resume#" + hi_desc["slot"])`, matching `clone_continuation_pair`), so
+        `Grow`/`Subgraph` need no extra field. `grow.seed` carries the PAIR (`hi_desc`/`resume_desc`)
+        for the transitional ledger + slot recovery."""
+        spawner = self.flow.nodes[spawner_id]
+        hi_desc = grow.seed["hi_desc"]
+        resume_desc = grow.seed["resume_desc"]
+        out_id = ns(spawner_id, "__resume#" + hi_desc["slot"])   # the resume terminal (ns convention)
+        assert out_id in grow.subgraph.nodes
+
+        # TRANSITIONAL (P3.5): the AgentExpansion ledger — THREE branches (exactly the
+        # `_apply_enqueue` AGENT arm). Parent-pointer is the SOLE lookup: multi-pause appends a
+        # segment to the SAME AgentExpansion; a first AGENT pause nested under a CALL/MAP parent
+        # attaches under it; a top-level first pause joins `self.expansions`.
+        from agent_composer.suspension.expansions import AgentExpansion, AgentSegment
+        segment = AgentSegment(hi_desc=hi_desc, resume_desc=resume_desc)
+        parent_desc = self._spawner_expansion.get(spawner_id)
+        if isinstance(parent_desc, AgentExpansion):
+            parent_desc.segments.append(segment)                 # multi-pause: append to same descriptor
+            desc = parent_desc
+        elif parent_desc is not None:
+            desc = AgentExpansion(spawner_id=spawner_id, segments=[segment])
+            _append_child(parent_desc, desc)                     # first pause nested under CALL/MAP
+        else:
+            desc = AgentExpansion(spawner_id=spawner_id, segments=[segment])
+            self.expansions.append(desc)                         # top-level first pause
+
+        # BOTH-id retention (keep-ALL, NO pop): stamp the spawner_id (idempotent for segment 2+)
+        # AND the resume id (the NEXT segment's spawner). Also any spawner-eligible cloned subnodes
+        # (today none) for parity with `_grow_agent_segment`.
+        self._spawner_expansion[spawner_id] = desc
+        self._spawner_expansion[out_id] = desc
+        for nid, node in grow.subgraph.nodes.items():
+            if node.kind in _SPAWNER_KINDS:
+                self._spawner_expansion[nid] = desc
+
+        # Origin OVERRIDE of the builder's provisional `commit_as`: re-point the resume terminal so
+        # the FINAL non-pausing Output commits under the ORIGINAL spawner id (multi-pause chaining).
+        # The origin is read off the PREVIOUS segment's baked `commit_as` (the spawner node for
+        # segment 0; the prior resume node for segment 2+), falling back to `spawner_id`.
+        origin = spawner.commit_as or spawner_id
+        self.flow.nodes[out_id].commit_as = origin
+
+        self.sm.finish_executing(spawner_id)
+        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
+        # INVARIANT: the resume filler carries the PARENT depth UNCHANGED (no `+1`).
+        self.depth[out_id] = self.depth.get(spawner_id, 0)
 
     def _apply_enqueue(self, spawner_id: str, enqueues: list) -> None:
         """Grow the live graph from a spawner's Enqueue(s) (the dispatcher's sole-writer

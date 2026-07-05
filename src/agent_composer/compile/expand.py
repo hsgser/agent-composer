@@ -335,3 +335,30 @@ def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: 
         roots=[hi_id],
         out_node_id=resume_id,
     )
+
+
+def agent_segment_subgraph(pair, callsite: str, *, output_shape=None, retries: int = 2) -> Subgraph:
+    """The pure AGENT-pause builder: the continuation fragment an AGENT grows into when it pauses.
+
+    Wraps `clone_continuation_pair` (the deep-namespaced clone of the `[human_input, resume]` PAIR
+    at `callsite`) and returns a `Subgraph`. Its `roots` is the `human_input` leaf (a 0-incoming
+    ROOT, so the engine's leaf-pause path applies and the `HumanInputRequired.node_id` is the
+    namespaced `hi_id`); the resume node is its terminal. Every cloned id is `ns(callsite, …)`-
+    prefixed (`hi_id = ns(callsite, hi_desc["node_id"])`, `resume_id = ns(callsite,
+    "__resume#" + hi_desc["slot"])`).
+
+    Bakes a PROVISIONAL `commit_as=callsite` on the resume terminal. This is NOT the final
+    commit target: a multi-pause chain routes the FINAL non-pausing Output back to the ORIGINAL
+    spawner, so the engine residual OVERRIDES this provisional value with the true origin (read
+    off the previous segment's baked `commit_as`). The builder is pure and cannot see the prior
+    segment, so it bakes the local callsite and lets the engine chain the origin. The terminal id
+    (`clone_continuation_pair`'s `out_node_id`) is kept only as a LOCAL — it is derivable from the
+    subgraph as `ns(callsite, "__resume#" + hi_desc["slot"])` and is NOT a `Subgraph` field.
+
+    `output_shape`/`retries` carry the SPAWNER's declared output Shape + self-correction cap onto
+    the resume node (see `clone_continuation_pair`), so a resumed agent with a non-text `output:`
+    still emits the declared shape on its final turn and the shape propagates segment to segment."""
+    cloned = clone_continuation_pair(pair, callsite=callsite, output_shape=output_shape, retries=retries)
+    out_node_id = cloned.out_node_id                 # local only: the resume terminal (== ns(callsite, "__resume#"+slot))
+    cloned.nodes[out_node_id].commit_as = callsite   # PROVISIONAL: the engine residual overrides it to the true origin
+    return Subgraph(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring, roots=cloned.roots)
