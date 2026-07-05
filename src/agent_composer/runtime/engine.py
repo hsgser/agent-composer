@@ -598,14 +598,13 @@ class FlowEngine:
         self.sm.finish_executing(node_id)
         self.paused.append((node_id, reason))
 
-    def _prune_iteration(self, spawner_id: str, iteration: int) -> None:
-        """Drop a fully-committed loop iteration's `f"{spawner}#{iteration}/"` namespace from the
-        LIVE overlay (bounds a long loop's node budget) by handing that id-set to the generic
-        `_prune`. A thin loop-driver wrapper over `_prune`; callers migrate to `_prune` directly
-        with the finished-iteration id-set in the next step. NOT touched: the `loop_iter`/`loop_desc`
-        maps (keyed by the bare `spawner_id`) and the `GrowRecord` ledger — durable replay metadata."""
+    def _iteration_ids(self, spawner_id: str, iteration: int) -> "frozenset[str]":
+        """The live-overlay id-set of one loop iteration — every node under the `f"{spawner}#{i}/"`
+        callsite namespace. Loop-driver helper: the finished iteration's id-set is what `_loop_step`
+        hands to `_prune` (on terminate) or folds into the next iteration's `Grow.prune` (on
+        continue). A single source for the prefix match so the two arms never duplicate the string."""
         prefix = f"{map_callsite(spawner_id, iteration)}/"    # f"{spawner}#{iteration}/"
-        self._prune(frozenset(n for n in self.flow.nodes if n.startswith(prefix)))
+        return frozenset(n for n in self.flow.nodes if n.startswith(prefix))
 
     def _prune(self, ids: "frozenset[str]") -> None:
         """Kind-BLIND retirement of a named id-set — the generic inverse of `_apply_grow`'s splice.
@@ -659,9 +658,9 @@ class FlowEngine:
         #   until  — DO-WHILE: continue while the predicate is FALSE; stop once it is TRUE.
         #   times  — fixed count: continue while fewer than N bodies have run. `loop_iter`
         #            holds the JUST-FINISHED iteration index i (0-based), so i+1 bodies have
-        #            run; continue iff `(i + 1) < max_iters` (max_iters == N). No predicate.
+        #            run; continue iff the NEXT index `i+1` has not reached the budget. No predicate.
         if loop.predicate_kind == "times":
-            cont = (self.loop_iter[spawner_id] + 1) < loop.max_iters
+            cont = not loop.should_stop(self.loop_iter[spawner_id] + 1)
         else:
             try:
                 truth = evaluate_when_record(loop.predicate, next_record)
@@ -677,28 +676,29 @@ class FlowEngine:
         if cont:
             finished = self.loop_iter[spawner_id]   # the iteration whose body END just fired
             nxt = finished + 1
-            if nxt >= loop.max_iters:
+            if loop.should_stop(nxt):
                 raise NodeExecutionError(
                     spawner_id, f"loop {spawner_id!r} exceeded max ({loop.max_iters})",
                     "LoopMaxExceeded",
                     locator=SourceSpan(node=spawner_id, kind="field", key="max"),
                 )
+            # `next_record` threads into the freshly grown `#nxt` seed, so the just-finished
+            # `#finished` iteration becomes dead overlay. Fold its prune INTO the grow: `_apply_grow`
+            # splices `#nxt` first, then retires `dead` — the next iteration's ids never overlap the
+            # finished ones (distinct `#k` namespaces), so splice-then-prune is safe, and a
+            # budget/predicate raise inside the grow leaves `#finished` intact for the located
+            # failure (the prune runs only after a successful splice).
+            dead = self._iteration_ids(spawner_id, finished)
             try:
                 self._apply_grow(
                     spawner_id,
                     Grow(loop_iteration_subgraph(loop.child, spawner_id, next_record, nxt),
-                         seed=(next_record, nxt)),
+                         prune=dead, seed=(next_record, nxt)),
                 )
             except NodeExecutionError:
                 raise
             except Exception as exc:  # noqa: BLE001 — boundary: any grow error -> RunFailed
                 raise NodeExecutionError(spawner_id, str(exc), type(exc).__name__)
-            # `next_record` is now threaded into the freshly grown `#nxt` seed, so the just-
-            # finished `#finished` iteration is dead overlay — prune it to bound the node budget.
-            # ONLY after the grow succeeds: a budget/predicate raise above must leave `#finished`
-            # intact for the located failure, and pruning before the grow would drop the carried
-            # record's predecessor before it threads forward.
-            self._prune_iteration(spawner_id, finished)
             return
         # Predicate false: terminate. Commit the final carried record under the spawner id
         # (same SegmentError -> NodeExecutionError guard the redirect-commit tail uses) and fire
@@ -711,11 +711,11 @@ class FlowEngine:
                 locator=SourceSpan(node=spawner_id, kind="field", key="output"),
             )
         # The carried record now lives under the bare `spawner_id`, so the just-finished final
-        # iteration is dead overlay — prune it. `loop_iter[spawner_id]` is that index (no grow
-        # happened on terminate). ONLY after the commit succeeds: a SegmentError above must leave
-        # the iteration intact for the located failure, and `#finished`'s record has already
-        # threaded to the spawner id, so the downstream `_advance` reads the committed value.
-        self._prune_iteration(spawner_id, self.loop_iter[spawner_id])
+        # iteration is dead overlay — prune it directly (no grow on terminate). `loop_iter[spawner_id]`
+        # is that index. ONLY after the commit succeeds: a SegmentError above must leave the
+        # iteration intact for the located failure, and `#finished`'s record has already threaded to
+        # the spawner id, so the downstream `_advance` reads the committed value.
+        self._prune(self._iteration_ids(spawner_id, self.loop_iter[spawner_id]))
         for nid in self._advance(spawner_id):
             self._schedule(nid)
 

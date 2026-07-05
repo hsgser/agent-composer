@@ -314,9 +314,9 @@ def test_until_stops_when_predicate_becomes_true():
     assert result.output == {"n": 0}            # 3 -> 2 -> 1 -> 0, then n<=0 true -> stop
 
 
-def test_prune_iteration_drops_all_live_overlay_traces():
-    """`_prune_iteration(spawner, i)` clears EVERY live-overlay trace of iteration `#i` — its
-    nodes/edges, sm state (node_state/edge_state/executing), pool entries, and the loop-back
+def test_prune_drops_all_live_overlay_traces():
+    """The generic `_prune(ids)` clears EVERY live-overlay trace of the named id-set — an iteration
+    `#i`'s nodes/edges, sm state (node_state/edge_state/executing), pool entries, and the loop-back
     filler's baked `commit_as` (which rides on the node, so `remove_subgraph` drops it) — while
     leaving the durable loop `GrowRecord` ledger untouched and the spawner id (no `#i` prefix) alone.
 
@@ -347,7 +347,7 @@ def test_prune_iteration_drops_all_live_overlay_traces():
     # The loop GrowRecord's seed is the LIVE iteration's `(record, index)` pair.
     record_before, index_before = loop_desc.seed
 
-    engine._prune_iteration(spawner, 0)
+    engine._prune(frozenset(n for n in engine.flow.nodes if n.startswith(prefix)))
 
     # Every per-id registry is clean for the `#0/` prefix. The commit redirect rode on the
     # body-END filler node, so `flow.nodes` being clean (above) already proves it is gone.
