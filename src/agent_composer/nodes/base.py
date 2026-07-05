@@ -165,6 +165,15 @@ class Node(ABC):
     # `caps['bind_item']`; when False (the common case) it binds `params` once from the pool.
     # Overridden True by MapNode; every other kind binds up front.
     binds_per_item: ClassVar[bool] = False
+    # REF-depth policy for the engine's growth core. The depth stamped on a grow's subgraph
+    # spawners + its terminal is `parent_depth + grow_depth_delta`; a positive delta is also
+    # bounded by MAX_REF_DEPTH. Possible values:
+    #   None  — this grow is NOT REF recursion; the core does NO depth work (LOOP: bounded by
+    #           max_iters + MAX_TOTAL_NODES, not depth).
+    #   0     — carry the parent depth UNCHANGED, no bound (AGENT: a K-pause chain is one call).
+    #   1     — a nested call, +1 and bounded (CALL/MAP: each child is one deeper level).
+    # Overridden by CALL/MAP (1) and AGENT (0); the default None fits LOOP + any non-spawner.
+    grow_depth_delta: ClassVar[Optional[int]] = None
 
     def __init__(
         self,

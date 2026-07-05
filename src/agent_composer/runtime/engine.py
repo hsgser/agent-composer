@@ -782,7 +782,12 @@ class FlowEngine:
         # replay (`schedule=False`) — the paused run already passed the check.
         if schedule:
             self._check_boundary_asserts(spawner_id, grow.seed)
-        # per-kind residual: depth/refdepth stamping, loop retention.
+        # REF-depth stamping (kind-blind, driven by the `grow_depth_delta` trait): stamp the derived
+        # depth on every spawner in the spliced subgraph AND its terminal(s), and bound a positive
+        # delta by MAX_REF_DEPTH. A None delta (LOOP, non-REF) is a no-op. Runs before the residual
+        # so a depth-budget raise leaves no ledger attach.
+        self._stamp_grow_depth(spawner_id, grow, schedule=schedule)
+        # per-kind residual: stamps, loop retention.
         self._grow_residual(spawner_id, grow, rec, schedule=schedule)
         # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
         # has run and expanded, so it finishes executing and enters EXPANDED. Idempotent for a loop
@@ -801,6 +806,36 @@ class FlowEngine:
         if schedule:
             for root in sg.roots:
                 self._schedule(root)
+
+    def _derived_terminals(self, sg, spawner_id) -> list:
+        """The subgraph's terminal filler id(s) — kind-BLIND: the node(s) whose baked
+        `commit_as == spawner_id` (a CALL/MAP/LOOP self-commit terminal, or an AGENT resume
+        terminal's PROVISIONAL commit). The growth core reuses this handle for depth stamping,
+        `_spawner_expansion` stamping, and the AGENT origin `commit_as` override, so none of them
+        names the terminal by kind (`ns(spawner, END_ID)` / `__resume#`)."""
+        return [nid for nid, node in sg.nodes.items() if node.commit_as == spawner_id]
+
+    def _stamp_grow_depth(self, spawner_id, grow, *, schedule) -> None:
+        """Kind-blind REF-depth stamp, driven by the spawner's `grow_depth_delta` trait. `None`
+        delta -> no depth work. Else `d = depth.get(spawner_id, 0) + delta`; a positive delta is
+        bounded by MAX_REF_DEPTH (raise gated on `schedule` — replay re-derives depth top-down
+        without re-tripping). Stamp `d` on every `is_spawner` node in the spliced subgraph AND on
+        the derived terminal(s) (they carry the depth)."""
+        spawner = self.flow.nodes[spawner_id]
+        delta = spawner.grow_depth_delta
+        if delta is None:
+            return
+        sg = grow.subgraph
+        d = self.depth.get(spawner_id, 0) + delta
+        if schedule and delta > 0 and d > MAX_REF_DEPTH:
+            raise RuntimeError(
+                f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
+            )
+        for nid, node in sg.nodes.items():
+            if node.is_spawner:
+                self.depth[nid] = d
+        for term in self._derived_terminals(sg, spawner_id):
+            self.depth[term] = d
 
     def _check_boundary_asserts(self, spawner_id, seed) -> None:
         """Kind-blind eager boundary check: for each `(record, label)` the spawner names via
@@ -858,26 +893,15 @@ class FlowEngine:
 
         The filler id is recovered from the spliced subgraph via the `ns(callsite, END_ID)`
         convention (callsite == spawner_id), so `Grow`/`Subgraph` need no extra field."""
-        spawner = self.flow.nodes[spawner_id]
         sg = grow.subgraph
         filler_id = ns(spawner_id, END_ID)          # the cloned child END filler (ns convention)
 
-        # REF depth bound (kind-shaped; a later phase removes it). The raise is gated on `schedule` —
-        # replay re-derives depth top-down without re-tripping the guard.
-        d = self.depth.get(spawner_id, 0) + 1
-        if schedule and d > MAX_REF_DEPTH:
-            raise RuntimeError(
-                f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
-            )
-
         # Stamp `_spawner_expansion` at `rec` on the cloned spawner-eligible nodes (a nested
         # REF/MAP/AGENT nests under THIS record) + on the filler (the CALL post-assert record
-        # recovery keys off it); stamp depth on those + the filler (the filler carries the depth).
+        # recovery keys off it).
         for nid, node in sg.nodes.items():
             if node.is_spawner:
-                self.depth[nid] = d
                 self._spawner_expansion[nid] = rec
-        self.depth[filler_id] = d                    # the filler carries the depth
         self._spawner_expansion[filler_id] = rec
 
     def _grow_map_residual(self, spawner_id, grow, rec, *, schedule):
@@ -892,22 +916,12 @@ class FlowEngine:
 
         The list-END filler id is `ns(spawner_id, END_ID)` (the ns convention)."""
         sg = grow.subgraph
-        map_end_id = ns(spawner_id, END_ID)          # the list-END filler (ns convention)
 
-        # REF depth bound (kind-shaped; a later phase removes it); the raise is gated on `schedule`.
-        d = self.depth.get(spawner_id, 0) + 1
-        if schedule and d > MAX_REF_DEPTH:
-            raise RuntimeError(
-                f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
-            )
-
-        # Stamp depth + `_spawner_expansion` (at `rec`) on each cloned spawner-eligible ELEMENT node
-        # so a nested REF/MAP/AGENT nests under THIS record; stamp depth on the list-END filler.
+        # Stamp `_spawner_expansion` (at `rec`) on each cloned spawner-eligible ELEMENT node so a
+        # nested REF/MAP/AGENT nests under THIS record.
         for nid, node in sg.nodes.items():
             if node.is_spawner:
-                self.depth[nid] = d
                 self._spawner_expansion[nid] = rec
-        self.depth[map_end_id] = d                   # the list-END filler carries the depth
 
     def _grow_agent_residual(self, spawner_id, grow, rec, *, schedule):
         """AGENT residual — the per-kind policy on the live `Grow` path (the generic core already
@@ -941,9 +955,6 @@ class FlowEngine:
         # first pause; the prior resume node for a re-pause), falling back to `spawner_id`.
         origin = spawner.commit_as or spawner_id
         self.flow.nodes[out_id].commit_as = origin
-
-        # INVARIANT: the resume filler carries the PARENT depth UNCHANGED (no `+1`).
-        self.depth[out_id] = self.depth.get(spawner_id, 0)
 
     def _grow_loop_residual(self, spawner_id, grow, rec, *, schedule):
         """LOOP residual — the per-iteration bookkeeping beyond the generic splice/schedule (the
