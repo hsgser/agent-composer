@@ -45,3 +45,25 @@ def test_eval_node_omits_llm_cap_for_plain_node():
     list(eval_node(node, None, TypedVariablePool(), llm=lambda cfg: object()))
     assert "llm" not in seen["caps"]
 
+
+def test_flow_engine_default_llm_is_lazy_thunk():
+    from agent_composer.compile.model import CompiledFlow
+    from agent_composer.runtime.engine import FlowEngine
+    from tests.engine._fakes import FuncNode
+
+    flow = CompiledFlow(nodes={"n": FuncNode("n", lambda p: {})}, edges=[])
+    eng = FlowEngine(flow)
+    assert eng.llm is _default_llm
+
+
+def test_flow_engine_uses_explicit_llm():
+    from agent_composer.compile.model import CompiledFlow
+    from agent_composer.runtime.engine import FlowEngine
+    from tests.engine._fakes import FuncNode
+
+    flow = CompiledFlow(nodes={"n": FuncNode("n", lambda p: {})}, edges=[])
+    sentinel = lambda cfg: object()
+    eng = FlowEngine(flow, llm=sentinel)
+    assert eng.llm is sentinel
+
+

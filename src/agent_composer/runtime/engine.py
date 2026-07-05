@@ -141,6 +141,7 @@ class FlowEngine:
         num_workers: int = 0,
         run_inputs: Optional[dict] = None,
         boundary_asserts: Optional[list] = None,
+        llm=None,
     ) -> None:
         self.flow = flow
         self.pool = pool if pool is not None else TypedVariablePool()
@@ -153,6 +154,11 @@ class FlowEngine:
         # Both default to None for direct-FlowEngine tests that hand-seed store[START_ID].
         self.run_inputs = run_inputs
         self.boundary_asserts = list(boundary_asserts or [])
+        # The LLM-client provider handed to LLM-backed nodes via caps['llm'] (the node no
+        # longer imports the factory). Default = the lazy package-lookup thunk so a
+        # monkeypatched `model_from_config` is honored on the direct + engine paths alike.
+        from agent_composer.runtime.eval_node import _default_llm
+        self.llm = llm if llm is not None else _default_llm
         self.ready: deque[str] = deque()  # serial path; also the serial _ready_snapshot arm
         if self.num_workers >= 1:
             self.ready_q: "queue.Queue[str]" = queue.Queue()
@@ -485,7 +491,7 @@ class FlowEngine:
         node = self.flow.nodes[node_id]
         succeeded: Optional[NodeSucceeded] = None
         routed: Optional[NodeRouted] = None
-        for event in eval_node(node, self.flow, self.pool):
+        for event in eval_node(node, self.flow, self.pool, self.llm):
             yield event
             if isinstance(event, NodeSucceeded):
                 succeeded = event
@@ -561,7 +567,7 @@ class FlowEngine:
                 continue
             node = self.flow.nodes[node_id]
             try:
-                for event in eval_node(node, self.flow, self.pool):
+                for event in eval_node(node, self.flow, self.pool, self.llm):
                     self.event_q.put(event)
             except Exception as exc:  # noqa: BLE001 — never let a worker die silently
                 self.event_q.put(NodeFailed(node_id, str(exc), type(exc).__name__))
