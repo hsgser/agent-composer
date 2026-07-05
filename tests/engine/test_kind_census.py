@@ -43,17 +43,16 @@ CORE_MODULES = {
 # LOWER this as each refactor phase removes dispatch; the final phase drives it to 0.
 # (Measured at P0 baseline 20; dropped to 19 when the `eval_node` grow guard moved from a
 # `node.kind not in _SPAWNER_KINDS` membership test to the kind-blind `not node.is_spawner`.
-# Rose to 21 during the CALL->Grow migration: the live CALL path now grows via the labelled
-# `_grow_residual` CALL arm — a census-counted kind-shaped residual (its `NodeKind.CALL` check
-# + the cloned spawner-eligible `_SPAWNER_KINDS` stamp) that COEXISTS with the still-live legacy
-# `_apply_enqueue`/`_grow_call` replay path. Rose to 23 during the MAP->Grow migration: the live
-# MAP path adds a `_grow_residual` MAP arm (`NodeKind.MAP`) + a `_grow_map_residual` with the same
-# spawner-eligible `_SPAWNER_KINDS` stamp. Rose to 26 during the AGENT->Grow migration: the live
-# AGENT path adds a `_grow_residual` AGENT arm (`NodeKind.AGENT`) + a `_grow_agent_residual` with
-# the three-branch `isinstance(parent_desc, AgentExpansion)` ledger + the BOTH-id spawner-eligible
-# `_SPAWNER_KINDS` stamp. The residuals + the legacy arms are all deleted in the final sub-phase,
-# which drops the ceiling below 20.)
-BASELINE = 27
+# Rose through the CALL/MAP/AGENT->Grow migrations to 27 while the live `_grow_residual` arms
+# COEXISTED with the legacy `_apply_enqueue`/`_grow_*` replay path + the `*Expansion` union
+# isinstance dispatch. P3.5 unified the durability ledger to a single `GrowRecord` and made
+# replay kind-blind: the `*Expansion` union + its isinstance dispatch and the legacy
+# `_grow_call`/`_grow_map`/`_grow_agent` replay bodies are gone, dropping the ceiling to 13.
+# The 13 that remain are all deleted in P3.6+: the `_grow_residual` kind dispatch (4 arms), the
+# spawner-eligible `_SPAWNER_KINDS` stamps in the residuals (3), the `_apply_enqueue` LOOP guard,
+# the CALL post-assert check, plus 4 eval_node sites (`_SPAWNER_KINDS` def, MAP over-mode, WAIT,
+# END).)
+BASELINE = 13
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

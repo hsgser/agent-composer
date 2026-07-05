@@ -217,3 +217,21 @@ class AgentNode(Node):
         # conversation and runs the loop.
         ctx = self._ctx(prompt=render_template_record(self.entry.prompt, inputs))
         return MODES[self.mode](ctx)
+
+    def replay_grow(self, seed: Any):
+        """Durable-replay inverse of the agent's pause `Grow`: rebuild ONE continuation segment's
+        subgraph from the persisted `{hi_desc, resume_desc}` seed via the SAME
+        `agent_segment_subgraph` builder — no LLM turn re-run. The seed is re-validated through the
+        `AgentSegment` schema so the re-entry frame keeps its round-trip validation. For a K-pause
+        chain each segment's resume terminal becomes the next segment's spawner, so `callsite`/
+        `output_shape` come off THIS node (the previous segment's terminal on segment 2+)."""
+        from agent_composer.compile.expand import agent_segment_subgraph
+        from agent_composer.suspension.expansions import AgentSegment
+
+        seg = AgentSegment.model_validate(seed)
+        return agent_segment_subgraph(
+            [seg.hi_desc, seg.resume_desc],
+            callsite=self.id,
+            output_shape=self.output_shape,
+            retries=self.retries,
+        )

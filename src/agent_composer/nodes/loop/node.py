@@ -6,6 +6,7 @@ The node itself is pure and stateless — it never decides whether to iterate.
 """
 from typing import Any, ClassVar, Optional
 
+from agent_composer.compile.expand import loop_iteration_subgraph
 from agent_composer.nodes.base import Enqueue, Node, NodeKind
 
 
@@ -58,3 +59,12 @@ class LoopNode(Node):
         if self.child is None:
             raise RuntimeError(f"loop node {self.id!r} was not baked with a body child")
         return Enqueue(self.child, dict(inputs))
+
+    def replay_grow(self, seed: Any):
+        """Durable-replay inverse of one iteration's `Grow`: rebuild the LIVE iteration's body
+        subgraph from the persisted `(record, index)` seed via the SAME `loop_iteration_subgraph`
+        builder — no body re-run. Only the live iteration is ever recorded (superseded iterations
+        are pruned from the ledger), so `seed` re-grows exactly that one iteration at its index. The
+        seed round-trips through JSON as a 2-element list, so unpacking covers tuple and list."""
+        record, iteration = seed
+        return loop_iteration_subgraph(self.child, self.id, dict(record), iteration)

@@ -231,10 +231,10 @@ def map_subgraph(child, spawner_id: str, records: list) -> Subgraph:
     `commit_as=spawner_id`, so its list Output commits under the spawner on the success path.
 
     N=0: the only node is the list-END (`EndNode.list_(n=0)`); it has 0 incoming edges, so it MUST
-    be a root to schedule and emit `[]` (legacy `_grow_map` schedules `map_end_id` when `not
-    records`). The boundary asserts stay on the per-element `ClonedSubgraph` and are re-derived
-    engine-side (the residual reads each element's raw START record view), so they are not carried on
-    the returned `Subgraph`."""
+    be a root to schedule and emit `[]` (the empty-`over` case: with no per-element clones, the
+    list-END is the sole root). The boundary asserts stay on the per-element `ClonedSubgraph` and are
+    re-derived engine-side (the residual reads each element's raw START record view), so they are not
+    carried on the returned `Subgraph`."""
     map_end_id = ns(spawner_id, END_ID)                  # the END_ID-list filler
     nodes: dict[str, Node] = {}
     edges: list[Edge] = []

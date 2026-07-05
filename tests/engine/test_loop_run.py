@@ -318,7 +318,7 @@ def test_prune_iteration_drops_all_live_overlay_traces():
     """`_prune_iteration(spawner, i)` clears EVERY live-overlay trace of iteration `#i` — its
     nodes/edges, sm state (node_state/edge_state/executing), pool entries, and the loop-back
     filler's baked `commit_as` (which rides on the node, so `remove_subgraph` drops it) — while
-    leaving the durable `LoopExpansion` ledger untouched and the spawner id (no `#i` prefix) alone.
+    leaving the durable loop `GrowRecord` ledger untouched and the spawner id (no `#i` prefix) alone.
 
     Deterministic grown-#0 setup: drive `LOOP_CHAT` to its first pause. The body's `human_input`
     leaf parks the run with iteration #0 fully grown (its `#0/` nodes registered, the START seed
@@ -344,7 +344,8 @@ def test_prune_iteration_drops_all_live_overlay_traces():
     # Snapshot the durable ledger BEFORE pruning — it must survive untouched.
     ledger_len = len(engine.expansions)
     loop_desc = engine.loop_desc[spawner]
-    records_before = [dict(rec) for rec in loop_desc.records]
+    # The loop GrowRecord's seed is the LIVE iteration's `(record, index)` pair.
+    record_before, index_before = loop_desc.seed
 
     engine._prune_iteration(spawner, 0)
 
@@ -360,10 +361,10 @@ def test_prune_iteration_drops_all_live_overlay_traces():
     assert not any(e.from_.startswith(prefix) or e.to.startswith(prefix)
                    for e in engine.flow.edges)
 
-    # The durable LoopExpansion ledger is UNTOUCHED — replay needs it intact.
+    # The durable GrowRecord ledger is UNTOUCHED — replay needs it intact.
     assert len(engine.expansions) == ledger_len
     assert engine.loop_desc[spawner] is loop_desc
-    assert [dict(rec) for rec in loop_desc.records] == records_before
+    assert loop_desc.seed == (dict(record_before), index_before)
 
     # The spawner id itself (no `#i` prefix) is NOT pruned — live loop bookkeeping stays.
     assert engine.loop_iter[spawner] == 0

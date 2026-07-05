@@ -35,7 +35,7 @@ def test_apply_grow_splices_registers_and_schedules(monkeypatch):
     grow = _one_node_grow("s")
     child_id = "s/leaf"
     # Keep the residual a no-op (its per-kind body is filled by the spawner-migration phases).
-    monkeypatch.setattr(eng, "_grow_residual", lambda spawner_id, g: None)
+    monkeypatch.setattr(eng, "_grow_residual", lambda spawner_id, g, rec, schedule=True: None)
 
     eng._apply_grow("s", grow)
 
@@ -51,7 +51,7 @@ def test_apply_grow_schedule_false_suppresses_scheduling(monkeypatch):
     eng = _parent_engine()
     grow = _one_node_grow("s")
     child_id = "s/leaf"
-    monkeypatch.setattr(eng, "_grow_residual", lambda spawner_id, g: None)
+    monkeypatch.setattr(eng, "_grow_residual", lambda spawner_id, g, rec, schedule=True: None)
 
     eng._apply_grow("s", grow, schedule=False)
 

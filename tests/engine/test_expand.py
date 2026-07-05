@@ -1,9 +1,9 @@
-"""Enqueue runtime graph expansion: REF/MAP.
+"""Runtime graph expansion: eval_node Enqueue routing + the live CALL/MAP Grow path.
 
-Pins the `eval_node` -> `NodeExpanded` routing (a spawner kind returning an
-`Enqueue`/`list[Enqueue]` grows the live graph; a non-spawner kind fails loud), and the
-dispatcher's `_apply_enqueue` REF arm (clone the child namespaced, substitute the spawner's
-value, fire its out-edges).
+Pins the `eval_node` -> `NodeExpanded` routing (a spawner returning an `Enqueue`/`list[Enqueue]`
+grows the live graph; a non-spawner kind fails loud), and the live CALL Grow path through the
+engine's generic `_apply_grow` (clone the child namespaced, substitute the spawner's value via the
+`commit_as` filler, fire its out-edges) plus the runtime bounds (MAX_TOTAL_NODES / MAX_REF_DEPTH).
 """
 
 from agent_composer.events import NodeExpanded, NodeStarted
@@ -119,50 +119,40 @@ def _child_flow():
 
 
 def _parent_with_spawner(child, record):
-    # spawner "sp" returns Enqueue(child, record); successor "after" reads ${sp.output}.
-    sp = EnqueueNode("sp", Enqueue(child, record))
+    # spawner "sp" is a real CALL returning Grow(child subgraph); successor "after" reads ${sp.output}.
+    # The call-args come from stamped `${input.<k>}` reads for each key in `record`, so the test
+    # seeds them via `run_inputs=record`. The parent declares matching input decls.
+    from agent_composer.nodes.call.node import CallNode
+    sp = CallNode("sp", flow_id="child", child=child,
+                  child_inputs=child.nodes[child.start_id].params)
+    stamp_reads(sp, {k: f"${{input.{k}}}" for k in record})
     after = stamp_reads(FuncNode("after", lambda i: i["v"]), {"v": "${sp.output}"})
     nodes = {"sp": sp, "after": after}
     edges = [Edge("__start__->sp", START_ID, "sp"),
              Edge("sp->after#0", "sp", "after", input_group="v"),
              Edge("after->__end__#0", "after", END_ID)]
     outputs = [FlowOutput("out", "${after.output}")]
-    nodes, edges, wiring = _with_boundary(nodes, edges, outputs)
+    decls = [_idecl(k, "int") for k in record]
+    nodes, edges, wiring = _with_boundary(nodes, edges, outputs, input_decls=decls)
     return CompiledFlow.from_parts(nodes=nodes, edges=edges, outputs=outputs, wiring=wiring)
 
 
-# (7 + 1) * 10 == 80 — a concrete child value flowing through the spawner substitution.
+# (7 + 1) * 10 == 80 — a concrete child value flowing through the spawner substitution. The child
+# has a single output "out", so the committed spawner value unwraps to the bare scalar 80.
 EXPECTED_CHILD_VALUE = 80
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])
-def test_ref_arm_runs_child_namespaced_and_substitutes_spawner(num_workers):
+def test_call_grow_clones_namespaced_and_substitutes_spawner(num_workers):
     parent = _parent_with_spawner(_child_flow(), {"x": 7})
-    eng = FlowEngine(parent, num_workers=num_workers)
+    eng = FlowEngine(parent, run_inputs={"x": 7}, num_workers=num_workers)
     events = list(eng.run())
     assert isinstance(events[-1], RunSucceeded)
-    assert events[-1].output == EXPECTED_CHILD_VALUE     # "after" saw the child's value under "sp"
+    assert events[-1].output == EXPECTED_CHILD_VALUE            # "after" saw the child's value under "sp"
     assert eng.sm.node_state["sp"] == NodeState.EXPANDED
-    assert any(nid.startswith("sp/") for nid in eng.flow.nodes)   # child cloned under "sp/"
-    assert eng.pool.get("sp") == EXPECTED_CHILD_VALUE             # substituted under the spawner id
-    assert eng.flow.nodes["sp/__end__"].commit_as == "sp"        # the redirect filler is the child END_ID
-
-
-@pytest.mark.parametrize("num_workers", [0, 4])
-def test_apply_enqueue_raise_surfaces_as_run_failed(num_workers):
-    # an _apply_enqueue raise must funnel to RunFailed (status=="failed") via the inline
-    # _run_node / pooled _dispatch wrap, NOT escape uncaught out of run(). Every spawner
-    # kind now has an arm, so we trip the funnel via a MALFORMED AGENT target: the AGENT arm
-    # expects a continuation PAIR [human_input_desc, resume_agent_desc] but this Enqueue's target
-    # is a child CompiledFlow, so `clone_continuation_pair`'s `hi, resume = pair` unpack raises
-    # INSIDE _apply_enqueue — exactly the dispatcher-thread raise the wrap must catch.
-    from agent_composer.events import RunFailed
-
-    parent = _parent_with_spawner(_child_flow(), {"x": 7})
-    parent.nodes["sp"].kind = NodeKind.AGENT     # spawner kind; the Enqueue target is not a pair -> raise
-    events = list(FlowEngine(parent, num_workers=num_workers).run())
-    assert isinstance(events[-1], RunFailed)      # clean failed run, not an uncaught exception
-    assert "cannot unpack" in events[-1].error    # the malformed-pair unpack raise, funneled
+    assert any(nid.startswith("sp/") for nid in eng.flow.nodes)          # child cloned under "sp/"
+    assert eng.pool.get("sp") == EXPECTED_CHILD_VALUE                    # substituted under the spawner id
+    assert eng.flow.nodes["sp/__end__"].commit_as == "sp"               # the redirect filler is the child END_ID
 
 
 # --- runtime bounds (MAX_TOTAL_NODES + MAX_REF_DEPTH) + REF-inside-MAP nesting proof ------- #
@@ -317,6 +307,6 @@ def test_over_budget_expansion_trips_max_total_nodes(num_workers):
     from agent_composer.runtime.engine import FlowEngine, MAX_TOTAL_NODES
 
     parent = _parent_with_spawner(_wide_child(MAX_TOTAL_NODES + 10), {"x": 0})  # one clone busts it
-    events = list(FlowEngine(parent, num_workers=num_workers).run())
+    events = list(FlowEngine(parent, run_inputs={"x": 0}, num_workers=num_workers).run())
     assert isinstance(events[-1], RunFailed)            # status=="failed" via the dispatcher wrap
     assert "node budget" in events[-1].error

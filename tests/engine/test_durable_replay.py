@@ -10,12 +10,14 @@ tests pin: the clone+register helpers are deterministic (re-key identically),
 
 from agent_composer.compile.model import END_ID, START_ID, FlowOutput, NodeState
 from agent_composer.events import RunPaused, RunSucceeded
+from agent_composer.nodes.base import Grow
 from agent_composer.nodes.call.node import CallNode
 from agent_composer.nodes.human_input import HumanInputNode
 from agent_composer.nodes.map.node import MapNode
 from agent_composer.runtime.engine import FlowEngine
 from agent_composer.suspension.checkpoint import RunCheckpoint
 from agent_composer.suspension.commands import DeliverAnswerCommand
+from agent_composer.suspension.expansions import GrowRecord
 from tests.engine._fakes import FuncNode, stamp_reads
 from tests.engine._graph_builder import _graph
 from tests.engine.test_engine_expansions_ledger import (
@@ -28,27 +30,28 @@ from tests.engine.test_engine_expansions_ledger import (
 # --- the whole-arm clone+register helpers are deterministic ------------------ #
 
 
-def test_grow_call_re_registers_identical_node_ids():
-    """`_grow_call` re-keys the SAME cloned node ids for the same `(spawner, child, record)`
-    across two fresh engines (the clone is pure: `ns(callsite, child_id)` has no counter)."""
-    from agent_composer.suspension.expansions import CallExpansion
+def _replay_one(engine, spawner_id, seed):
+    """Replay a SINGLE grow the way `_replay_expansions` does — `node.replay_grow(seed)` rebuilds
+    the spawner's own subgraph and `_apply_grow(..., schedule=False, record=rec)` re-splices it with
+    effects suppressed. Returns the reused GrowRecord."""
+    engine.sm.add_executing(spawner_id)
+    rec = GrowRecord(spawner_id=spawner_id, seed=seed, children=[])
+    engine.expansions.append(rec)
+    sg = engine.flow.nodes[spawner_id].replay_grow(seed)
+    engine._apply_grow(spawner_id, Grow(sg, seed=seed), schedule=False, record=rec)
+    return rec
 
-    g1 = call_with_inner_pause()
-    e1 = FlowEngine(g1)
-    bridge1 = e1.flow.nodes["bridge"]
-    e1.sm.add_executing("bridge")
-    d1 = CallExpansion(spawner_id="bridge", record={"payload": "go"}, children=[])
-    e1.expansions.append(d1)
-    e1._grow_call("bridge", bridge1.child, {"payload": "go"}, d1, schedule=False)
+
+def test_grow_call_re_registers_identical_node_ids():
+    """`replay_grow(seed)` + `_apply_grow(schedule=False)` re-keys the SAME cloned node ids for the
+    same `(spawner, child, record)` across two fresh engines (the clone is pure: `ns(callsite,
+    child_id)` has no counter)."""
+    e1 = FlowEngine(call_with_inner_pause())
+    _replay_one(e1, "bridge", {"payload": "go"})
     ids1 = {n for n in e1.flow.nodes if n.startswith("bridge/")}
 
-    g2 = call_with_inner_pause()
-    e2 = FlowEngine(g2)
-    bridge2 = e2.flow.nodes["bridge"]
-    e2.sm.add_executing("bridge")
-    d2 = CallExpansion(spawner_id="bridge", record={"payload": "go"}, children=[])
-    e2.expansions.append(d2)
-    e2._grow_call("bridge", bridge2.child, {"payload": "go"}, d2, schedule=False)
+    e2 = FlowEngine(call_with_inner_pause())
+    _replay_one(e2, "bridge", {"payload": "go"})
     ids2 = {n for n in e2.flow.nodes if n.startswith("bridge/")}
 
     assert ids1 == ids2 and ids1  # identical, non-empty
@@ -230,7 +233,7 @@ def test_durable_map_inner_pause_resumes_on_fresh_flow():
 
 def _map_n0_via_sibling():
     """start -> {empty(MAP over []), ask(HUMAN_INPUT)} -> join -> END_ID. The MAP fires with N=0
-    (emits []) while `ask` parks -> at pause the MapExpansion carries records==[] (N=0)."""
+    (emits []) while `ask` parks -> at pause the map GrowRecord carries seed==[] (N=0)."""
     child = _inner_pause_child()
     empty = MapNode("empty", flow_id="inner_pause_child", child=child,
                     child_inputs=child.nodes[child.start_id].params)
@@ -247,13 +250,11 @@ def _map_n0_via_sibling():
 def test_durable_map_n0_via_sibling_resumes_on_fresh_flow():
     """A MAP over [] that fired before a sibling pause restores + resumes cross-process.
     The replay rebuilds EndNode.list_(n=0) (a 0-incoming root that emits [])."""
-    from agent_composer.suspension.expansions import MapExpansion
-
     proc1 = FlowEngine(_map_n0_via_sibling(), run_inputs={"items": []})
     assert isinstance(list(proc1.run())[-1], RunPaused)
     ckpt = RunCheckpoint.loads(proc1.snapshot().dumps())
-    maps = [e for e in ckpt.expansions if isinstance(e, MapExpansion)]
-    assert len(maps) == 1 and maps[0].records == []        # N=0 descriptor persisted
+    maps = [e for e in ckpt.expansions if e.spawner_id == "empty"]
+    assert len(maps) == 1 and maps[0].seed == []          # N=0 seed (empty records list) persisted
 
     fresh = FlowEngine.restore(_map_n0_via_sibling(), ckpt)
     assert "empty/__end__" in fresh.flow.nodes              # N=0 fan-in node rebuilt
@@ -310,13 +311,12 @@ def test_durable_two_pause_agent_resumes_on_fresh_flow(monkeypatch):
 
 def test_two_hop_agent_resnapshot_ledger_matches_live(monkeypatch):
     """run->snapshot->restore(fresh)->resume-to-2nd-pause->RE-snapshot. The re-snapshot's
-    expansions tree must equal the live engine's: ONE AgentExpansion with 2 segments (NOT two
-    top-level AgentExpansions / a truncated 1-segment tree). Then a 3rd process
-    restore(fresh)->resume reaches RunSucceeded 'FINAL'."""
+    expansions tree must equal the live engine's: ONE agent GrowRecord whose `children` carries the
+    segment-2 nesting record (NOT two top-level agent records / a truncated 0-child tree). Then a
+    3rd process restore(fresh)->resume reaches RunSucceeded 'FINAL'."""
     import agent_composer.llm_clients as llm
     from agent_composer import load_flow
     from agent_composer.compose.run import resume_command, run_flow
-    from agent_composer.suspension.expansions import AgentExpansion
     from tests.engine.test_agent_continuation import _chat, ASK
 
     # --- live oracle: run to pause 2 on ONE engine; capture its ledger shape ---
@@ -326,8 +326,8 @@ def test_two_hop_agent_resnapshot_ledger_matches_live(monkeypatch):
     live = run_flow(loaded, {})                             # pause 1
     list(live.engine.resume(commands=[resume_command(loaded, live.pause_reasons[0], "a1")]))  # pause 2
     live_tree = live.engine.snapshot().expansions
-    assert len(live_tree) == 1 and isinstance(live_tree[0], AgentExpansion)
-    assert len(live_tree[0].segments) == 2                 # ONE AgentExpansion, TWO segments
+    assert len(live_tree) == 1 and live_tree[0].spawner_id == "agent"
+    assert len(live_tree[0].children) == 1                  # ONE agent record, segment-2 nested child
 
     # --- the durable sequence: ONE shared chat across the 3 simulated processes (the memo
     # replays prior turns without re-invoking, so [q1, q2, FINAL] is consumed once each) ---
@@ -339,8 +339,8 @@ def test_two_hop_agent_resnapshot_ledger_matches_live(monkeypatch):
     list(hop1.resume(commands=[resume_command(loaded, ckpt1.pause_reasons[0], "a1")]))  # pause 2 (invoke #2)
     hop1_tree = hop1.snapshot().expansions
     # the re-snapshot after a durable hop is the FULL tree, not a truncated/duplicated one.
-    assert len(hop1_tree) == 1 and isinstance(hop1_tree[0], AgentExpansion)
-    assert len(hop1_tree[0].segments) == 2
+    assert len(hop1_tree) == 1 and hop1_tree[0].spawner_id == "agent"
+    assert len(hop1_tree[0].children) == 1
 
     # --- hop 2: a 3rd process restores the re-snapshot and finishes ---
     ckpt2 = RunCheckpoint.loads(hop1.snapshot().dumps())
@@ -376,8 +376,8 @@ def test_durable_call_in_call_resumes_on_fresh_flow():
 
 def _map_of_call_with_inner_pause():
     """A MAP whose child contains a CALL whose child pauses (the in-repo
-    test_nested_call_inside_map shape): the inner CallExpansion rides under
-    map_desc.children_per_element[i] — recursion through a MAP element."""
+    test_nested_call_inside_map shape): the inner call GrowRecord rides under the map record's flat
+    `children`, namespaced `each#0/inner_bridge` — recursion through a MAP element."""
     inner_child = _inner_pause_child()
     nested_call = CallNode("inner_bridge", flow_id="inner_pause_child", child=inner_child,
                            child_inputs=inner_child.nodes[inner_child.start_id].params)
@@ -399,16 +399,15 @@ def _map_of_call_with_inner_pause():
 
 def test_durable_map_of_call_resumes_on_fresh_flow():
     """A MAP-of-CALL grown to a deep per-element pause restores + resumes cross-process. The
-    nested CallExpansion lives under children_per_element[0]; the replay recurses into it and
-    rebuilds the doubly-namespaced clone."""
-    from agent_composer.suspension.expansions import CallExpansion, MapExpansion
-
+    nested call GrowRecord lives under the map record's flat `children` (namespaced under each#0);
+    the replay recurses into it and rebuilds the doubly-namespaced clone."""
     proc1 = FlowEngine(_map_of_call_with_inner_pause(), run_inputs={"items": ["a"]})
     assert isinstance(list(proc1.run())[-1], RunPaused)
     ckpt = RunCheckpoint.loads(proc1.snapshot().dumps())
-    top_maps = [e for e in ckpt.expansions if isinstance(e, MapExpansion)]
+    top_maps = [e for e in ckpt.expansions if e.spawner_id == "each"]
     assert len(top_maps) == 1
-    assert isinstance(top_maps[0].children_per_element[0][0], CallExpansion)  # nested under elem 0
+    kids = top_maps[0].children                                     # flat, namespaced by spawner_id
+    assert len(kids) == 1 and kids[0].spawner_id == "each#0/inner_bridge"  # nested under elem 0
     live_term = list(proc1.resume(
         commands=[DeliverAnswerCommand(node_id=ckpt.paused_nodes[0], value="A")]))[-1]
 
@@ -422,9 +421,10 @@ def test_durable_map_of_call_resumes_on_fresh_flow():
 
 # --- AGENT(ask_user) nested under a CALL — durable resume ------------------------------- #
 # The AGENT durable tests cover a TOP-LEVEL agent, and the CALL/MAP durable tests use a
-# HUMAN_INPUT child — but nothing else exercises an AGENT pause whose AgentExpansion rides
-# UNDER a CallExpansion (the `parent_desc is not None` AGENT arm of `_apply_enqueue`, the
-# `_append_child` path). These drive that nesting cross-process.
+# HUMAN_INPUT child — but nothing else exercises an AGENT pause whose GrowRecord rides UNDER a
+# CALL's GrowRecord (the nested-spawner arm: the agent spawner is stamped in `_spawner_expansion`
+# at the enclosing call record, so its grow rides under that record's flat `children`). These
+# drive that nesting cross-process.
 
 _CALL_WRAPS_AGENT = """
 id: cag
@@ -443,8 +443,8 @@ output: ${gate.output}
 
 
 def test_durable_agent_under_call_resumes_on_fresh_flow(monkeypatch):
-    """An AGENT(ask_user) inside a CALL child pauses ONCE; its AgentExpansion rides UNDER the
-    gate CallExpansion (the `parent_desc is not None` AGENT arm). A cross-process
+    """An AGENT(ask_user) inside a CALL child pauses ONCE; its GrowRecord rides UNDER the gate
+    call's GrowRecord (the nested-spawner arm). A cross-process
     dumps->loads->restore(fresh)->resume drives past the pause to RunSucceeded 'FINAL'. The
     parked leaf is deeply namespaced under BOTH the call AND the agent spawner."""
     import agent_composer.llm_clients as llm
@@ -452,7 +452,6 @@ def test_durable_agent_under_call_resumes_on_fresh_flow(monkeypatch):
 
     from agent_composer import load_flow
     from agent_composer.compose.run import resume_command, run_flow
-    from agent_composer.suspension.expansions import AgentExpansion, CallExpansion
     from tests.engine.test_agent_continuation import _ask, _chat
 
     chat = _chat([_ask({"question": "ok?"}, "q1"), AIMessage(content="FINAL")])  # ONE shared chat
@@ -464,12 +463,11 @@ def test_durable_agent_under_call_resumes_on_fresh_flow(monkeypatch):
     assert reason.node_id == "gate/agent/__ask#q1"             # deep: call ns + agent spawner ns
     assert reason.node_id in rec.engine.flow.nodes
 
-    # the descriptor tree: ONE CallExpansion whose child is the AgentExpansion (nesting)
+    # the descriptor tree: ONE call GrowRecord whose child is the agent GrowRecord (nesting)
     ckpt = RunCheckpoint.loads(rec.checkpoint.dumps())
-    calls = [e for e in ckpt.expansions if isinstance(e, CallExpansion)]
+    calls = [e for e in ckpt.expansions if e.spawner_id == "gate"]
     assert len(calls) == 1
-    assert [type(c).__name__ for c in calls[0].children] == ["AgentExpansion"]
-    assert isinstance(calls[0].children[0], AgentExpansion)
+    assert [c.spawner_id for c in calls[0].children] == ["gate/agent"]
 
     fresh = FlowEngine.restore(load_flow(_CALL_WRAPS_AGENT).compiled, ckpt)
     assert reason.node_id in fresh.flow.nodes                  # the deep leaf rebuilt by replay
@@ -479,7 +477,7 @@ def test_durable_agent_under_call_resumes_on_fresh_flow(monkeypatch):
 
 def test_durable_two_pause_agent_under_call_resumes_on_fresh_flow(monkeypatch):
     """The multi-pause variant — an AGENT inside a CALL pauses TWICE. Restored at pause 1 onto
-    a freshly recompiled flow, the resume grows segment 2 (still under the gate CallExpansion)
+    a freshly recompiled flow, the resume grows segment 2 (still under the gate call GrowRecord)
     and parks at pause 2; delivering it reaches RunSucceeded 'FINAL'. The segment-2 leaf chains
     under the segment-1 resume id AND the call namespace (triply deep)."""
     import agent_composer.llm_clients as llm
@@ -487,7 +485,6 @@ def test_durable_two_pause_agent_under_call_resumes_on_fresh_flow(monkeypatch):
 
     from agent_composer import load_flow
     from agent_composer.compose.run import resume_command, run_flow
-    from agent_composer.suspension.expansions import AgentExpansion, CallExpansion
     from tests.engine.test_agent_continuation import _ask, _chat
 
     chat = _chat([_ask({"question": "q1?"}, "q1"), _ask({"question": "q2?"}, "q2"),
@@ -507,12 +504,13 @@ def test_durable_two_pause_agent_under_call_resumes_on_fresh_flow(monkeypatch):
     assert seg2_leaf == "gate/agent/__resume#q1/__ask#q2"      # call ns + agent continuation chain
     assert seg2_leaf in fresh.flow.nodes
 
-    # the re-snapshot ledger is still ONE CallExpansion -> ONE AgentExpansion with TWO segments.
+    # the re-snapshot ledger is still ONE call GrowRecord -> ONE agent GrowRecord with a nested
+    # segment-2 child (the K-pause nesting chain).
     tree = fresh.snapshot().expansions
-    calls = [e for e in tree if isinstance(e, CallExpansion)]
+    calls = [e for e in tree if e.spawner_id == "gate"]
     assert len(calls) == 1 and len(calls[0].children) == 1
     agent_desc = calls[0].children[0]
-    assert isinstance(agent_desc, AgentExpansion) and len(agent_desc.segments) == 2
+    assert agent_desc.spawner_id == "gate/agent" and len(agent_desc.children) == 1
 
     # deliver pause 2 -> FINAL (invoke #3)
     evs2 = list(fresh.resume(commands=[resume_command(loaded, paused2[-1].reasons[0], "a2")]))
@@ -569,48 +567,45 @@ def test_restore_does_not_mutate_a_held_checkpoint():
     assert set(held.pool.store.keys()) == before_keys          # the held checkpoint is untouched
 
 
-def test_replay_does_not_promote_a_top_level_agent_segment_child(monkeypatch):
-    """Forward-proofing: a (future) child of a TOP-LEVEL AgentExpansion segment must NOT be
-    promoted to a top-level ledger entry. `AgentSegment.children` is always [] today; this pins
-    the `is_top_level` gate (vs the old `parent_depth == 0`, which an AGENT — depth unchanged —
-    would wrongly re-trip) against the reserved slot."""
-    from types import SimpleNamespace
-    from agent_composer.suspension.expansions import AgentExpansion, AgentSegment
-
-    inner = AgentExpansion(spawner_id="inner",
-                           segments=[AgentSegment(hi_desc={}, resume_desc={})])
-    top = AgentExpansion(
-        spawner_id="agent",
-        segments=[AgentSegment(hi_desc={}, resume_desc={}, children=[inner])],
-    )
+def test_replay_does_not_promote_a_nested_child(monkeypatch):
+    """A nested child GrowRecord (a grow spliced UNDER a parent — e.g. an AGENT re-pause chained
+    under its segment-1 record, or a CALL inside a MAP element) must NOT be promoted to a top-level
+    ledger entry. `_replay_expansions` appends only when `is_top_level`; a parent's `children` are
+    walked with `is_top_level=False` (they already ride under the parent by deserialization). This
+    pins that gate against a reserved nested slot."""
+    inner = GrowRecord(spawner_id="inner", seed={}, children=[])
+    top = GrowRecord(spawner_id="agent", seed={}, children=[inner])
     e = FlowEngine(_side_counter_flow([]))
-    # stub the grow helper so the fold reaches the children recursion without cloning
-    monkeypatch.setattr(e, "_grow_agent_segment",
-                        lambda *a, **k: SimpleNamespace(out_node_id="agent/__resume#q"))
+
+    class _FakeSpawner:
+        # so the fold's `flow.nodes[...]/.replay_grow` succeed without cloning a real subgraph
+        def replay_grow(self, seed):
+            return None
+
+    e.flow.nodes["agent"] = _FakeSpawner()
+    e.flow.nodes["inner"] = _FakeSpawner()
+    monkeypatch.setattr(e, "_apply_grow", lambda *a, **k: None)
     e.expansions = []
     e._replay_expansions([top])
     assert e.expansions == [top]                               # NOT [top, inner]
 
 
 def test_grow_loop_schedule_false_registers_without_scheduling():
-    """`_grow_loop(..., schedule=False)` rebuilds the iteration overlay (clones + registers the
-    `#0/` namespace, records the seed on the LoopExpansion) but schedules NOTHING and does not
-    trip the node-budget guard — the suppressed replay path, mirroring `_grow_call`/`_grow_map`."""
+    """Replaying ONE loop iteration (`replay_grow(seed)` + `_apply_grow(schedule=False)`) rebuilds
+    the iteration overlay (clones + registers the `#0/` namespace, re-attaches the ledger to
+    `loop_desc`) but schedules NOTHING and does not trip the node-budget guard — the suppressed
+    replay path, mirroring the CALL/MAP replay."""
     from agent_composer.compose.loader import load_flow
-    from agent_composer.suspension.expansions import LoopExpansion
     from tests.engine.test_loop_run import COUNTER
 
     engine = FlowEngine(load_flow(COUNTER).compiled, run_inputs={})
     spawner_id = "loop"
-    child = engine.flow.nodes[spawner_id].child
     record = {"n": 0, "exited": False}
-    desc = LoopExpansion(spawner_id=spawner_id, records=[], children_per_iter=[])
+    rec = _replay_one(engine, spawner_id, (record, 0))
 
-    engine._grow_loop(spawner_id, child, record, 0, desc, schedule=False)
-
-    # Registered: the iteration's namespaced nodes are present and the seed is on the ledger.
+    # Registered: the iteration's namespaced nodes are present and the ledger is re-attached.
     assert any(n.startswith(f"{spawner_id}#0/") for n in engine.flow.nodes)
-    assert len(desc.records) == 1
+    assert engine.loop_desc[spawner_id] is rec
 
     # Scheduled: nothing — the serial ready queue is empty right after the suppressed grow.
     assert list(engine.ready) == []
@@ -626,7 +621,6 @@ def test_replay_reproduces_live_loop_overlay():
     is resident — the replay re-grows that single last-recorded seed at its recorded index."""
     from agent_composer.compose.loader import load_flow
     from agent_composer.compose.run import run_flow
-    from agent_composer.suspension.expansions import LoopExpansion
     from tests.engine.test_loop_run import LOOP_CHAT
 
     # Drive LOOP_CHAT to its FIRST pause on a live engine: iteration #0 is grown (NOT yet pruned
@@ -647,11 +641,11 @@ def test_replay_reproduces_live_loop_overlay():
     live_node_state = set(live_engine.sm.node_state)
     assert live_engine.sm.node_state["loop"] == NodeState.EXPANDED
 
-    # Snapshot + round-trip: exactly ONE LoopExpansion with a non-empty records list (live seed).
+    # Snapshot + round-trip: exactly ONE loop GrowRecord with a non-empty `(record, index)` seed.
     ckpt = RunCheckpoint.loads(live_engine.snapshot().dumps())
-    loop_descs = [e for e in ckpt.expansions if isinstance(e, LoopExpansion)]
+    loop_descs = [e for e in ckpt.expansions if e.spawner_id == "loop"]
     assert len(loop_descs) == 1
-    assert loop_descs[0].records                       # the live iteration seed is recorded
+    assert loop_descs[0].seed                           # the live iteration (record, index) seed
 
     # Replay in isolation onto a FRESH recompiled flow (before restore() wires it in).
     fresh = FlowEngine(load_flow(LOOP_CHAT).compiled)
@@ -671,7 +665,7 @@ def test_durable_loop_resumes_on_fresh_flow():
     terminal as the live in-process resume.
 
     Pruning drops committed iterations before any pause, so at the turn-1 pause only the LIVE
-    `loop#0/` iteration is resident. The checkpoint carries ONE LoopExpansion with the live
+    `loop#0/` iteration is resident. The checkpoint carries ONE loop GrowRecord with the live
     seed recorded; restore()+replay re-grows exactly that iteration on a clean flow. Delivering
     "hi" then drives the loop-back (`_loop_step`) which must grow turn 2 and prune turn 1 from
     the RESTORED overlay — the post-restore `loop_iter`/`loop_desc` must be consistent for that
@@ -679,7 +673,6 @@ def test_durable_loop_resumes_on_fresh_flow():
     predicate false -> the run succeeds identically to the live oracle."""
     from agent_composer.compose.loader import load_flow
     from agent_composer.compose.run import resume_command, resume_flow, run_flow
-    from agent_composer.suspension.expansions import LoopExpansion
     from tests.engine.test_loop_run import LOOP_CHAT
 
     # --- Live oracle (in-process): drive LOOP_CHAT to terminal exactly as the in-process test.
@@ -700,10 +693,10 @@ def test_durable_loop_resumes_on_fresh_flow():
     assert proc1.status == "paused"
     ckpt = RunCheckpoint.loads(proc1.checkpoint.dumps())   # cross-process round-trip
 
-    # Exactly ONE LoopExpansion, with the live iteration's seed recorded (non-empty).
-    loop_descs = [e for e in ckpt.expansions if isinstance(e, LoopExpansion)]
+    # Exactly ONE loop GrowRecord, with the live iteration's `(record, index)` seed (non-empty).
+    loop_descs = [e for e in ckpt.expansions if e.spawner_id == "loop"]
     assert len(loop_descs) == 1
-    assert loop_descs[0].records                            # the live #0 seed is recorded
+    assert loop_descs[0].seed                               # the live #0 (record, index) seed
 
     # Pruning leaves only the live iteration: node_state carries `loop#0/` keys but no `loop#1/`.
     assert any(k.startswith("loop#0/") for k in ckpt.node_state)
@@ -729,23 +722,22 @@ def test_durable_loop_resumes_on_fresh_flow():
 
 def test_loop_multi_hop_resnapshot_ledger_matches_live():
     """run->snapshot->restore(fresh)->resume-past-a-mid-loop-pause->RE-snapshot. The re-snapshot's
-    LoopExpansion ledger must equal the live engine's at the SAME (2nd) pause: ONE LoopExpansion
-    whose `records` reflect the CURRENT live iteration (grown+pruned once), NOT a truncated
-    1-record tree stale from hop 1, nor a duplicated one. Then a 3rd process restores the
-    re-snapshot and finishes to `succeeded`.
+    loop GrowRecord ledger must equal the live engine's at the SAME (2nd) pause: ONE loop GrowRecord
+    whose `seed` reflects the CURRENT live iteration (grown+pruned once), NOT a stale record from
+    hop 1, nor a duplicated one. Then a 3rd process restores the re-snapshot and finishes to
+    `succeeded`.
 
-    Mirrors `test_two_hop_agent_resnapshot_ledger_matches_live` for the loop: the durable hop
-    must continue growing the ONE re-attached descriptor object (`loop_desc[spawner]` is the
-    deserialized `expansions[0]`), so `_loop_step`'s continue-branch append lands on the ledger
-    the re-snapshot serializes."""
+    Mirrors `test_two_hop_agent_resnapshot_ledger_matches_live` for the loop: the durable hop must
+    continue growing the ONE re-attached descriptor object (`loop_desc[spawner]` is the deserialized
+    `expansions[0]`), so `_loop_step`'s continue-branch supersedes it on the ledger the re-snapshot
+    serializes."""
     from agent_composer.compose.loader import load_flow
     from agent_composer.compose.run import resume_command, resume_flow, run_flow
-    from agent_composer.suspension.expansions import LoopExpansion
     from tests.engine.test_loop_run import LOOP_CHAT
 
-    # --- Live oracle: drive LOOP_CHAT to the SECOND pause (turn 2) in-process; capture its
-    # ledger shape. Turn 1 grows iter #0 (records=[seed]); delivering "a" runs the loop-back,
-    # which grows iter #1 (records=[seed, {messages:["a"], exited:false}]) and prunes #0.
+    # --- Live oracle: drive LOOP_CHAT to the SECOND pause (turn 2) in-process; capture its ledger
+    # shape. Turn 1 grows iter #0; delivering "a" runs the loop-back, which grows iter #1
+    # (seed = ({messages:["a"], exited:false}, 1)) and prunes #0 — exactly ONE record remains.
     loaded = load_flow(LOOP_CHAT)
     live1 = run_flow(loaded, {})
     assert live1.status == "paused"
@@ -753,17 +745,16 @@ def test_loop_multi_hop_resnapshot_ledger_matches_live():
                         commands=[resume_command(loaded, live1.pause_reasons[0], "a")])
     assert live2.status == "paused"
     live_tree = live2.engine.snapshot().expansions
-    assert len(live_tree) == 1 and isinstance(live_tree[0], LoopExpansion)
-    live_records = live_tree[0].records
-    assert live_records[-1] == {"messages": ["a"], "exited": False}   # the live iteration seed
-    live_len = len(live_records)                                       # the oracle ledger shape
+    assert len(live_tree) == 1 and live_tree[0].spawner_id == "loop"
+    live_record, live_index = live_tree[0].seed
+    assert live_record == {"messages": ["a"], "exited": False}         # the live iteration seed
 
     # --- Durable sequence: 3 simulated processes. proc1 parks at pause 1, persists, round-trips.
     proc1 = run_flow(load_flow(LOOP_CHAT), {})
     assert proc1.status == "paused"
     ckpt1 = RunCheckpoint.loads(proc1.checkpoint.dumps())             # cross-process round-trip
-    hop1_descs = [e for e in ckpt1.expansions if isinstance(e, LoopExpansion)]
-    assert len(hop1_descs) == 1 and hop1_descs[0].records             # pause-1 ledger: len 1
+    hop1_descs = [e for e in ckpt1.expansions if e.spawner_id == "loop"]
+    assert len(hop1_descs) == 1 and hop1_descs[0].seed                # pause-1 ledger: one record
 
     # hop 1: restore on a FRESH recompiled flow, resume past pause 1 delivering "a" -> pause 2.
     hop1 = FlowEngine.restore(load_flow(LOOP_CHAT).compiled, ckpt1)
@@ -772,12 +763,11 @@ def test_loop_multi_hop_resnapshot_ledger_matches_live():
     assert dur2.status == "paused", dur2.error
 
     # CORE regression: the re-snapshot after a durable hop is the CURRENT live ledger, not a
-    # truncated/duplicated/stale one. It must equal the live oracle shape (ONE LoopExpansion,
-    # same records length, same live iteration seed).
+    # stale/duplicated one. ONE loop GrowRecord whose seed is the current live iteration.
     hop1_tree = hop1.snapshot().expansions
-    assert len(hop1_tree) == 1 and isinstance(hop1_tree[0], LoopExpansion)
-    assert len(hop1_tree[0].records) == live_len
-    assert hop1_tree[0].records[-1] == live_records[-1]
+    assert len(hop1_tree) == 1 and hop1_tree[0].spawner_id == "loop"
+    hop_record, hop_index = hop1_tree[0].seed
+    assert hop_record == live_record and hop_index == live_index
 
     # Pruning invariant survives the hop: exactly ONE `loop#*/` iteration is resident.
     ckpt2 = RunCheckpoint.loads(hop1.snapshot().dumps())

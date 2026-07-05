@@ -107,9 +107,9 @@ def test_map_child_assert_one_violating_element_fails():
 
 
 # --- a failing CALL/MAP expansion leaves NO orphan descriptor ----------------------------- #
-# `_apply_enqueue` creates the Call/MapExpansion descriptor before `_grow_*` but attaches it
-# to `eng.expansions` only AFTER `_grow_*` succeeds, so a boundary-assert raise inside the
-# helper leaves the ledger clean (no orphan that a later snapshot could serialize). Driven via
+# `_apply_grow` mints the `GrowRecord` before the per-kind residual but attaches it
+# to `eng.expansions` only AFTER the residual succeeds (attach-after-grow), so a boundary-assert
+# raise inside the residual leaves the ledger clean (no orphan a later snapshot serializes). Driven via
 # FlowEngine directly to inspect `eng.expansions` (run_flow only exposes `.engine` on a pause).
 from agent_composer.compile.model import START_ID
 from agent_composer.events import RunFailed

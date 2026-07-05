@@ -1,115 +1,91 @@
-"""Round-trip tests for the Expansion descriptor union.
+"""Round-trip tests for the uniform `GrowRecord` durability ledger.
 
-These descriptors are pure durability metadata appended to RunCheckpoint.expansions; the
-restore-side replay (_replay_expansions) is exercised elsewhere. These verify the closed sum
-types themselves round-trip cleanly and the discriminator is load-bearing.
+A `GrowRecord` is pure durability metadata appended to `RunCheckpoint.expansions`; the restore-side
+replay (`_replay_expansions`) is exercised elsewhere. These verify the one uniform record type
+round-trips cleanly across the wire — the per-kind `seed` shapes ride an opaque `Any`, and nested
+grows ride the flat `children`. `AgentSegment` is the read-side validation schema for one AGENT
+pause's `{hi_desc, resume_desc}` seed.
 """
 
-import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
-from agent_composer.suspension.expansions import (
-    AgentExpansion,
-    AgentSegment,
-    CallExpansion,
-    Expansion,
-    MapExpansion,
-)
+from agent_composer.suspension.expansions import AgentSegment, GrowRecord
 
 
-def test_call_expansion_round_trip() -> None:
-    desc = CallExpansion(spawner_id="analyze", record={"x": 1}, children=[])
-    restored = CallExpansion.model_validate_json(desc.model_dump_json())
-    assert restored == desc
+def test_call_grow_record_round_trip() -> None:
+    # CALL: seed is the call-arg record dict; one record per call, no children (leaf child).
+    rec = GrowRecord(spawner_id="analyze", seed={"x": 1}, children=[])
+    restored = GrowRecord.model_validate_json(rec.model_dump_json())
+    assert restored == rec
 
 
-def test_map_expansion_round_trip() -> None:
-    desc = MapExpansion(
-        spawner_id="each",
-        records=[{"i": 0}, {"i": 1}],
-        children_per_element=[[], []],
+def test_map_grow_record_round_trip() -> None:
+    # MAP: seed is the per-element records list; one record per map.
+    rec = GrowRecord(spawner_id="each", seed=[{"i": 0}, {"i": 1}], children=[])
+    restored = GrowRecord.model_validate_json(rec.model_dump_json())
+    assert restored == rec
+
+
+def test_loop_grow_record_round_trip_seed_is_pair() -> None:
+    # LOOP: seed is the LIVE iteration's (record, index); the tuple round-trips through JSON as a
+    # 2-element list, so the restored seed is [record, index].
+    rec = GrowRecord(spawner_id="loop", seed=[{"acc": 3}, 2], children=[])
+    restored = GrowRecord.model_validate_json(rec.model_dump_json())
+    assert restored.spawner_id == "loop"
+    assert restored.seed == [{"acc": 3}, 2]
+
+
+def test_agent_grow_record_nesting_chain_round_trip() -> None:
+    # AGENT: a K-pause agent is a NESTING CHAIN — segment i+1 rides under segment i's `children`,
+    # keyed by the resume-terminal id. Each seed is one pause's {hi_desc, resume_desc}.
+    hi0 = {"kind": "human_input", "node_id": "agent/hi#0", "prompt": "What next?", "slot": "0"}
+    resume0 = {"kind": "resume_agent", "memo": {"turns": 2}, "iterations": 2, "pending": {}}
+    hi1 = {"kind": "human_input", "node_id": "agent/__resume#0/hi#1", "prompt": "And?", "slot": "1"}
+    resume1 = {"kind": "resume_agent", "memo": {"turns": 4}, "iterations": 4, "pending": {}}
+    seg1 = GrowRecord(
+        spawner_id="agent/__resume#0", seed={"hi_desc": hi1, "resume_desc": resume1}, children=[]
     )
-    restored = MapExpansion.model_validate_json(desc.model_dump_json())
-    assert restored == desc
+    seg0 = GrowRecord(
+        spawner_id="agent", seed={"hi_desc": hi0, "resume_desc": resume0}, children=[seg1]
+    )
+    restored = GrowRecord.model_validate_json(seg0.model_dump_json())
+    assert restored == seg0
+    # The nested chain survives: segment 1 is the sole child of segment 0.
+    assert restored.children[0].spawner_id == "agent/__resume#0"
 
 
-def test_agent_expansion_round_trip() -> None:
-    # hi_desc/resume_desc shapes mirror nodes/agent/modes/tool_calling.py:110-126.
-    hi_desc = {
-        "kind": "human_input",
-        "node_id": "agent/hi#0",
-        "prompt": "What next?",
-        "slot": None,
+def test_agent_segment_validates_a_pause_seed() -> None:
+    # `AgentNode.replay_grow` re-validates the opaque seed through this model.
+    seed = {
+        "hi_desc": {"kind": "human_input", "node_id": "a/hi#0", "prompt": "?", "slot": "0"},
+        "resume_desc": {"kind": "resume_agent", "memo": {}, "iterations": 1, "pending": {}},
     }
-    resume_desc = {
-        "kind": "resume_agent",
-        "memo": {"turns": 2},
-        "iterations": 2,
-        "pending": [],
-        "answer": None,
-        "llm_config": {"model": "claude-3-5"},
-        "tools": ["search"],
-        "controls": {"max_iters": 10},
-        "mode": "tool_calling",
-    }
-    seg = AgentSegment(hi_desc=hi_desc, resume_desc=resume_desc, children=[])
-    desc = AgentExpansion(spawner_id="agent", segments=[seg])
-    restored = AgentExpansion.model_validate_json(desc.model_dump_json())
-    assert restored == desc
+    seg = AgentSegment.model_validate(seed)
+    assert seg.hi_desc["slot"] == "0"
+    assert seg.resume_desc["iterations"] == 1
 
 
-def test_discriminated_union_round_trip_mixed_list() -> None:
-    items: list[Expansion] = [
-        CallExpansion(spawner_id="a", record={"k": "v"}, children=[]),
-        MapExpansion(
+def test_grow_record_list_round_trip_preserves_order_and_primitives() -> None:
+    # A ledger is an ordered list of top-level GrowRecords; the per-kind opaque seeds preserve
+    # nested primitives through the wire.
+    records: list[GrowRecord] = [
+        GrowRecord(spawner_id="a", seed={"k": "v"}, children=[]),
+        GrowRecord(
             spawner_id="b",
-            records=[{"i": 0}],
-            children_per_element=[[]],
+            seed={"l": [1, 2, "three"], "d": {"nested": {"deep": [None, "x"]}}},
+            children=[],
         ),
-        AgentExpansion(spawner_id="c", segments=[]),
     ]
-    adapter = TypeAdapter(list[Expansion])
-    raw = adapter.dump_python(items)
+    adapter = TypeAdapter(list[GrowRecord])
+    raw = adapter.dump_python(records)
     restored = adapter.validate_python(raw)
-    assert restored == items
-
-    # Tamper with the discriminator → validation must fail.
-    raw[0]["type"] = "bogus_kind"
-    with pytest.raises(ValidationError):
-        adapter.validate_python(raw)
-
-
-def test_call_expansion_record_round_trip_preserves_primitives() -> None:
-    record = {
-        "s": "hello",
-        "i": 42,
-        "f": 3.14,
-        "b": True,
-        "n": None,
-        "l": [1, 2, "three"],
-        "d": {"nested": {"deep": [None, "x"]}},
-    }
-    desc = CallExpansion(spawner_id="p", record=record, children=[])
-    restored = CallExpansion.model_validate_json(desc.model_dump_json())
-    for k, v in record.items():
-        assert restored.record[k] == v
+    assert restored == records
 
 
 def test_top_level_reexports() -> None:
-    """Expansion descriptor types re-exported from the suspension package."""
-    from agent_composer.suspension import (
-        AgentExpansion,
-        AgentSegment,
-        CallExpansion,
-        Expansion,
-        MapExpansion,
-    )
+    """`GrowRecord`/`AgentSegment` re-exported from the suspension package."""
+    from agent_composer.suspension import AgentSegment as AS
+    from agent_composer.suspension import GrowRecord as GR
 
-    # Smoke: the Expansion union resolves and accepts each variant via assignment.
-    items: list[Expansion] = [
-        CallExpansion(spawner_id="a", record={}, children=[]),
-        MapExpansion(spawner_id="b", records=[], children_per_element=[]),
-        AgentExpansion(spawner_id="c", segments=[]),
-    ]
-    assert len(items) == 3
-    assert AgentSegment is not None
+    assert GR is GrowRecord
+    assert AS is AgentSegment

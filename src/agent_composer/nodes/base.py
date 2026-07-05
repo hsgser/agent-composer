@@ -212,6 +212,19 @@ class Node(ABC):
         """Recovery seam: called by the engine wrapper when run() raises. Default: re-raise."""
         raise exc
 
+    def replay_grow(self, seed: Any) -> "Subgraph":
+        """Durable-replay seam (the READ half of `Grow`): rebuild THIS spawner's subgraph from the
+        persisted `seed` (the pure builder input captured on the live `Grow.seed`). The engine's
+        `_replay_expansions` calls it on restore to re-grow a paused run's expanded subgraphs in a
+        fresh process, WITHOUT re-running the non-deterministic body that first produced the seed
+        (an agent's LLM turn, a resolved `over:` list). It is the pure inverse of the node's own
+        live grow: `run()` builds the subgraph AND returns the seed; `replay_grow(seed)` rebuilds
+        the SAME subgraph from that seed alone. Only spawners (`is_spawner`) ever appear in the
+        durable ledger, so the base default is a loud error for a non-spawner."""
+        raise NotImplementedError(
+            f"node {self.id!r} ({type(self).__name__}) is not a spawner and cannot replay_grow"
+        )
+
     @staticmethod
     def _assert_holds(expr: str, record: dict) -> bool:
         """Evaluate a node assert against `record`; a raising assert (ordered/arith over a

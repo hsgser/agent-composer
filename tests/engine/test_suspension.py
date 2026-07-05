@@ -169,13 +169,13 @@ def test_checkpoint_v1_object_rejected_by_restore():
 
 
 def test_checkpoint_current_version_round_trip_carries_store():
-    # The single-value store survives dumps/loads transitively through the pool, at the "6.0"
-    # checkpoint version (bumped when the additive `num_workers` drive-mode
-    # field was added). The version label here tracks the CURRENT default.
+    # The single-value store survives dumps/loads transitively through the pool, at the "7.0"
+    # checkpoint version (bumped when the durability ledger was unified to a single GrowRecord).
+    # The version label here tracks the CURRENT default.
     pool = TypedVariablePool()
     pool.set("n", "v")
     back = RunCheckpoint.loads(RunCheckpoint(pool=pool).dumps())
-    assert back.version == "6.0"
+    assert back.version == "7.0"
     assert back.pool.get("n") == "v"
 
 
@@ -271,22 +271,22 @@ def test_snapshot_is_point_in_time_not_aliased_to_live_pool():
 
 
 def test_snapshot_deep_copies_expansion_descriptors():
-    """the Expansion ledger is deep-copied into the checkpoint, so a
-    later live append (e.g. a multi-pause AGENT growing AgentExpansion.segments) does not
+    """the GrowRecord ledger is deep-copied into the checkpoint, so a
+    later live append (e.g. a multi-pause AGENT chaining a segment under `children`) does not
     mutate a held checkpoint."""
-    from agent_composer.suspension.expansions import AgentExpansion, AgentSegment
+    from agent_composer.suspension.expansions import GrowRecord
 
     engine = FlowEngine(_ask_flow())
     list(engine.run())                                             # park so snapshot() is valid
-    desc = AgentExpansion(spawner_id="agent", segments=[AgentSegment(hi_desc={}, resume_desc={})])
+    desc = GrowRecord(spawner_id="agent", seed={"hi_desc": {}, "resume_desc": {}}, children=[])
     engine.expansions = [desc]
     held = engine.snapshot()
-    assert len(held.expansions[0].segments) == 1
+    assert len(held.expansions[0].children) == 0
 
-    # a live second-pause append must not touch the held checkpoint
-    desc.segments.append(AgentSegment(hi_desc={}, resume_desc={}))
-    assert len(engine.expansions[0].segments) == 2
-    assert len(held.expansions[0].segments) == 1                   # deep-copied, unchanged
+    # a live second-pause append (nesting chain) must not touch the held checkpoint
+    desc.children.append(GrowRecord(spawner_id="agent/__resume#0", seed={}, children=[]))
+    assert len(engine.expansions[0].children) == 1
+    assert len(held.expansions[0].children) == 0                   # deep-copied, unchanged
 
 
 def test_wait_node_suspends_with_market_event():
@@ -351,30 +351,31 @@ def test_human_input_run_takes_no_scratch_cap():
     assert "scratch" not in sig.parameters     # HUMAN_INPUT.run takes no *, scratch cap
 
 
-def test_checkpoint_v6_is_current_version():
-    # the engine's blob version is now 6.0 (adds the additive num_workers field).
-    # A pre-6.0 blob is not loadable.
+def test_checkpoint_v7_is_current_version():
+    # the engine's blob version is now 7.0 (unified GrowRecord expansion ledger).
+    # A pre-7.0 blob is not loadable.
     from agent_composer.suspension.checkpoint import CHECKPOINT_VERSION
-    assert CHECKPOINT_VERSION == "6.0"
+    assert CHECKPOINT_VERSION == "7.0"
 
 
 def test_checkpoint_v4_blob_rejected_by_loads():
-    # breaking blob migration: a 4.0 checkpoint predates both the `expansions` field
-    # (5.0) and the `num_workers` drive-mode field (6.0), so it is not loadable.
+    # breaking blob migration: a 4.0 checkpoint predates the `expansions` field (5.0),
+    # the `num_workers` drive-mode field (6.0), and the unified GrowRecord ledger (7.0),
+    # so it is not loadable.
     blob = RunCheckpoint(pool=TypedVariablePool()).dumps()
     tampered = json.dumps({**json.loads(blob), "version": "4.0"})
-    with pytest.raises(ValueError, match=r"incompatible checkpoint version '4\.0'.*num_workers drive-mode field"):
+    with pytest.raises(ValueError, match=r"incompatible checkpoint version '4\.0'.*unified GrowRecord expansion ledger"):
         RunCheckpoint.loads(tampered)
 
 
 def test_checkpoint_carries_expansions_field():
-    # RunCheckpoint carries the descriptor tree for runtime-grown subgraphs
-    # so a paused run that has already expanded REF/CALL/MAP/AGENT spawners can be
+    # RunCheckpoint carries the GrowRecord ledger for runtime-grown subgraphs
+    # so a paused run that has already expanded a CALL/MAP/AGENT/LOOP spawner can be
     # restored top-down on resume.
-    from agent_composer.suspension import CallExpansion
+    from agent_composer.suspension import GrowRecord
     cp = RunCheckpoint(
         pool=TypedVariablePool(),
-        expansions=[CallExpansion(spawner_id="x", record={}, children=[])],
+        expansions=[GrowRecord(spawner_id="x", seed={}, children=[])],
     )
     back = RunCheckpoint.loads(cp.dumps())
     assert back.expansions[0].spawner_id == "x"
@@ -392,7 +393,7 @@ def test_checkpoint_expansions_default_empty():
 def test_snapshot_carries_expansions_from_ledger():
     # snapshot() reads engine.expansions (the live ledger) into
     # RunCheckpoint.expansions (the checkpoint field), so a paused checkpoint blob
-    # carries the descriptor tree end-to-end. CALL spawner -> one CallExpansion.
+    # carries the descriptor tree end-to-end. CALL spawner -> one GrowRecord.
     from tests.engine.test_engine_expansions_ledger import call_with_inner_pause
     g = call_with_inner_pause()
     engine = FlowEngine(g, run_inputs={"payload": "go"})

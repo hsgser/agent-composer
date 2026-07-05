@@ -9,7 +9,7 @@ dropped — a false one passed quietly, violating "a false assert fails the run 
 These pin: a true call post-assert passes, a false one fails the run LOUDLY (RunFailed,
 error_type "NodeAssertFailed", a non-null locator at the assert), a post-assert reading BOTH
 a declared call input AND `${output}` fires correctly, and (durability) the input record the
-assert reads is recovered from the persisted `CallExpansion.record` after a checkpoint
+assert reads is recovered from the persisted `GrowRecord.seed` after a checkpoint
 round-trip — no new checkpoint field.
 """
 
@@ -125,7 +125,7 @@ def test_call_post_assert_reads_input_and_output_false():
 
 
 def test_call_post_assert_reads_input_true():
-    # the input ref resolves from the recovered CallExpansion.record (not None/dropped).
+    # the input ref resolves from the recovered GrowRecord.seed (not None/dropped).
     loaded = _load('      - ${topic} == "ACME" and ${output.n} == 4')
     res = run_flow(loaded, {})
     assert res.status == "succeeded", res.error
@@ -136,7 +136,7 @@ def test_call_post_assert_reads_input_true():
 # A `call` whose child contains a HUMAN_INPUT (so the run suspends mid-child). The call's
 # post-assert reads BOTH a declared input (`action`) and `${output}`. Driving
 # run_flow -> pause -> snapshot/dumps -> loads/restore -> resume must fire the post-assert on
-# the RESUMED leg, recovering the input record from the persisted CallExpansion.record (no new
+# the RESUMED leg, recovering the input record from the persisted GrowRecord.seed (no new
 # checkpoint field). A false assert -> RunFailed on resume; a true one -> success.
 
 _PAUSING_CHILD = """
@@ -196,7 +196,7 @@ def _drive_durable(asserts: str, answer: str):
 
 def test_call_post_assert_survives_resume_true():
     # a TRUE input+output post-assert fires on the RESUMED leg -> success. Proves the call's
-    # input record (`action`) is recovered from CallExpansion.record after the checkpoint hop.
+    # input record (`action`) is recovered from GrowRecord.seed after the checkpoint hop.
     res = _drive_durable('      - ${action} == "deploy" and ${output} == "yes"', "yes")
     assert res.status == "succeeded", res.error
     assert res.output == "yes"

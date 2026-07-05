@@ -77,3 +77,8 @@ class CallNode(Node):
         record = dict(inputs)
         sg = call_subgraph(self.child, callsite=self.id, record=record)
         return Grow(sg, seed=record)
+
+    def replay_grow(self, seed: Any):
+        """Durable-replay inverse of `run`: rebuild the CALL child subgraph from the persisted
+        call-arg record (`seed`) via the SAME `call_subgraph` builder — no body re-run."""
+        return call_subgraph(self.child, callsite=self.id, record=dict(seed))

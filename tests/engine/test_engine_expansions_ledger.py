@@ -99,39 +99,36 @@ def test_ledger_empty_for_static_flow():
 
 
 def test_ledger_records_call_expansion():
-    """A CALL spawner adds ONE CallExpansion to the top-level ledger; the cloned
-    child's pause leaves `bridge` EXPANDED but the ledger entry is independent."""
-    from agent_composer.suspension.expansions import CallExpansion
+    """A CALL spawner adds ONE GrowRecord to the top-level ledger keyed by the spawner id;
+    its `seed` is the call-arg record. The cloned child's pause leaves `bridge` EXPANDED but
+    the ledger entry is independent."""
     g = call_with_inner_pause()
     engine = FlowEngine(g, run_inputs={"payload": "go"})
     list(engine.run())  # parks at the inner ask
-    calls = [e for e in engine.expansions if isinstance(e, CallExpansion)]
+    calls = [e for e in engine.expansions if e.spawner_id == "bridge"]
     assert len(calls) == 1
-    assert calls[0].spawner_id == "bridge"
-    assert calls[0].record == {"payload": "go"}
+    assert calls[0].seed == {"payload": "go"}
 
 
 def test_ledger_records_map_expansion_with_records():
-    """A MAP spawner adds ONE MapExpansion with one record per element."""
-    from agent_composer.suspension.expansions import MapExpansion
+    """A MAP spawner adds ONE GrowRecord whose `seed` is the per-element records list."""
     g = map_with_inner_pause()
     engine = FlowEngine(g, run_inputs={"items": ["a", "b"]})
     list(engine.run())  # parks at both element leaves
-    maps = [e for e in engine.expansions if isinstance(e, MapExpansion)]
+    maps = [e for e in engine.expansions if e.spawner_id == "each"]
     assert len(maps) == 1
-    assert maps[0].spawner_id == "each"
-    assert len(maps[0].records) == 2
-    # records carry the per-element binding (payload from ${item}):
-    payloads = sorted(r.get("payload") for r in maps[0].records)
+    assert len(maps[0].seed) == 2
+    # seed carries the per-element binding (payload from ${item}):
+    payloads = sorted(r.get("payload") for r in maps[0].seed)
     assert payloads == ["a", "b"]
 
 
 def test_ledger_records_agent_expansion_per_pause(monkeypatch):
-    """A multi-pause AGENT creates ONE AgentExpansion whose segments list grows per pause."""
+    """A multi-pause AGENT creates ONE top-level GrowRecord; each subsequent pause chains a
+    segment under the previous segment's `children` (the nesting chain)."""
     from langchain_core.messages import AIMessage
     import agent_composer.llm_clients as llm
     from agent_composer import load_flow
-    from agent_composer.suspension.expansions import AgentExpansion
     from tests.engine.test_agent_continuation import _chat, _ask, ASK
     chat = _chat([
         _ask({"question": "q1?"}, "q1"),
@@ -142,18 +139,18 @@ def test_ledger_records_agent_expansion_per_pause(monkeypatch):
     loaded = load_flow(ASK)
     from agent_composer.compose.run import run_flow, resume_command
     rec = run_flow(loaded, {})  # parks at pause 1
-    agents = [e for e in rec.engine.expansions if isinstance(e, AgentExpansion)]
+    agents = [e for e in rec.engine.expansions if e.spawner_id == "agent"]
     assert len(agents) == 1
-    assert len(agents[0].segments) == 1  # one segment so far
+    assert agents[0].children == []  # one segment so far, no nested resume yet
     # in-memory resume the first pause to trigger segment 2:
     cmd = resume_command(loaded, rec.pause_reasons[0], "first")
     list(rec.engine.resume(commands=[cmd]))
-    assert len(agents[0].segments) == 2  # now two segments on the SAME AgentExpansion
+    assert len(agents[0].children) == 1  # second segment chained under the first
 
 
 def test_nested_call_inside_map_is_descriptor_child():
-    """A MAP whose child contains a CALL: the inner CallExpansion lives in
-    map_desc.children_per_element[i], NOT in engine.expansions top-level."""
+    """A MAP whose child contains a CALL: the inner CALL GrowRecord rides under the map
+    record's flat `children`, NOT in engine.expansions top-level."""
     # Build a MAP whose child has its own CALL inside:
     inner_child = _inner_pause_child()
     nested_call_node = CallNode("inner_bridge", flow_id="inner_pause_child",
@@ -173,16 +170,13 @@ def test_nested_call_inside_map_is_descriptor_child():
         [(START_ID, "each"), ("each", END_ID)],
         outputs=[FlowOutput(name="r", from_="${each.output}")],
     )
-    from agent_composer.suspension.expansions import CallExpansion, MapExpansion
     engine = FlowEngine(parent, run_inputs={"items": ["a"]})
     list(engine.run())  # parks deep inside element 0
-    # Top-level: exactly ONE MapExpansion. No top-level CallExpansion.
-    top_calls = [e for e in engine.expansions if isinstance(e, CallExpansion)]
-    top_maps = [e for e in engine.expansions if isinstance(e, MapExpansion)]
-    assert len(top_calls) == 0
-    assert len(top_maps) == 1
-    # Element 0's children carries the inner CallExpansion:
-    elem_kids = top_maps[0].children_per_element[0]
-    assert len(elem_kids) == 1
-    assert isinstance(elem_kids[0], CallExpansion)
-    assert elem_kids[0].spawner_id.endswith("/inner_bridge")  # namespaced under each#0
+    # Top-level: exactly ONE record, the MAP. No top-level inner CALL record.
+    assert len(engine.expansions) == 1
+    map_rec = engine.expansions[0]
+    assert map_rec.spawner_id == "each"
+    # The map record's children carry the inner CALL GrowRecord, namespaced under each#0:
+    kids = map_rec.children
+    assert len(kids) == 1
+    assert kids[0].spawner_id.endswith("/inner_bridge")  # namespaced under each#0

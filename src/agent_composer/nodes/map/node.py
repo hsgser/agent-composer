@@ -88,3 +88,9 @@ class MapNode(Node):
         records = [dict(bind_item(el)) for el in inputs["over"]]
         sg = map_subgraph(self.child, spawner_id=self.id, records=records)
         return Grow(sg, seed=records)
+
+    def replay_grow(self, seed: Any):
+        """Durable-replay inverse of `run`: rebuild the whole MAP fan-in subgraph from the persisted
+        per-element records (`seed`) via the SAME `map_subgraph` builder — no body re-run. The
+        resolved `over:` list is captured on the seed, so replay needs no re-binding."""
+        return map_subgraph(self.child, spawner_id=self.id, records=[dict(r) for r in seed])

@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from agent_composer.compile.model import NodeState
 from agent_composer.state.pool import TypedVariablePool
-from agent_composer.suspension.expansions import Expansion
+from agent_composer.suspension.expansions import GrowRecord
 from agent_composer.suspension.pause import PauseReason
 
 # Checkpoint blob schema version. 1.0 -> 2.0: the single-value store migration
@@ -39,8 +39,11 @@ from agent_composer.suspension.pause import PauseReason
 # pre-5.0 checkpoint of a grown run carries no descriptors for the (forthcoming) replay.
 # Pre-5.0 blobs are NOT loadable. 5.0 -> 6.0: adds the additive `num_workers` field (the
 # producer/consumer drive mode the run used); pre-6.0 blobs are NOT loadable (hard cutover,
-# consistent with prior bumps).
-CHECKPOINT_VERSION = "6.0"
+# consistent with prior bumps). 6.0 -> 7.0: the expansion ledger unified from the four-variant
+# `*Expansion` union (CallExpansion/MapExpansion/AgentExpansion/LoopExpansion) to a single flat
+# `GrowRecord(spawner_id, seed, children)` — one uniform record per grow, kind-blind replay.
+# Pre-7.0 blobs are NOT loadable (hard cutover).
+CHECKPOINT_VERSION = "7.0"
 
 
 class RunCheckpoint(BaseModel):
@@ -70,8 +73,9 @@ class RunCheckpoint(BaseModel):
             Nodes that became ready while suspending; enqueued on resume.
         pause_reasons (`list[PauseReason]`, *optional*, defaults to `[]`):
             What each paused node awaits — drives the watcher / CLI.
-        expansions (`list[Expansion]`, *optional*, defaults to `[]`):
-            Descriptor tree for runtime-grown subgraphs, replayed top-down on restore.
+        expansions (`list[GrowRecord]`, *optional*, defaults to `[]`):
+            Ledger of runtime-grown subgraphs, replayed top-down on restore. One flat
+            `GrowRecord` per grow (nested grows ride under their parent's `children`).
             Empty for any run that never expanded.
         num_workers (`int`, *optional*, defaults to `0`):
             The producer/consumer drive mode the run used: 0 = single-threaded inline
@@ -89,11 +93,11 @@ class RunCheckpoint(BaseModel):
     deferred_nodes: list[str] = Field(default_factory=list)
     pause_reasons: list[PauseReason] = Field(default_factory=list)
 
-    # Descriptor tree for runtime-grown subgraphs; `snapshot()` populates it
-    # from `engine.expansions` and `restore()` replays it top-down (`_replay_expansions`) to
-    # re-grow the cloned subgraphs before resume. Empty for any run that never expanded (pure
-    # static flows).
-    expansions: list[Expansion] = Field(default_factory=list)
+    # Ledger of runtime-grown subgraphs; `snapshot()` populates it from `engine.expansions`
+    # and `restore()` replays it top-down (`_replay_expansions`) to re-grow the cloned subgraphs
+    # before resume. One flat `GrowRecord` per grow (nested grows ride under their parent's
+    # `children`). Empty for any run that never expanded (pure static flows).
+    expansions: list[GrowRecord] = Field(default_factory=list)
 
     # The producer/consumer drive mode the run used: 0 = single-threaded inline drain,
     # >=1 = worker-pool size. snapshot() captures engine.num_workers; restore() rebuilds
@@ -116,6 +120,6 @@ class RunCheckpoint(BaseModel):
         if raw_version != CHECKPOINT_VERSION:
             raise ValueError(
                 f"incompatible checkpoint version {raw_version!r}; this build reads "
-                f"{CHECKPOINT_VERSION!r} (adds the num_workers drive-mode field)"
+                f"{CHECKPOINT_VERSION!r} (unified GrowRecord expansion ledger)"
             )
         return cls.model_validate_json(blob)

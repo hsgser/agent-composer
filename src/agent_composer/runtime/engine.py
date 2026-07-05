@@ -48,8 +48,6 @@ from agent_composer.events import (
     PauseRequested,
 )
 from agent_composer.compile.expand import (
-    clone_child,
-    clone_continuation_pair,
     loop_iteration_subgraph,
     map_callsite,
     ns,
@@ -60,6 +58,7 @@ from agent_composer.nodes.base import Grow, NodeKind
 from agent_composer.runtime.eval_node import _SPAWNER_KINDS, eval_node
 from agent_composer.runtime.state_manager import StateManager
 from agent_composer.state import SegmentError
+from agent_composer.suspension.expansions import GrowRecord
 from agent_composer.state.pool import TypedVariablePool
 
 DEFAULT_HANDLE = "default"
@@ -71,50 +70,6 @@ MAX_REF_DEPTH = 5          # defense-in-depth depth bound (the static call graph
 
 _POLL = 0.02  # queue poll timeout (s); keeps shutdown responsive
 _JOIN_TIMEOUT = 2.0
-
-
-@dataclass(frozen=True)
-class _MapElementSlot:
-    """Parent-pointer wrapper for a MAP element: nested descriptors go to
-    `parent.children_per_element[index]` instead of a flat `children` list.
-
-    Lives in engine memory only — never reaches the checkpoint blob. The
-    `Expansion` discriminated union has no `_MapElementSlot` variant on purpose.
-    """
-    parent: Any  # a MapExpansion; typed Any to avoid a top-level import cycle
-    index: int
-
-
-def _append_child(parent, child) -> None:
-    """Append `child` to the right slot on `parent`:
-    - `CallExpansion` -> `parent.children`
-    - `AgentExpansion` -> `parent.segments[-1].children` (last segment's children list)
-    - `_MapElementSlot` -> `parent.parent.children_per_element[parent.index]`
-    """
-    from agent_composer.suspension.expansions import AgentExpansion  # lazy
-    if isinstance(parent, _MapElementSlot):
-        parent.parent.children_per_element[parent.index].append(child)
-    elif isinstance(parent, AgentExpansion):
-        parent.segments[-1].children.append(child)
-    else:  # CallExpansion
-        parent.children.append(child)
-
-
-def _element_index(nid: str, spawner_id: str) -> "int | None":
-    """The MAP element index `i` a cloned node id belongs to, else None.
-
-    A MAP element clone is namespaced under `map_callsite(spawner_id, i)` (`f"{spawner}#{i}"`) then
-    `ns`-prefixed (`f"{spawner}#{i}/{child_id}"`). Parse the `#{i}` segment right after the
-    `f"{spawner_id}#"` prefix, up to the `/` that `ns` inserts. Returns None for any id that is not a
-    `{spawner_id}#{i}/…` element clone (e.g. the list-END filler `ns(spawner_id, END_ID)`)."""
-    prefix = f"{spawner_id}#"
-    if not nid.startswith(prefix):
-        return None
-    rest = nid[len(prefix):]
-    head = rest.split("/", 1)[0]         # the `{i}` segment before ns's `/`
-    if not head.isdigit():
-        return None
-    return int(head)
 
 
 class _Aborted(Exception):
@@ -212,23 +167,23 @@ class FlowEngine:
         # side dict. `depth` carries each cloned spawner-eligible id's expansion depth for
         # MAX_REF_DEPTH.
         self.depth: dict[str, int] = {}
-        self.expansions: list = []  # descriptor ledger (top-level Expansions in
-            # dispatcher-fire order; nested expansions ride under their parent
-            # descriptor's `children` / `children_per_element`).
-        self._spawner_expansion: dict[str, Any] = {}  # cloned spawner_id -> the
-            # Expansion (or `_MapElementSlot`) that contains it. The SOLE lookup
-            # for "which descriptor does this spawner belong to" — no scan over
-            # `self.expansions` ever happens. For multi-pause AGENTs, every
-            # cloned resume_id AND the original spawner_id are stamped to point at the
-            # SAME AgentExpansion.
+        self.expansions: list = []  # durable ledger: top-level GrowRecords in grow order
+            # (nested grows ride under their parent record's flat `children`; element/iteration
+            # placement is re-derived on replay from each child's namespaced spawner_id).
+        self._spawner_expansion: dict[str, Any] = {}  # cloned spawner_id -> the GrowRecord
+            # that contains it. The SOLE lookup for "which record does this spawner belong to"
+            # — no scan over `self.expansions` ever happens — and the branch key for
+            # "nest under parent vs new top-level" in `_apply_grow`. For multi-pause AGENTs,
+            # every cloned resume_id AND the original spawner_id are stamped at the SAME
+            # segment-0 record so segment i+1 nests under segment i.
         # Loop-back bookkeeping: a loop-body END filler's baked `commit_as` names the loop spawner,
         # and `_on_success` routes it to `_loop_step` (predicate -> re-clone the next iteration OR
         # commit the final carried record + advance out-edges) via `target in self.loop_desc`,
         # never the generic commit. `loop_iter` tracks the live iteration index per loop;
-        # `loop_desc` holds each loop's LoopExpansion so `_loop_step`'s continue-branch grows the
-        # same ledger entry (and doubles as the loop-route discriminator).
+        # `loop_desc` holds each loop's LIVE-iteration GrowRecord so `_loop_step`'s continue-branch
+        # can drop the superseded iteration's record (and it doubles as the loop-route discriminator).
         self.loop_iter: dict[str, int] = {}    # loop spawner id -> current iteration index
-        self.loop_desc: dict[str, Any] = {}    # loop spawner id -> its LoopExpansion
+        self.loop_desc: dict[str, Any] = {}    # loop spawner id -> its live-iteration GrowRecord
         self._cancel = False
 
     def request_abort(self) -> None:
@@ -369,7 +324,7 @@ class FlowEngine:
 
         Captures pool + ready + node_state + edge_state + paused_nodes +
         deferred_nodes + pause_reasons + num_workers + expansions (the ledger of
-        descriptor entries for runtime-grown REF/CALL/MAP/AGENT subgraphs, which
+        GrowRecords for runtime-grown CALL/MAP/AGENT/LOOP subgraphs, which
         `restore()` replays top-down to re-grow the cloned subgraphs).
 
         Call after `run()` yields `RunPaused`. The checkpoint can be persisted
@@ -379,11 +334,11 @@ class FlowEngine:
         from agent_composer.suspension.checkpoint import RunCheckpoint
 
         # Capture by VALUE — a point-in-time snapshot the holder can serialize later. The
-        # pool and the Expansion descriptors are mutable pydantic models that the live engine
-        # keeps advancing (e.g. a multi-pause AGENT appends segments to its AgentExpansion);
-        # a shallow `self.pool` / `list(self.expansions)` would let later live progress
-        # retro-mutate an already-taken checkpoint. node_state/edge_state are dict() copies of
-        # immutable NodeState enum values, so they need no deep copy.
+        # pool and the GrowRecord ledger are mutable pydantic models that the live engine keeps
+        # advancing (e.g. a multi-pause AGENT nests a segment record under its parent); a shallow
+        # `self.pool` / `list(self.expansions)` would let later live progress retro-mutate an
+        # already-taken checkpoint. node_state/edge_state are dict() copies of immutable NodeState
+        # enum values, so they need no deep copy.
         return RunCheckpoint(
             pool=self.pool.model_copy(deep=True),
             ready=self._ready_snapshot(),
@@ -643,223 +598,6 @@ class FlowEngine:
         self.sm.finish_executing(node_id)
         self.paused.append((node_id, reason))
 
-    # --- whole-arm clone+register helpers ---------------------------------- #
-    #
-    # Each of the three `_grow_*` helpers performs the SHARED topology+bookkeeping
-    # half of one `_apply_enqueue` arm: clone (pure) -> add_subgraph -> register ->
-    # alias/depth/_spawner_expansion stamps -> mark the spawner EXPANDED. They are
-    # called BOTH by the live dispatcher (`_apply_enqueue`, `schedule=True`, with the
-    # boundary-assert + budget effects) AND by the restore-side fold
-    # (`_replay_expansions`, `schedule=False`, effects suppressed). The caller owns
-    # the descriptor (create+attach to the ledger) and passes it in; the helper stamps
-    # `_spawner_expansion` to point at THAT object so a later in-place append (an AGENT
-    # 2nd segment, a nested CALL/MAP under it) grows a descriptor that IS in the ledger.
-    #
-    # _spawner_expansion retention DIFFERS from alias: _spawner_expansion keeps
-    # ALL ids (no pop) — it is the branch key for "append-to-existing vs new-top-level";
-    # alias keeps only the LATEST (pop) — it routes the final Output to the origin.
-
-    def _grow_call(self, spawner_id: str, child, record: dict, desc, *, schedule: bool,
-                   assert_boundary=None):
-        """Clone+register one CALL child at `spawner_id` (the shared CALL topology). `child`
-        is the clone source (== `enq.target` live, == `flow.nodes[spawner_id].child` on
-        replay — the two are the same baked child for a real CallNode). Returns the
-        `ClonedSubgraph`. The caller created `desc`; this stamps every cloned spawner-eligible
-        node's parent-pointer at it (so a nested REF/MAP/AGENT finds THIS CallExpansion) — the
-        caller attaches `desc` to the ledger only after this returns. `assert_boundary(cloned)`
-        (live only) runs the eager boundary-assert on the freshly cloned child and raises BEFORE
-        any mutation; None suppresses it (replay)."""
-        d = self.depth.get(spawner_id, 0) + 1   # depth computed INTERNALLY
-        cloned = clone_child(child, callsite=spawner_id, record=record)
-        if assert_boundary is not None:
-            assert_boundary(cloned)             # raises -> RunFailed, before add_subgraph
-        with self.sm.lock:                      # append + register atomically
-            self.flow.add_subgraph(cloned.nodes, cloned.edges, cloned.wiring)
-            self.sm.register(list(cloned.nodes), cloned.edges)
-            if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
-                raise RuntimeError(
-                    f"expansion exceeded node budget ({MAX_TOTAL_NODES}) at spawner {spawner_id!r}"
-                )
-            for nid, node in cloned.nodes.items():
-                if node.kind in _SPAWNER_KINDS:
-                    self.depth[nid] = d
-                    self._spawner_expansion[nid] = desc
-        self.depth[cloned.out_node_id] = d      # the filler carries the depth
-        # Bake the commit redirect on the cloned child END filler: its Output commits under the
-        # spawner id (and fires the spawner's out-edges) in `_on_success`. Replaces `alias[filler]`.
-        cloned.nodes[cloned.out_node_id].commit_as = spawner_id
-        # Reach the CallExpansion from the FILLER id too (not just the cloned spawner subnodes
-        # above): _on_success commits the call's value at the filler/alias site and needs the
-        # call's input `record` there to evaluate the call's `${output}` post-asserts. Mirrors
-        # _grow_agent_segment stamping the resume id. On the shared path (live + replay), so it
-        # rebuilds on restore.
-        self._spawner_expansion[cloned.out_node_id] = desc
-        self.sm.finish_executing(spawner_id)
-        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-        if schedule:
-            for root in cloned.roots:
-                self._schedule(root)            # _schedule respects suspend (deferred)
-        return cloned
-
-    def _grow_map(self, spawner_id: str, child, records: list, desc, *, schedule: bool,
-                  assert_boundary=None):
-        """Clone+register the WHOLE MAP fan-in at `spawner_id`: N per-element child
-        clones PLUS the `map_end` LIST EndNode + its fan-in edges/wiring + the map_end's baked
-        `commit_as=spawner`, including the N=0 case (an EndNode.list_(n=0) still built + stamped).
-        `child`
-        is the clone source (== `enq.target` live, == `flow.nodes[spawner_id].child` on
-        replay). `assert_boundary(cloned, i, record)` (live only) runs the per-element eager
-        boundary-assert and raises on a violation; None suppresses it (replay). Returns the
-        `map_end_id`."""
-        d = self.depth.get(spawner_id, 0) + 1   # depth computed INTERNALLY
-        map_end_id = ns(spawner_id, END_ID)                 # the END_ID-list filler
-        end_wiring: dict[str, str] = {}
-        end_edges: list[Edge] = []
-        seed_roots: list[str] = []                          # per-element roots — ONE clone each
-        with self.sm.lock:                                  # append + register atomically
-            for i, record in enumerate(records):
-                callsite = map_callsite(spawner_id, i)       # f"{spawner}#{i}"
-                cloned = clone_child(child, callsite=callsite, record=record)
-                if assert_boundary is not None:
-                    assert_boundary(cloned, i, record)
-                self.flow.add_subgraph(cloned.nodes, cloned.edges, cloned.wiring)
-                self.sm.register(list(cloned.nodes), cloned.edges)
-                if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
-                    raise RuntimeError(
-                        f"expansion exceeded node budget ({MAX_TOTAL_NODES}) at spawner {spawner_id!r}"
-                    )
-                # The i-th _MapElementSlot is the parent-pointer: a nested expansion appends
-                # to desc.children_per_element[i] (NOT a flat children list).
-                elem_slot = _MapElementSlot(desc, i)
-                for nid, node in cloned.nodes.items():
-                    if node.kind in _SPAWNER_KINDS:
-                        self.depth[nid] = d
-                        self._spawner_expansion[nid] = elem_slot
-                seed_roots.extend(cloned.roots)
-                end_wiring[f"e{i}"] = f"${{{cloned.out_node_id}.output}}"   # node-first
-                end_edges.append(Edge(
-                    id=f"{cloned.out_node_id}->{map_end_id}#{i}",
-                    from_=cloned.out_node_id, to=map_end_id, input_group=f"e{i}"))
-            # ONE EndNode in LIST mode — the MAP fan-in over child ENDs.
-            # N=0: still built + registered even when records==[] (a MAP over [] that fired
-            # before a sibling pause) — the END_ID-list is then a 0-incoming root that emits [].
-            map_end = EndNode.list_(map_end_id, n=len(records))
-            # Bake the commit redirect on the MAP END-list filler: its list Output commits under
-            # the spawner id in `_on_success`. Replaces `alias[map_end]`.
-            map_end.commit_as = spawner_id
-            self.flow.add_subgraph({map_end_id: map_end}, end_edges,
-                                   {map_end_id: end_wiring})
-            self.sm.register([map_end_id], end_edges)
-        self.depth[map_end_id] = d                          # the filler carries the depth
-        self.sm.finish_executing(spawner_id)
-        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-        if schedule:
-            for root in seed_roots:                         # schedule AFTER the whole subgraph
-                self._schedule(root)
-            if not records:                                 # N=0: the END_ID-list has 0 incoming -> a root
-                self._schedule(map_end_id)                  # -> emits [] (must NOT short-circuit)
-        return map_end_id
-
-    def _grow_agent_segment(self, spawner_id: str, hi_desc: dict, resume_desc: dict,
-                            desc, *, schedule: bool):
-        """Clone+register one AGENT-pause continuation segment at `spawner_id` (the shared
-        AGENT topology). The Enqueue target is the PAIR `[hi_desc, resume_desc]`. Returns the
-        `ClonedSubgraph`. Stamps `_spawner_expansion` on BOTH `spawner_id` AND
-        `cloned.out_node_id` (the resume id = the NEXT segment's spawner) at `desc` (keep-ALL
-        retention, no pop). The commit redirect chains to origin via the baked `commit_as`
-        (read off the previous segment node). depth is carried UNCHANGED (a K-pause
-        agent is NOT recursion)."""
-        pair = [hi_desc, resume_desc]
-        # Carry the spawner's declared output Shape + self-correction cap onto the resume node so a
-        # resumed agent with a non-text `output:` still emits the declared shape on its final turn
-        # (else the alias-filler write boundary rejects the plain-text answer). build.py stamps
-        # `output_shape` on the compiled agent; each resume node re-stamps it (expand.py), so it
-        # propagates segment to segment across a multi-pause chain.
-        spawner = self.flow.nodes[spawner_id]
-        cloned = clone_continuation_pair(
-            pair,
-            callsite=spawner_id,
-            output_shape=getattr(spawner, "output_shape", None),
-            retries=getattr(spawner, "retries", 2),
-        )
-        with self.sm.lock:                      # append + register atomically
-            self.flow.add_subgraph(cloned.nodes, cloned.edges, cloned.wiring)
-            self.sm.register(list(cloned.nodes), cloned.edges)
-            if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
-                raise RuntimeError(
-                    f"expansion exceeded node budget ({MAX_TOTAL_NODES}) at spawner {spawner_id!r}"
-                )
-            # Retention: stamp BOTH the spawner_id (idempotent for segment 2+) AND the
-            # cloned resume_id (the NEXT segment's spawner) — keep ALL (no pop). Also any
-            # spawner-eligible cloned subnodes (today empty).
-            self._spawner_expansion[spawner_id] = desc
-            self._spawner_expansion[cloned.out_node_id] = desc
-            for nid, node in cloned.nodes.items():
-                if node.kind in _SPAWNER_KINDS:
-                    self._spawner_expansion[nid] = desc
-        # Re-point the commit redirect to the latest resume continuation so the FINAL non-pausing
-        # Output commits under the ORIGINAL spawner id (multi-pause chaining): the origin is read
-        # off the PREVIOUS segment's baked `commit_as` (the current holder of the origin — the
-        # spawner node for segment 0, or the prior resume node for segment 2+), falling back to
-        # `spawner_id` when this is the first segment. Replaces the `alias.pop`/`alias[...]` chain.
-        origin = spawner.commit_as or spawner_id
-        cloned.nodes[cloned.out_node_id].commit_as = origin
-        self.sm.finish_executing(spawner_id)
-        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-        # INVARIANT: the resume filler carries the PARENT depth UNCHANGED (no `+1`).
-        self.depth[cloned.out_node_id] = self.depth.get(spawner_id, 0)
-        if schedule:
-            for root in cloned.roots:          # the human_input leaf
-                self._schedule(root)
-        return cloned
-
-    def _grow_loop(self, spawner_id: str, child, record: dict, iteration: int, desc,
-                   schedule: bool = True):
-        """Clone+register ONE loop iteration at callsite `f"{spawner_id}#{iteration}"` (the
-        per-iteration namespace, mirroring MAP's `#i`) and schedule its roots. Unlike
-        `_grow_call`/`_grow_map`, the body END filler's baked `commit_as` routes it to `_loop_step`
-        (predicate re-clone/commit) via `target in self.loop_desc` in `_on_success`, rather than
-        the generic commit-and-advance. Records the iteration's seed on the LoopExpansion so durable
-        replay can re-grow the live iteration from the recorded seed. `schedule=False`
-        suppresses the budget guard + root scheduling (the replay path), mirroring
-        `_grow_call`/`_grow_map`.
-
-        NOTE (slice-1 limitation): does NOT stamp `_spawner_expansion`/`depth` on cloned
-        spawner-eligible subnodes — slice-1 bodies are leaf-only (a `human_input` pause is a
-        leaf, not a spawner). An AGENT-in-loop body (the `ac chat` case) will need that
-        stamping to route its pause segments; tracked in DEFER.
-
-        Unlike the other `_grow_*` helpers, this one does NOT call `finish_executing`/
-        `mark_node(EXPANDED)` on the spawner: the LOOP arm of `_apply_enqueue` already
-        finishes+marks the spawner once, and each subsequent iteration is grown from
-        `_loop_step` while the spawner stays EXPANDED — the re-clone must not re-mark it."""
-        callsite = map_callsite(spawner_id, iteration)   # f"{spawner_id}#{iteration}"
-        cloned = clone_child(child, callsite=callsite, record=record)
-        with self.sm.lock:                               # append + register atomically
-            self.flow.add_subgraph(cloned.nodes, cloned.edges, cloned.wiring)
-            self.sm.register(list(cloned.nodes), cloned.edges)
-            if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
-                raise RuntimeError(
-                    f"loop expansion exceeded node budget ({MAX_TOTAL_NODES}) at {spawner_id!r}"
-                )
-        # Bake the commit redirect on the body END filler so its Output carries the spawner id to
-        # `_on_success`, which routes it to `_loop_step` (via `target in self.loop_desc`) rather
-        # than committing generically. Replaces `loop_alias[filler] = spawner_id`.
-        cloned.nodes[cloned.out_node_id].commit_as = spawner_id
-        self.loop_iter[spawner_id] = iteration
-        # Record this iteration's seed on the ledger entry (one slot per iteration grown).
-        # `children_per_iter` stays parallel to `records` (one slot per iteration, mirroring
-        # MapExpansion's `children_per_element`): slice-1 bodies are leaf-only so every slot
-        # stays [], but the slot is the documented durable-checkpoint shape for a future
-        # nested-spawner body — kept in lockstep now so durable replay needs no migration.
-        while len(desc.records) <= iteration:
-            desc.records.append(dict(record))
-            desc.children_per_iter.append([])
-        if schedule:
-            for root in cloned.roots:
-                self._schedule(root)                     # respects suspend (deferred)
-        return cloned
-
     def _prune_iteration(self, spawner_id: str, iteration: int) -> None:
         """Drop the fully-committed loop iteration `f"{spawner_id}#{iteration}"` namespace from
         the LIVE overlay (bounds a long loop's node budget). The iteration's carried record has
@@ -873,8 +611,8 @@ class FlowEngine:
         iterating `dead_nodes` catches every per-id key: a nested-spawner body (a future non-leaf
         loop body) would stamp `depth`/`_spawner_expansion` on prefixed sub-ids — all cleared here.
         NOT touched: the `loop_iter`/`loop_desc` maps (keyed by the bare `spawner_id`, no `#i`
-        prefix — live loop bookkeeping the next iteration reads) and the `LoopExpansion` ledger
-        (`self.expansions` / `records`/`children_per_iter`), which is the durable replay metadata."""
+        prefix — live loop bookkeeping the next iteration reads) and the `GrowRecord` ledger
+        (`self.expansions`), which is the durable replay metadata."""
         prefix = f"{map_callsite(spawner_id, iteration)}/"    # f"{spawner}#{iteration}/"
         with self.sm.lock:                                   # mutate topology + state atomically
             dead_nodes = {n for n in self.flow.nodes if n.startswith(prefix)}
@@ -900,7 +638,7 @@ class FlowEngine:
             NodeExecutionError: on the runaway guard (`"LoopMaxExceeded"`, next iteration would
                 reach `max_iters`); when the final carried record fails the spawner's declared
                 `output_shape` on commit (wraps the `SegmentError` as the redirect-commit tail does);
-                and as the boundary wrap for any predicate-eval or `_grow_loop` raise (a runtime
+                and as the boundary wrap for any predicate-eval or `_apply_grow` raise (a runtime
                 predicate error or the node-budget guard) — always a `NodeExecutionError` so
                 `run()` yields `RunFailed`, never an uncaught escape."""
         loop = self.flow.nodes[spawner_id]
@@ -909,7 +647,7 @@ class FlowEngine:
         # Predicate eval and iteration growth run OUTSIDE eval_node's try/except (like
         # _apply_enqueue), so any raise here would escape run() uncaught. Wrap both: a
         # predicate ExpressionError (a runtime type error on the carried record) and the
-        # _grow_loop budget RuntimeError become NodeExecutionError -> RunFailed. The
+        # `_apply_grow` budget RuntimeError become NodeExecutionError -> RunFailed. The
         # intentional located raises (max guard, commit SegmentError) pass straight through.
         #
         # The continue decision `cont` branches on the loop kind (mirrors the turn-0 arm):
@@ -977,76 +715,29 @@ class FlowEngine:
         for nid in self._advance(spawner_id):
             self._schedule(nid)
 
-    def _replay_expansions(self, expansions: list, *, parent_depth: int = 0,
-                           is_top_level: bool = True) -> None:
-        """Deterministic fold over a persisted descriptor tree: re-grow the live
-        topology + bookkeeping a paused run had, with all live effects suppressed
-        (`schedule=False` — no boundary assert, no budget raise, no scheduling). The pure
-        clone (`ns(callsite, child_id)`) re-keys every cloned node identically, so the
-        rebuilt overlay matches the live engine's byte-for-byte.
+    def _replay_expansions(self, records: list, *, is_top_level: bool = True) -> None:
+        """Deterministic fold over the persisted `GrowRecord` tree: re-grow the live topology +
+        bookkeeping a paused run had, with all live effects suppressed (`schedule=False` — no
+        boundary assert, no budget raise, no scheduling). Kind-BLIND: each record names its
+        spawner, `spawner.replay_grow(seed)` rebuilds that spawner's OWN subgraph (the pure inverse
+        of the live grow), and `_apply_grow` re-splices it and runs the per-kind residual. The pure
+        clone (`ns(callsite, child_id)`) re-keys every cloned node identically, so the rebuilt
+        overlay matches the live engine's byte-for-byte.
 
-        REBUILDS `self.expansions` by REUSING each deserialized descriptor object — a
-        top-level descriptor (`is_top_level`) is appended to `self.expansions`; a nested one is
-        ALREADY attached under its parent's slot by deserialization, so the fold only walks it.
-        The append decision is keyed on `is_top_level` (NOT on `parent_depth == 0`): an AGENT
-        carries depth UNCHANGED, so a future child of a top-level AGENT segment would still have
-        `parent_depth == 0` yet must NOT be promoted to a top-level ledger entry. The `_grow_*`
-        helpers stamp `_spawner_expansion` to point at THESE SAME objects, so a later in-place
-        append (an AGENT 2nd segment after a 2nd durable hop) grows a descriptor that IS in the
-        ledger.
-
-        Closed `Expansion` sum — exhaustive dispatch on `type`, `else: raise` (loud)."""
-        from agent_composer.suspension.expansions import (
-            AgentExpansion, CallExpansion, LoopExpansion, MapExpansion,
-        )
-
-        for desc in expansions:
+        REBUILDS `self.expansions` by REUSING each deserialized record — a top-level record
+        (`is_top_level`) is appended here; a nested one is ALREADY attached under its parent's
+        `children` by deserialization, so the fold only walks it. `_apply_grow` is called with
+        `record=rec` so it does NOT re-append (this top-level append owns the ledger); the residual
+        stamps `_spawner_expansion` at THESE SAME objects, so a later in-place `children.append` (an
+        AGENT re-pause / a LOOP next iteration after a durable hop) grows a record that IS in the
+        ledger."""
+        for rec in records:
             if is_top_level:
-                self.expansions.append(desc)    # rebuild the ledger; nested ones ride their parent
-            spawner_id = desc.spawner_id
-            if isinstance(desc, CallExpansion):
-                child = self.flow.nodes[spawner_id].child  # baked at load (CALL/MAP)
-                self._grow_call(spawner_id, child, dict(desc.record), desc, schedule=False)
-                this_depth = self.depth.get(spawner_id, 0) + 1
-                self._replay_expansions(desc.children, parent_depth=this_depth, is_top_level=False)
-            elif isinstance(desc, MapExpansion):
-                child = self.flow.nodes[spawner_id].child  # baked at load (CALL/MAP)
-                records = [dict(r) for r in desc.records]
-                self._grow_map(spawner_id, child, records, desc, schedule=False)
-                this_depth = self.depth.get(spawner_id, 0) + 1
-                for kids in desc.children_per_element:
-                    self._replay_expansions(kids, parent_depth=this_depth, is_top_level=False)
-            elif isinstance(desc, AgentExpansion):
-                # Chain `current_spawner` across segments — seg0 = spawner_id, then the
-                # prior segment's resume id (`cloned.out_node_id`). Reuse the ONE AgentExpansion
-                # as `desc` for every segment so `_spawner_expansion` of each resume id points
-                # at the SAME object; `_grow_agent_segment` chains the origin via the baked
-                # `commit_as` on the final resume node.
-                current = spawner_id
-                for segment in desc.segments:
-                    cloned = self._grow_agent_segment(
-                        current, segment.hi_desc, segment.resume_desc, desc, schedule=False)
-                    # AGENT carries depth UNCHANGED; segment children are a future slot (today []).
-                    self._replay_expansions(segment.children, parent_depth=parent_depth,
-                                            is_top_level=False)
-                    current = cloned.out_node_id
-            elif isinstance(desc, LoopExpansion):
-                child = self.flow.nodes[spawner_id].child          # baked at load
-                self.loop_desc[spawner_id] = desc                  # re-attach ledger for _loop_step
-                # The live LOOP arm finishes+marks the spawner once; replay must reproduce that (the
-                # spawner stays EXPANDED while the live iteration runs). _grow_loop does NOT mark it.
-                self.sm.finish_executing(spawner_id)
-                self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-                # Pruning leaves only the LIVE iteration resident at any pause, so re-grow exactly
-                # ONE iteration — the last recorded seed — at its recorded index.
-                i = len(desc.records) - 1                           # pruning => only the LIVE iteration
-                if i >= 0:
-                    self._grow_loop(spawner_id, child, dict(desc.records[i]), i, desc, schedule=False)
-                    for kids in desc.children_per_iter[i:i + 1]:
-                        self._replay_expansions(kids, parent_depth=self.depth.get(spawner_id, 0) + 1,
-                                                is_top_level=False)
-            else:
-                raise ValueError(f"unknown Expansion descriptor {type(desc).__name__!r}")
+                self.expansions.append(rec)     # rebuild the ledger; nested ones ride their parent
+            spawner = self.flow.nodes[rec.spawner_id]
+            sg = spawner.replay_grow(rec.seed)
+            self._apply_grow(rec.spawner_id, Grow(sg, seed=rec.seed), schedule=False, record=rec)
+            self._replay_expansions(rec.children, is_top_level=False)
 
     def _apply_expansion(self, node_id, payload):
         """Route a NodeExpanded payload to the correct grower. Heterogeneous during the
@@ -1060,11 +751,14 @@ class FlowEngine:
 
     def _apply_grow(self, spawner_id, grow, *, schedule=True, record=None):
         """Generic growth core (kind-BLIND): splice the node-built Subgraph, register it, enforce
-        MAX_TOTAL_NODES, schedule its roots, and (later) record ONE durable ledger entry. All
-        per-kind policy — depth/refdepth stamping, finish/mark, loop re-grow retention — is
-        delegated to the labelled `_grow_residual` (census-counted; a later phase deletes it).
-        `schedule=False` suppresses scheduling+budget on replay; `record` reuses a deserialized
-        ledger entry on replay."""
+        MAX_TOTAL_NODES, record ONE uniform `GrowRecord` in the durable ledger, run the per-kind
+        residual, and schedule its roots. `schedule=False` suppresses scheduling+budget on replay;
+        `record` reuses a deserialized ledger entry on replay (so no new record is minted).
+
+        Ledger attach is kind-blind: mint a `GrowRecord(spawner_id, seed, [])`, then nest it under
+        the enclosing spawner's record if this spawner is INSIDE one (`_spawner_expansion` names it),
+        else append it top-level. The residual then stamps `_spawner_expansion` so a nested grow
+        finds THIS record."""
         sg = grow.subgraph
         with self.sm.lock:
             self.flow.add_subgraph(sg.nodes, sg.edges, sg.wiring)
@@ -1072,217 +766,191 @@ class FlowEngine:
             if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
                 raise RuntimeError(
                     f"expansion exceeded node budget ({MAX_TOTAL_NODES}) at spawner {spawner_id!r}")
-        # per-kind residual: depth/refdepth stamping + finish/mark — a later phase deletes this.
-        self._grow_residual(spawner_id, grow)
-        # (durable ledger recording is added when the spawners start returning Grow)
+        # Mint the one GrowRecord for this grow (live), OR reuse the deserialized one on replay.
+        rec = record if record is not None else GrowRecord(
+            spawner_id=spawner_id, seed=grow.seed, children=[])
+        # Ledger parent captured BEFORE the residual: the AGENT/CALL residual self-stamps
+        # `_spawner_expansion[spawner_id]`, which would otherwise shadow the ENCLOSING spawner's
+        # record and make `rec` look like its own parent. A nested grow (its spawner is stamped at
+        # the enclosing record) rides under that record's `children`; a top-level grow is a
+        # `self.expansions` root. On replay (`record is not None`) the record is already attached
+        # (top-level by `_replay_expansions`, nested by deserialization), so this is skipped.
+        parent = self._spawner_expansion.get(spawner_id) if record is None else None
+        # per-kind residual: depth/refdepth stamping, boundary asserts, finish/mark, loop retention.
+        self._grow_residual(spawner_id, grow, rec, schedule=schedule)
+        # Attach AFTER the residual (attach-after-grow): a residual boundary-assert/budget raise on
+        # the live path leaves NO orphan record in the ledger.
+        if record is None:
+            if isinstance(parent, GrowRecord):
+                parent.children.append(rec)
+            else:
+                self.expansions.append(rec)
         if schedule:
             for root in sg.roots:
                 self._schedule(root)
 
-    def _grow_residual(self, spawner_id, grow):
-        """RESIDUAL, NOT the generic core: the per-kind depth/refdepth stamping + finish/mark
-        policy the kind-blind growth core cannot yet subsume without a behavior change. Kind-shaped
-        ON PURPOSE — counted by the census, removed by the later prune/run_node phases. Filled per
-        kind as each spawner migrates to `Grow`; a no-op for kinds that still grow via `Enqueue`."""
+    def _grow_residual(self, spawner_id, grow, rec, *, schedule):
+        """RESIDUAL, NOT the generic core: the per-kind depth/refdepth stamping + boundary asserts +
+        finish/mark + loop retention the kind-blind growth core cannot yet subsume without a
+        behavior change. Kind-shaped ON PURPOSE — counted by the census, removed by the later
+        prune/run_node phases. `rec` is the GrowRecord `_apply_grow` minted/reused for this grow (the
+        residual stamps `_spawner_expansion` at it for nested-grow lookup); `schedule=False` (replay)
+        suppresses the eager boundary-assert + MAX_REF_DEPTH budget."""
         spawner = self.flow.nodes[spawner_id]
         if spawner.kind == NodeKind.CALL:
-            self._grow_call_residual(spawner_id, grow)
+            self._grow_call_residual(spawner_id, grow, rec, schedule=schedule)
         elif spawner.kind == NodeKind.MAP:
-            self._grow_map_residual(spawner_id, grow)
+            self._grow_map_residual(spawner_id, grow, rec, schedule=schedule)
         elif spawner.kind == NodeKind.AGENT:
-            self._grow_agent_residual(spawner_id, grow)
+            self._grow_agent_residual(spawner_id, grow, rec, schedule=schedule)
         elif spawner.kind == NodeKind.LOOP:
-            self._grow_loop_residual(spawner_id, grow)
+            self._grow_loop_residual(spawner_id, grow, rec, schedule=schedule)
 
-    def _grow_call_residual(self, spawner_id, grow):
-        """CALL residual — reproduces `_grow_call` + the `_apply_enqueue` CALL arm's per-kind policy
-        on the live `Grow` path (the generic core already spliced+registered+scheduled). Preserves,
-        exactly: the eager boundary-assert temp-pool check; the REF depth stamp (+1 on the cloned
-        spawner-eligible nodes AND the filler) + `MAX_REF_DEPTH` bound; the one finish/mark-EXPANDED;
-        and — TRANSITIONAL — the `CallExpansion` ledger write + parent attach + `_spawner_expansion`
-        stamps that keep replay and the `_on_success` CALL post-assert record recovery working.
+    def _grow_call_residual(self, spawner_id, grow, rec, *, schedule):
+        """CALL residual — the per-kind policy on the live `Grow` path (the generic core already
+        spliced+registered+scheduled and wrote `rec` to the ledger). Preserves, exactly: the eager
+        boundary-assert temp-pool check (suppressed on replay via `schedule=False`); the REF depth
+        stamp (+1 on the cloned spawner-eligible nodes AND the filler) + `MAX_REF_DEPTH` bound (also
+        `schedule`-gated); the one finish/mark-EXPANDED; and the `_spawner_expansion` stamps (cloned
+        spawner-eligible nodes + the filler point at `rec`) that keep nested-grow routing + the
+        `_on_success` CALL post-assert record recovery working.
 
         The filler id is recovered from the spliced subgraph via the `ns(callsite, END_ID)`
         convention (callsite == spawner_id), so `Grow`/`Subgraph` need no extra field."""
         from agent_composer.expr import first_failing_assert
         from agent_composer.state.seeding import apply_defaults, coerce_inputs
-        from agent_composer.suspension.expansions import CallExpansion
 
         spawner = self.flow.nodes[spawner_id]
         sg = grow.subgraph
         record = dict(grow.seed)
         filler_id = ns(spawner_id, END_ID)          # the cloned child END filler (ns convention)
 
-        # Eager boundary-assert: the child's BOUNDARY asserts (raw, un-namespaced) evaluated against
-        # a temp pool whose START_ID carries the child's EFFECTIVE inputs (coerce + default — the
-        # same view the spliced child START_ID commits). Same logic as the legacy `_assert_call`.
-        boundary_asserts = []
-        child_asserts = getattr(spawner.child, "child_asserts", None)
-        if child_asserts is not None:
-            boundary_asserts = list(child_asserts.boundary)
-        if boundary_asserts:
-            decls = spawner.child_inputs
-            temp = TypedVariablePool()
-            temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
-            temp.system = dict(self.pool.system)
-            bad = first_failing_assert(boundary_asserts, temp)
-            if bad is not None:
-                raise RuntimeError(f"REF child {spawner_id!r} boundary assert failed: {bad}")
+        # Eager boundary-assert (live path only): the child's BOUNDARY asserts (raw, un-namespaced)
+        # evaluated against a temp pool whose START_ID carries the child's EFFECTIVE inputs (coerce +
+        # default — the same view the spliced child START_ID commits). Suppressed on replay
+        # (`schedule=False`) — the paused run already passed it.
+        if schedule:
+            boundary_asserts = []
+            child_asserts = getattr(spawner.child, "child_asserts", None)
+            if child_asserts is not None:
+                boundary_asserts = list(child_asserts.boundary)
+            if boundary_asserts:
+                decls = spawner.child_inputs
+                temp = TypedVariablePool()
+                temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
+                temp.system = dict(self.pool.system)
+                bad = first_failing_assert(boundary_asserts, temp)
+                if bad is not None:
+                    raise RuntimeError(f"REF child {spawner_id!r} boundary assert failed: {bad}")
 
-        # REF depth bound (kind-shaped; a later phase removes it). A genuinely deep REF chain trips
-        # MAX_REF_DEPTH before MAX_TOTAL_NODES.
+        # REF depth bound (kind-shaped; a later phase removes it). The raise is gated on `schedule` —
+        # replay re-derives depth top-down without re-tripping the guard.
         d = self.depth.get(spawner_id, 0) + 1
-        if d > MAX_REF_DEPTH:
+        if schedule and d > MAX_REF_DEPTH:
             raise RuntimeError(
                 f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
             )
 
-        # TRANSITIONAL (a later sub-phase unifies this to GrowRecord): create the CallExpansion,
-        # stamp `_spawner_expansion` on the cloned spawner-eligible nodes so a nested REF/MAP/AGENT
-        # finds THIS descriptor, stamp depth on those + the filler (the filler carries the depth),
-        # stamp the filler's `_spawner_expansion` (the CALL post-assert record recovery keys off it),
-        # then attach to the ledger (top-level -> self.expansions, else under the parent).
-        desc = CallExpansion(spawner_id=spawner_id, record=record, children=[])
-        parent_desc = self._spawner_expansion.get(spawner_id)
+        # Stamp `_spawner_expansion` at `rec` on the cloned spawner-eligible nodes (a nested
+        # REF/MAP/AGENT nests under THIS record) + on the filler (the CALL post-assert record
+        # recovery keys off it); stamp depth on those + the filler (the filler carries the depth).
         for nid, node in sg.nodes.items():
             if node.kind in _SPAWNER_KINDS:
                 self.depth[nid] = d
-                self._spawner_expansion[nid] = desc
+                self._spawner_expansion[nid] = rec
         self.depth[filler_id] = d                    # the filler carries the depth
-        self._spawner_expansion[filler_id] = desc
-        if parent_desc is not None:
-            _append_child(parent_desc, desc)
-        else:
-            self.expansions.append(desc)
+        self._spawner_expansion[filler_id] = rec
 
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
 
-    def _grow_map_residual(self, spawner_id, grow):
-        """MAP residual — reproduces `_grow_map` + the `_apply_enqueue` MAP arm's per-kind policy on
-        the live `Grow` path (the generic core already spliced+registered+scheduled the whole fan-in,
-        incl. the list-END). Preserves, exactly: the per-element eager boundary-assert temp-pool
-        check; the REF depth stamp (+1 on the cloned spawner-eligible ELEMENT nodes AND the list-END
-        filler) + `MAX_REF_DEPTH` bound; the one finish/mark-EXPANDED; and — TRANSITIONAL — the
-        `MapExpansion` ledger write + parent attach + per-element `_spawner_expansion` stamps
-        (`_MapElementSlot(desc, i)`) that keep replay and nested-expansion routing working.
+    def _grow_map_residual(self, spawner_id, grow, rec, *, schedule):
+        """MAP residual — the per-kind policy on the live `Grow` path (the generic core already
+        spliced+registered+scheduled the whole fan-in incl. the list-END and wrote `rec`).
+        Preserves, exactly: the per-element eager boundary-assert temp-pool check (suppressed on
+        replay); the REF depth stamp (+1 on the cloned spawner-eligible ELEMENT nodes AND the
+        list-END filler) + `MAX_REF_DEPTH` bound (both `schedule`-gated); the one finish/mark-
+        EXPANDED; and the per-element `_spawner_expansion` stamps (each element node points at `rec`)
+        that keep nested-expansion routing working. A nested grow's element PLACEMENT rides its
+        namespaced spawner_id (`{spawner}#{i}/…`), re-derived on replay — no per-element slot needed.
 
-        The per-element `record` comes from `grow.seed` (the list of records) indexed by element `i`;
-        `i` is recovered from a cloned node's id prefix via `_element_index` (the `map_callsite`
-        `#{i}` convention). The list-END filler id is `ns(spawner_id, END_ID)` (the ns convention)."""
+        The list-END filler id is `ns(spawner_id, END_ID)` (the ns convention)."""
         from agent_composer.expr import first_failing_assert
         from agent_composer.state.seeding import apply_defaults, coerce_inputs
-        from agent_composer.suspension.expansions import MapExpansion
 
         spawner = self.flow.nodes[spawner_id]
         sg = grow.subgraph
         records = list(grow.seed)                    # the per-element raw records
         map_end_id = ns(spawner_id, END_ID)          # the list-END filler (ns convention)
 
-        # Per-element eager boundary-assert: the child's BOUNDARY asserts (raw, un-namespaced)
-        # evaluated against a temp pool whose START_ID carries element i's EFFECTIVE inputs (coerce +
-        # default — the same view the spliced element's child START_ID commits). Same logic as the
-        # legacy `_assert_map`. Fired once per element BEFORE any depth/ledger effects.
-        boundary_asserts = []
-        child_asserts = getattr(spawner.child, "child_asserts", None)
-        if child_asserts is not None:
-            boundary_asserts = list(child_asserts.boundary)
-        if boundary_asserts:
-            decls = spawner.child_inputs
-            for i, record in enumerate(records):
-                temp = TypedVariablePool()
-                temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
-                temp.system = dict(self.pool.system)
-                bad = first_failing_assert(boundary_asserts, temp)
-                if bad is not None:
-                    raise RuntimeError(
-                        f"MAP child {spawner_id!r} element {i} boundary assert failed: {bad}"
-                    )
+        # Per-element eager boundary-assert (live path only): the child's BOUNDARY asserts evaluated
+        # against a temp pool whose START_ID carries element i's EFFECTIVE inputs (coerce + default).
+        # Suppressed on replay (`schedule=False`).
+        if schedule:
+            boundary_asserts = []
+            child_asserts = getattr(spawner.child, "child_asserts", None)
+            if child_asserts is not None:
+                boundary_asserts = list(child_asserts.boundary)
+            if boundary_asserts:
+                decls = spawner.child_inputs
+                for i, record in enumerate(records):
+                    temp = TypedVariablePool()
+                    temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
+                    temp.system = dict(self.pool.system)
+                    bad = first_failing_assert(boundary_asserts, temp)
+                    if bad is not None:
+                        raise RuntimeError(
+                            f"MAP child {spawner_id!r} element {i} boundary assert failed: {bad}"
+                        )
 
-        # REF depth bound (kind-shaped; a later phase removes it). A genuinely deep MAP chain trips
-        # MAX_REF_DEPTH before MAX_TOTAL_NODES.
+        # REF depth bound (kind-shaped; a later phase removes it); the raise is gated on `schedule`.
         d = self.depth.get(spawner_id, 0) + 1
-        if d > MAX_REF_DEPTH:
+        if schedule and d > MAX_REF_DEPTH:
             raise RuntimeError(
                 f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
             )
 
-        # TRANSITIONAL (P3.5): create the MapExpansion (empty per-element children lists), stamp
-        # depth + `_spawner_expansion` (an `_MapElementSlot(desc, i)`) on each cloned spawner-eligible
-        # ELEMENT node so a nested REF/MAP/AGENT appends to `children_per_element[i]`, stamp depth on
-        # the list-END filler, then attach to the ledger (top-level -> self.expansions, else under
-        # the parent). Attach AFTER (mirroring `_grow_call_residual`). Legacy `_grow_map` stamps depth
-        # on spawner-eligible clones only (inside the `_SPAWNER_KINDS` block), plus the filler.
-        desc = MapExpansion(
-            spawner_id=spawner_id, records=records,
-            children_per_element=[[] for _ in records],
-        )
-        parent_desc = self._spawner_expansion.get(spawner_id)
+        # Stamp depth + `_spawner_expansion` (at `rec`) on each cloned spawner-eligible ELEMENT node
+        # so a nested REF/MAP/AGENT nests under THIS record; stamp depth on the list-END filler.
         for nid, node in sg.nodes.items():
             if node.kind in _SPAWNER_KINDS:
-                i = _element_index(nid, spawner_id)
-                if i is None:
-                    continue
                 self.depth[nid] = d
-                self._spawner_expansion[nid] = _MapElementSlot(desc, i)
+                self._spawner_expansion[nid] = rec
         self.depth[map_end_id] = d                   # the list-END filler carries the depth
-        if parent_desc is not None:
-            _append_child(parent_desc, desc)
-        else:
-            self.expansions.append(desc)
 
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
 
-    def _grow_agent_residual(self, spawner_id, grow):
-        """AGENT residual — reproduces `_grow_agent_segment` + the `_apply_enqueue` AGENT arm's
-        per-kind policy on the live `Grow` path (the generic core already spliced+registered+
-        scheduled the human_input leaf root). Preserves, exactly and in the legacy ORDER: the
-        three-branch AgentExpansion ledger; the BOTH-id `_spawner_expansion` retention (keep-ALL,
-        NO pop); the origin OVERRIDE of the builder's provisional `commit_as`; the one
-        finish/mark-EXPANDED; and the UNCHANGED depth carry (an agent pausing K times is NOT
-        recursion — no `+1`, no `MAX_REF_DEPTH`).
+    def _grow_agent_residual(self, spawner_id, grow, rec, *, schedule):
+        """AGENT residual — the per-kind policy on the live `Grow` path (the generic core already
+        spliced+registered+scheduled the human_input leaf root and wrote `rec`). Preserves, exactly:
+        the BOTH-id `_spawner_expansion` stamp (spawner_id + resume terminal both point at `rec`, so
+        the NEXT pause nests its GrowRecord UNDER this one); the origin OVERRIDE of the builder's
+        provisional `commit_as`; the one finish/mark-EXPANDED; and the UNCHANGED depth carry (an
+        agent pausing K times is NOT recursion — no `+1`, no `MAX_REF_DEPTH`, nothing gated on
+        `schedule`).
 
         The resume terminal id is recovered deterministically via the ns convention
         (`ns(spawner_id, "__resume#" + hi_desc["slot"])`, matching `clone_continuation_pair`), so
-        `Grow`/`Subgraph` need no extra field. `grow.seed` carries the PAIR (`hi_desc`/`resume_desc`)
-        for the transitional ledger + slot recovery."""
+        `Grow`/`Subgraph` need no extra field. `grow.seed` carries the `{hi_desc, resume_desc}` pair."""
         spawner = self.flow.nodes[spawner_id]
         hi_desc = grow.seed["hi_desc"]
-        resume_desc = grow.seed["resume_desc"]
         out_id = ns(spawner_id, "__resume#" + hi_desc["slot"])   # the resume terminal (ns convention)
         assert out_id in grow.subgraph.nodes
 
-        # TRANSITIONAL (P3.5): the AgentExpansion ledger — THREE branches (exactly the
-        # `_apply_enqueue` AGENT arm). Parent-pointer is the SOLE lookup: multi-pause appends a
-        # segment to the SAME AgentExpansion; a first AGENT pause nested under a CALL/MAP parent
-        # attaches under it; a top-level first pause joins `self.expansions`.
-        from agent_composer.suspension.expansions import AgentExpansion, AgentSegment
-        segment = AgentSegment(hi_desc=hi_desc, resume_desc=resume_desc)
-        parent_desc = self._spawner_expansion.get(spawner_id)
-        if isinstance(parent_desc, AgentExpansion):
-            parent_desc.segments.append(segment)                 # multi-pause: append to same descriptor
-            desc = parent_desc
-        elif parent_desc is not None:
-            desc = AgentExpansion(spawner_id=spawner_id, segments=[segment])
-            _append_child(parent_desc, desc)                     # first pause nested under CALL/MAP
-        else:
-            desc = AgentExpansion(spawner_id=spawner_id, segments=[segment])
-            self.expansions.append(desc)                         # top-level first pause
-
-        # BOTH-id retention (keep-ALL, NO pop): stamp the spawner_id (idempotent for segment 2+)
-        # AND the resume id (the NEXT segment's spawner). Also any spawner-eligible cloned subnodes
-        # (today none) for parity with `_grow_agent_segment`.
-        self._spawner_expansion[spawner_id] = desc
-        self._spawner_expansion[out_id] = desc
+        # BOTH-id retention (keep-ALL, NO pop): stamp the spawner_id (idempotent for a re-pause) AND
+        # the resume id (the NEXT pause's spawner) at `rec`, so a re-pause's GrowRecord nests under
+        # THIS one. Plus any spawner-eligible cloned subnodes (today none) for parity.
+        self._spawner_expansion[spawner_id] = rec
+        self._spawner_expansion[out_id] = rec
         for nid, node in grow.subgraph.nodes.items():
             if node.kind in _SPAWNER_KINDS:
-                self._spawner_expansion[nid] = desc
+                self._spawner_expansion[nid] = rec
 
         # Origin OVERRIDE of the builder's provisional `commit_as`: re-point the resume terminal so
         # the FINAL non-pausing Output commits under the ORIGINAL spawner id (multi-pause chaining).
-        # The origin is read off the PREVIOUS segment's baked `commit_as` (the spawner node for
-        # segment 0; the prior resume node for segment 2+), falling back to `spawner_id`.
+        # The origin is read off the PREVIOUS segment's baked `commit_as` (the spawner node for the
+        # first pause; the prior resume node for a re-pause), falling back to `spawner_id`.
         origin = spawner.commit_as or spawner_id
         self.flow.nodes[out_id].commit_as = origin
 
@@ -1291,200 +959,81 @@ class FlowEngine:
         # INVARIANT: the resume filler carries the PARENT depth UNCHANGED (no `+1`).
         self.depth[out_id] = self.depth.get(spawner_id, 0)
 
-    def _grow_loop_residual(self, spawner_id, grow):
-        """LOOP residual — the per-iteration bookkeeping `_grow_loop` does beyond the generic
-        splice/schedule (the generic `_apply_grow` already spliced+registered+budget-checked+
-        scheduled the body roots). Reproduces EXACTLY, and ONLY, `_grow_loop`'s `loop_iter`
-        stamp + per-iteration seed recording on the `LoopExpansion`.
+    def _grow_loop_residual(self, spawner_id, grow, rec, *, schedule):
+        """LOOP residual — the per-iteration bookkeeping beyond the generic splice/schedule (the
+        generic `_apply_grow` already spliced+registered+budget-checked+scheduled the body roots and
+        wrote `rec`). Sets `loop_iter` (the live iteration index `_loop_step` reads) and `loop_desc`
+        (the loop's live-iteration GrowRecord, keyed by the bare spawner id — the ledger
+        `_loop_step`'s continue-branch and `_on_success`'s loop route both read).
 
-        NO depth stamp, NO MAX_REF_DEPTH (a loop is not REF recursion — it is bounded by
-        `max_iters` + MAX_TOTAL_NODES). NO finish/mark: the turn-0 arm finishes+marks the spawner
-        ONCE and every re-grow keeps it EXPANDED, so the residual must NOT re-mark it (matches
-        `_grow_loop`, which deliberately never marks). NO `_spawner_expansion`/depth stamps on cloned
-        subnodes — slice-1 loop bodies are leaf-only (`_grow_loop` stamps none). The
-        `commit_as=spawner_id` bake now lives in the builder (`loop_iteration_subgraph`), so the
-        residual does NOT re-bake it."""
+        Maintains the SINGLE-record invariant: only the LIVE iteration's GrowRecord stays in the
+        ledger, so when a new iteration supersedes the prior one, the prior record is removed from
+        its container (the parent's `children` if nested, else `self.expansions`).
+
+        NO depth stamp, NO MAX_REF_DEPTH (a loop is not REF recursion — it is bounded by `max_iters`
+        + MAX_TOTAL_NODES), nothing gated on `schedule`. finish/mark is idempotent (the spawner
+        stays EXPANDED across iterations). The `commit_as=spawner_id` bake lives in the builder
+        (`loop_iteration_subgraph`), so the residual does NOT re-bake it."""
         record, iteration = grow.seed
         self.loop_iter[spawner_id] = iteration
-        # `loop_desc` is set by the turn-0 arm (and replay) BEFORE the grow, so it is available here;
-        # it is the ledger `_loop_step` reads. Record this iteration's seed on it (one slot per
-        # iteration grown). `children_per_iter` stays parallel to `records` (slice-1 bodies are
-        # leaf-only so every slot stays [], but the slot is the durable-checkpoint shape a future
-        # nested-spawner body needs — kept in lockstep now so durable replay needs no migration).
-        desc = self.loop_desc[spawner_id]
-        # TRANSITIONAL (P3.5): keep the per-iteration seed slot in lockstep (one slot per iteration).
-        while len(desc.records) <= iteration:
-            desc.records.append(dict(record))
-            desc.children_per_iter.append([])
+        # SINGLE-record invariant: drop the superseded iteration's GrowRecord. The prior record
+        # `prev` lives in the SAME container as `rec` (the parent's `children` if this loop is nested
+        # inside another spawner, else `self.expansions`) — it was appended by its OWN earlier
+        # `_apply_grow`. The current `rec` is not attached yet (the caller appends it AFTER this
+        # residual returns, per attach-after-grow), so we only ever remove `prev`.
+        prev = self.loop_desc.get(spawner_id)
+        if prev is not None and prev is not rec:
+            parent = self._spawner_expansion.get(spawner_id)
+            container = parent.children if isinstance(parent, GrowRecord) else self.expansions
+            if prev in container:
+                container.remove(prev)
+        self.loop_desc[spawner_id] = rec
+        self.sm.finish_executing(spawner_id)
+        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
 
     def _apply_enqueue(self, spawner_id: str, enqueues: list) -> None:
-        """Grow the live graph from a spawner's Enqueue(s) (the dispatcher's sole-writer
-        expansion). A guarded `if/elif/else` ladder so each arm (CALL, MAP, AGENT)
-        is mutually exclusive and an unhandled kind is loud (-> RunFailed via the boundary wrap).
-        Each arm: create the descriptor, call the shared `_grow_*` helper with `schedule=True`
-        (the helper does clone+register+alias/depth/_spawner_expansion), THEN attach the
-        descriptor to the ledger — attach-after-grow so a boundary-assert/budget raise inside
-        `_grow_*` leaves no orphan descriptor (CALL/MAP)."""
-        from agent_composer.expr import first_failing_assert
-        from agent_composer.state.seeding import apply_defaults, coerce_inputs
+        """Grow the live graph from a LOOP spawner's turn-0 `Enqueue`. LOOP is the ONLY kind that
+        still returns `Enqueue` (turn 0 seeds the carried record); CALL/MAP/AGENT and loop
+        iterations 1+ all return `Grow` and flow through `_apply_grow`. A later phase moves the
+        turn-0 decision onto the node and deletes this method.
 
+        The turn-0 grow-vs-commit decision branches on the loop kind:
+          while  — grow #0 (run the body) IFF the predicate holds on the seed; else commit the seed
+                   unchanged (0 body runs). The carried record is defined at the seed (`inputs:`),
+                   so the predicate has something to read.
+          until  — DO-WHILE: always grow #0 (1+ runs); the predicate is a POST-check (`_loop_step`).
+          times  — always grow #0 (a `times >= 1` count is guaranteed at build)."""
         spawner = self.flow.nodes[spawner_id]
-        # The child START_ID's full input transform (start/node.py): coerce the present args to their
-        # declared types, THEN fill omitted defaults — the exact view the spliced child START_ID commits.
-        # The eager boundary-assert temp pool mirrors it so `${input.X}` asserts read the SAME value
-        # the body will (a present "30" -> int 30, an omitted default filled), never the raw record.
-        def _child_boundary_record(record):
-            decls = spawner.child_inputs
-            return apply_defaults(decls, coerce_inputs(decls, dict(record)))
-        if spawner.kind == NodeKind.AGENT:
-            # Agent-pause continuation: the Enqueue target is a PAIR of primitive node
-            # descriptors (a human_input leaf + a resume continuation), NOT a child flow. The
-            # spawner is an AGENT in EITHER entry mode — a Fresh agent pausing, or a resumed
-            # AgentNode (a Resume entry) pausing AGAIN (multi-pause); both share `kind = AGENT`,
-            # so this one arm covers both. It precedes the CALL/MAP arms and SKIPS the
-            # MAX_REF_DEPTH check below — an agent pausing K times is NOT recursion; it
-            # is bounded by MAX_TOOL_ITERATIONS / MAX_TOTAL_NODES, not the REF depth.
-            # Unpack the continuation PAIR up front: a malformed AGENT target (not a
-            # [hi_desc, resume_desc] pair) raises "cannot unpack" HERE, funneled to RunFailed
-            # by the boundary wrap (matches the pre-refactor failure point).
-            hi_desc, resume_desc = enqueues[0].target
-            # Create+attach the descriptor. Parent-pointer is the SOLE lookup.
-            # Three branches: multi-pause (append a segment to the same AgentExpansion), first
-            # AGENT pause nested under a CALL/MAP parent, top-level first AGENT pause.
-            from agent_composer.suspension.expansions import (
-                AgentExpansion, AgentSegment,
+        if spawner.kind != NodeKind.LOOP:
+            raise RuntimeError(f"unhandled spawner kind {spawner.kind} in _apply_enqueue")
+        from agent_composer.expr.expressions import evaluate_when_record
+        seed = dict(enqueues[0].inputs)
+        # `until`/`times` grow #0 unconditionally; only `while` consults the seed predicate.
+        grow = spawner.predicate_kind != "while" or evaluate_when_record(spawner.predicate, seed)
+        if grow:
+            # Grow iteration #0; `_apply_grow` mints the loop's GrowRecord and the loop residual sets
+            # loop_iter/loop_desc + finish/mark-EXPANDED.
+            self._apply_grow(
+                spawner_id,
+                Grow(loop_iteration_subgraph(enqueues[0].target, spawner_id, seed, 0),
+                     seed=(seed, 0)),
             )
-            segment = AgentSegment(hi_desc=hi_desc, resume_desc=resume_desc)
-            parent_desc = self._spawner_expansion.get(spawner_id)
-            if isinstance(parent_desc, AgentExpansion):
-                parent_desc.segments.append(segment)
-                desc = parent_desc
-            elif parent_desc is not None:
-                desc = AgentExpansion(spawner_id=spawner_id, segments=[segment])
-                _append_child(parent_desc, desc)
-            else:
-                desc = AgentExpansion(spawner_id=spawner_id, segments=[segment])
-                self.expansions.append(desc)
-            self._grow_agent_segment(spawner_id, hi_desc, resume_desc, desc, schedule=True)
-            return
-
-        if spawner.kind == NodeKind.LOOP:
-            # Turn-0 pre-check. LOOP is NOT REF recursion — it SKIPS the MAX_REF_DEPTH block
-            # below (bounded by `max_iters` + MAX_TOTAL_NODES instead), so this arm returns
-            # before it, like the AGENT arm. The LoopExpansion descriptor + finish_executing +
-            # mark-EXPANDED bookkeeping is identical for all three kinds; ONLY the turn-0
-            # grow-vs-commit decision differs:
-            #   while  — grow #0 (run the body) IFF the predicate holds on the seed; else
-            #            commit the seed unchanged (0 body runs). The carried record is defined
-            #            at the seed (`inputs:`), so the predicate has something to read.
-            #   until  — DO-WHILE: always grow #0 (1+ runs); the predicate is a POST-check
-            #            (`_loop_step`, A5), never consulted here.
-            #   times  — always grow #0 (a `times >= 1` count is guaranteed at build).
-            from agent_composer.expr.expressions import evaluate_when_record
-            from agent_composer.suspension.expansions import LoopExpansion
-            seed = dict(enqueues[0].inputs)
-            desc = LoopExpansion(spawner_id=spawner_id, records=[], children_per_iter=[])
-            self.loop_desc[spawner_id] = desc
-            self.expansions.append(desc)          # a closed-union ledger member
+        else:
+            # 0 body runs: finish/mark the spawner, commit the seed as the final carried record,
+            # advance out-edges. (The grow path's finish/mark rides the loop residual; this
+            # no-grow branch owns its own.)
             self.sm.finish_executing(spawner_id)
             self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-            # `until`/`times` grow #0 unconditionally (the same "grow #0" path `while`-true
-            # takes); only `while` consults the seed predicate to decide grow-vs-commit.
-            grow = spawner.predicate_kind != "while" or evaluate_when_record(
-                spawner.predicate, seed
-            )
-            if grow:
-                self._apply_grow(
-                    spawner_id,
-                    Grow(loop_iteration_subgraph(enqueues[0].target, spawner_id, seed, 0),
-                         seed=(seed, 0)),
+            try:
+                self.pool.set(spawner_id, seed, declared=spawner.output_shape)
+            except SegmentError as exc:
+                raise NodeExecutionError(
+                    spawner_id, str(exc), type(exc).__name__,
+                    locator=SourceSpan(node=spawner_id, kind="field", key="output"),
                 )
-            else:
-                # 0 body runs: commit the seed as the final carried record, advance out-edges.
-                try:
-                    self.pool.set(spawner_id, seed, declared=spawner.output_shape)
-                except SegmentError as exc:
-                    raise NodeExecutionError(
-                        spawner_id, str(exc), type(exc).__name__,
-                        locator=SourceSpan(node=spawner_id, kind="field", key="output"),
-                    )
-                for nid in self._advance(spawner_id):
-                    self._schedule(nid)
-            return
-
-        # Depth bound (REF/MAP only): this expansion is at depth d (parent depth +
-        # 1). A genuinely deep REF/MAP chain trips MAX_REF_DEPTH before MAX_TOTAL_NODES; raises ->
-        # RunFailed. (The agent arm above returns before this — its pauses are NOT recursion.)
-        d = self.depth.get(spawner_id, 0) + 1
-        if d > MAX_REF_DEPTH:
-            raise RuntimeError(
-                f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
-            )
-
-        if spawner.kind == NodeKind.CALL:
-            enq = enqueues[0]                       # plain call: exactly one child
-            record = dict(enq.inputs)
-            # Eager boundary-assert eval against a temp pool seeded with the baked
-            # record (inputs namespace) + the live system; a violation raises -> RunFailed.
-            def _assert_call(cloned):
-                if not cloned.boundary_asserts:
-                    return
-                temp = TypedVariablePool()
-                # Seed the temp pool's START_ID with the child's EFFECTIVE inputs —
-                # coerced + defaulted, the same view the spliced child START_ID will commit.
-                temp.set(START_ID, _child_boundary_record(record))
-                temp.system = dict(self.pool.system)
-                bad = first_failing_assert(cloned.boundary_asserts, temp)
-                if bad is not None:
-                    raise RuntimeError(f"REF child {spawner_id!r} boundary assert failed: {bad}")
-            # Create the CallExpansion descriptor (parent-pointer is the SOLE lookup).
-            from agent_composer.suspension.expansions import CallExpansion
-            desc = CallExpansion(spawner_id=spawner_id, record=record, children=[])
-            parent_desc = self._spawner_expansion.get(spawner_id)
-            self._grow_call(spawner_id, enq.target, record, desc, schedule=True,
-                            assert_boundary=_assert_call)
-            # Attach to the ledger AFTER _grow_call succeeds — a boundary-assert or node-budget
-            # raise inside _grow_call must NOT leave an orphan descriptor in self.expansions /
-            # the parent slot (the NIT closed here). `_grow_call` stamps `_spawner_expansion`
-            # with `desc` directly, so nested lookups don't need the ledger attach.
-            if parent_desc is not None:
-                _append_child(parent_desc, desc)
-            else:
-                self.expansions.append(desc)
-        elif spawner.kind == NodeKind.MAP:
-            records = [dict(enq.inputs) for enq in enqueues]
-            child = enqueues[0].target if enqueues else None  # N=0: no per-element clone
-            # Create the MapExpansion descriptor (empty per-element children lists;
-            # populated as each element's nested expansions fire).
-            from agent_composer.suspension.expansions import MapExpansion
-            desc = MapExpansion(
-                spawner_id=spawner_id, records=records,
-                children_per_element=[[] for _ in records],
-            )
-            parent_desc = self._spawner_expansion.get(spawner_id)
-            # Eager PER-ELEMENT boundary-assert eval; a violation raises ->
-            # RunFailed (the boundary wrap). The SINGLE per-element firing point.
-            def _assert_map(cloned, i, record):
-                if not cloned.boundary_asserts:
-                    return
-                temp = TypedVariablePool()
-                temp.set(START_ID, _child_boundary_record(record))
-                temp.system = dict(self.pool.system)
-                bad = first_failing_assert(cloned.boundary_asserts, temp)
-                if bad is not None:
-                    raise RuntimeError(
-                        f"MAP child {spawner_id!r} element {i} boundary assert failed: {bad}"
-                    )
-            self._grow_map(spawner_id, child, records, desc, schedule=True,
-                           assert_boundary=_assert_map)
-            # Attach AFTER _grow_map succeeds — a per-element boundary-assert or node-budget raise
-            # must NOT leave an orphan descriptor in self.expansions / the parent slot (NIT closed).
-            if parent_desc is not None:
-                _append_child(parent_desc, desc)
-            else:
-                self.expansions.append(desc)
-        else:
-            raise RuntimeError(f"unhandled spawner kind {spawner.kind}")
+            for nid in self._advance(spawner_id):
+                self._schedule(nid)
+        return
 
     def _on_success(self, node_id: str, event: NodeSucceeded) -> None:
         # The commit target: `commit_as` redirects a subflow terminal's value under its spawner
@@ -1513,16 +1062,15 @@ class FlowEngine:
                 locator=SourceSpan(node=target, kind="field", key="output"),
             )
         # A CALL's value is committed HERE (at the filler/redirect site), not in eval_node —
-        # the spawner only yielded an Enqueue. So its node-local POST asserts (which read
-        # `${output}`) must fire HERE, against {**inputs, "output": value}. The call's input
-        # record is recovered from the persisted CallExpansion, looked up by the FILLER `node_id`
-        # (only that id is stamped in `_spawner_expansion` for a CALL — a bare CALL spawner id is
-        # never a key there; keying off `target` would miss the record). Leaf post-asserts still
-        # fire in eval_node.
+        # the spawner only yielded a Grow. So its node-local POST asserts (which read `${output}`)
+        # must fire HERE, against {**inputs, "output": value}. The call's input record is recovered
+        # from the persisted GrowRecord (its `seed` is the call-arg record), looked up by the FILLER
+        # `node_id` (only that id is stamped in `_spawner_expansion` for a CALL — a bare CALL spawner
+        # id is never a key there; keying off `target` would miss the record). Leaf post-asserts
+        # still fire in eval_node.
         if target != node_id and target_node.kind == NodeKind.CALL and target_node.post_asserts:
-            from agent_composer.suspension.expansions import CallExpansion
             desc = self._spawner_expansion.get(node_id)
-            record = desc.record if isinstance(desc, CallExpansion) else {}
+            record = desc.seed if isinstance(desc, GrowRecord) else {}
             post_record = {**record, "output": event.output}
             for a in target_node.post_asserts:
                 if not target_node._assert_holds(a, post_record):
