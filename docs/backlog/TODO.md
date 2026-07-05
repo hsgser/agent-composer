@@ -92,20 +92,22 @@ islands; the target is an engine that knows only the abstract `NodeBase` contrac
 `Outcome` sum. Target design writeup: [`docs/engine.md`](../engine.md) (Engine / Queue /
 StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + leaf/subflow).
 
-- [ ] **`eval_node` has four `if node.kind ==` islands** — `over_mode` skip-bind + `over` list +
+- [x] ~~**`eval_node` has four `if node.kind ==` islands** — `over_mode` skip-bind + `over` list +
   `bind_item` cap (MAP, `eval_node.py:69-100`), `until` resolve (WAIT, `76-77`), `${output}`
   record-vs-pool resolve (END post-assert, `155-171`), and the `_SPAWNER_KINDS` tuple (`53`, `118`).
-  Collapse all four; the engine dispatches on the returned `Outcome`, never on the kind.
-- [ ] **Keep pre/post assert checking in the engine's generic node wrapper (`run_node`), not per
+  Collapse all four; the engine dispatches on the returned `Outcome`, never on the kind.~~ -- 066cfcf..cf9c6a6
+  (MAP/WAIT reads → node-owned `bind_reserved`/`binds_per_item`; END post-assert → generic ref-binding;
+  `_SPAWNER_KINDS` was retired earlier under `is_spawner`.)
+- [x] ~~**Keep pre/post assert checking in the engine's generic node wrapper (`run_node`), not per
   kind.** `run_node` wraps the node's abstract `run`: check pre-asserts → `run` → `on_failure` →
   check post-asserts. It is byte-identical for every kind, so it is protocol (engine side), not a
   `NodeBase` method. On failure the check raises; the engine keeps the raise→`NodeFailed` event
   funnel + locator stamp. Preserve `SourceSpan(id,"assert",expr)` and
-  `error_type="NodeAssertFailed"` for both-engine byte-parity.
-- [ ] **Bind assert-refs into the record at the read boundary** (reuse the data-edge ref extractor,
+  `error_type="NodeAssertFailed"` for both-engine byte-parity.~~ -- cf9c6a6
+- [x] ~~**Bind assert-refs into the record at the read boundary** (reuse the data-edge ref extractor,
   `condition_refs`/`expr_refs`) so asserts evaluate against a pure, fully-populated record — **END
   needs no pool access and stops being special** (deletes `eval_node.py:155-171`). The subflow END
-  asserts (`each#0/n.output.X`, `expand.py:174`) become ordinary bound record entries.
+  asserts (`each#0/n.output.X`, `expand.py:174`) become ordinary bound record entries.~~ -- cf9c6a6
 - [x] ~~**`is_spawner` trait on `NodeBase`** (default `False`) replaces `_SPAWNER_KINDS`; only a
   subflow node may return `Grow`.~~ -- d217cff
 - [ ] **Node return contract → `Outcome = Output | Route | Pause | Grow(subgraph)`** — four arms, the
@@ -128,6 +130,10 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
     case (`engine.py:1199`). Wrinkle: a post-assert that reads the spawner's *inputs* (not just
     `${output}`) needs those inputs wired into the terminal's params (the ref-extractor already knows
     which refs an assert mentions).
+    **PARTIALLY LANDED** `204de76`: the CALL-kind special case is gone — the commit-site post-check is
+    now kind-blind (`target != node_id and target_node.post_asserts`), keeping seed-record recovery for
+    bare input heads and the spawner-id locator. (Not literally "rehomed onto the terminal": rehoming
+    was rejected because bare `${input}` heads live only in the call-arg seed, not under a pool head.)
   - **Dependencies / notes:** needs Model A (loop predicate inside `LoopNode.run`) for the loop half;
     needs the resume path to bake `commit_as` into each continuation clone (role 3 of the old alias).
     The durable-replay ledger must persist the baked `commit_as`/`post_asserts` on spliced terminals.
