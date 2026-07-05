@@ -78,10 +78,11 @@ class LoopNode(Node):
     def should_stop(self, iteration: int) -> bool:
         """The loop's hard iteration budget: True once `iteration` has reached `max_iters`.
 
-        Pure, node-owned budget policy (`iteration >= self.max_iters`). The engine's loop driver
-        consults this both as the `times` stop-count and as the `while`/`until` runaway guard; the
-        driver decides the CONSEQUENCE (a normal terminate for `times`, a located `LoopMaxExceeded`
-        failure for `while`/`until`)."""
+        Pure, node-owned budget policy (`iteration >= self.max_iters`); assumes `max_iters` was
+        baked at load (`compose.build.build_loop_node`). The engine's loop driver consults this both
+        as the `times` stop-count and as the `while`/`until` runaway guard; the driver decides the
+        CONSEQUENCE (a normal terminate for `times`, a located `LoopMaxExceeded` failure for
+        `while`/`until`)."""
         return iteration >= self.max_iters
 
     def replay_grow(self, seed: Any):

@@ -347,7 +347,7 @@ def test_prune_drops_all_live_overlay_traces():
     # The loop GrowRecord's seed is the LIVE iteration's `(record, index)` pair.
     record_before, index_before = loop_desc.seed
 
-    engine._prune(frozenset(n for n in engine.flow.nodes if n.startswith(prefix)))
+    engine._prune(engine._iteration_ids(spawner, 0))
 
     # Every per-id registry is clean for the `#0/` prefix. The commit redirect rode on the
     # body-END filler node, so `flow.nodes` being clean (above) already proves it is gone.

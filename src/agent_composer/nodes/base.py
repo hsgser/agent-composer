@@ -89,7 +89,7 @@ class Subgraph:
     convention its terminal carries a baked `commit_as=<spawner id>` (see Node.commit_as),
     so the terminal's Output commits under the spawner on the ordinary success path.
 
-    # TRANSITIONAL: P4/P5 removes `roots` once map/loop synthesize a single real `__start__`
+    # TRANSITIONAL: a later phase removes `roots` once map/loop synthesize a single real `__start__`
     # (docs/engine.md:124). Today MAP fans out to N element roots + a 0-incoming list-END, and
     # the agent continuation's root is the `human_input` leaf — neither is a `__start__` — so the
     # entry cannot yet be *derived* and must be carried explicitly."""
@@ -103,10 +103,10 @@ class Subgraph:
 @dataclass(frozen=True)
 class Grow:
     """A spawner expands into a subgraph. The engine splices `subgraph` generically and
-    (P4) applies `prune`. Fields:
+    applies `prune`. Fields:
       - `subgraph`: the Subgraph to splice.
       - `prune`: ids to retire in the same step (∅ for call/map; a self-respawn loop's finished
-        iteration ids in P4). Defaults to ∅.
+        iteration ids). Defaults to ∅.
       - `seed`: the PURE BUILDER INPUT the engine persists so a resumed run can rebuild the spliced
         subgraph without re-running non-deterministic nodes (e.g. an agent's LLM turn). Kind-shaped
         but OPAQUE to the engine (a call record dict, a map records list, agent segments, a loop
