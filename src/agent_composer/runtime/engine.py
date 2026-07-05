@@ -599,28 +599,32 @@ class FlowEngine:
         self.paused.append((node_id, reason))
 
     def _prune_iteration(self, spawner_id: str, iteration: int) -> None:
-        """Drop the fully-committed loop iteration `f"{spawner_id}#{iteration}"` namespace from
-        the LIVE overlay (bounds a long loop's node budget). The iteration's carried record has
-        already threaded forward (into the next iteration's seed on continue, or under the spawner
-        id on terminate), and a loop body is an isolated scope no outside node references — so its
-        nodes, edges, sm state, pool entries, and depth/_spawner_expansion bookkeeping are all dead
-        once the iteration finishes. The commit redirect (`commit_as`) rides on the body-END filler
-        NODE, so `remove_subgraph` drops it with the node — no separate map to clear.
-
-        Everything the iteration populated lives UNDER the `f"{spawner}#{iteration}/"` prefix, so
-        iterating `dead_nodes` catches every per-id key: a nested-spawner body (a future non-leaf
-        loop body) would stamp `depth`/`_spawner_expansion` on prefixed sub-ids — all cleared here.
-        NOT touched: the `loop_iter`/`loop_desc` maps (keyed by the bare `spawner_id`, no `#i`
-        prefix — live loop bookkeeping the next iteration reads) and the `GrowRecord` ledger
-        (`self.expansions`), which is the durable replay metadata."""
+        """Drop a fully-committed loop iteration's `f"{spawner}#{iteration}/"` namespace from the
+        LIVE overlay (bounds a long loop's node budget) by handing that id-set to the generic
+        `_prune`. A thin loop-driver wrapper over `_prune`; callers migrate to `_prune` directly
+        with the finished-iteration id-set in the next step. NOT touched: the `loop_iter`/`loop_desc`
+        maps (keyed by the bare `spawner_id`) and the `GrowRecord` ledger — durable replay metadata."""
         prefix = f"{map_callsite(spawner_id, iteration)}/"    # f"{spawner}#{iteration}/"
+        self._prune(frozenset(n for n in self.flow.nodes if n.startswith(prefix)))
+
+    def _prune(self, ids: "frozenset[str]") -> None:
+        """Kind-BLIND retirement of a named id-set — the generic inverse of `_apply_grow`'s splice.
+
+        `ids` is whatever node-id set the caller wants gone from the LIVE overlay (e.g. a finished
+        loop iteration's `f"{spawner}#{i}/"` namespace). Removes exactly those ids and everything
+        keyed by them: their nodes + any edge touching one of them (the dead-edge set is DERIVED
+        from `ids`), their state-manager entries, pool values, and `depth`/`_spawner_expansion`
+        bookkeeping. Takes `self.sm.lock` (a re-entrant RLock) so topology and state mutate
+        atomically. A no-op on the empty set. The engine stays kind-blind: the OUTCOME decides
+        which ids retire, never `node.kind`."""
+        if not ids:
+            return
         with self.sm.lock:                                   # mutate topology + state atomically
-            dead_nodes = {n for n in self.flow.nodes if n.startswith(prefix)}
             dead_edges = {e.id for e in self.flow.edges
-                          if e.from_ in dead_nodes or e.to in dead_nodes}
-            self.flow.remove_subgraph(dead_nodes)            # topology inverse of add_subgraph
-            self.sm.drop(dead_nodes, dead_edges)             # state inverse of register
-            for nid in dead_nodes:
+                          if e.from_ in ids or e.to in ids}
+            self.flow.remove_subgraph(ids)                   # topology inverse of add_subgraph
+            self.sm.drop(ids, dead_edges)                    # state inverse of register
+            for nid in ids:
                 self.pool.store.pop(nid, None)
                 self.depth.pop(nid, None)
                 self._spawner_expansion.pop(nid, None)
@@ -756,6 +760,11 @@ class FlowEngine:
             if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
                 raise RuntimeError(
                     f"expansion exceeded node budget ({MAX_TOTAL_NODES}) at spawner {spawner_id!r}")
+        # Prune is the generic inverse of the splice — the outcome names which ids to retire; the
+        # engine stays kind-blind (∅ for call/map). Applied AFTER a successful splice so a budget
+        # raise above leaves the to-be-pruned ids intact; NOT entangled with the ledger mint below.
+        if grow.prune:
+            self._prune(grow.prune)
         # Mint the one GrowRecord for this grow (live), OR reuse the deserialized one on replay.
         rec = record if record is not None else GrowRecord(
             spawner_id=spawner_id, seed=grow.seed, children=[])
