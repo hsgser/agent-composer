@@ -56,9 +56,10 @@ CORE_MODULES = {
 # P5.2 bound assert-refs at the read boundary (record-first, pool-fallback) so END post-asserts
 # stop being special: the `node.kind == NodeKind.END` post-assert branch in `eval_node` is gone,
 # dropping the ceiling to 5.
-# The 5 that remain are all deleted in P5.3-P5.4: the `_grow_residual` kind dispatch (4 arms,
-# engine.py) + the CALL post-assert check (engine.py).)
-BASELINE = 5
+# P5.3 dropped the `target_node.kind == NodeKind.CALL` conjunct on the commit-site post-assert
+# gate (engine.py) — a redirect-commit post-check is now kind-blind, dropping the ceiling to 4.
+# The 4 that remain are all deleted in P5.4: the `_grow_residual` kind dispatch (4 arms, engine.py).)
+BASELINE = 4
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

@@ -1022,14 +1022,16 @@ class FlowEngine:
                 node_id, str(exc), type(exc).__name__,
                 locator=SourceSpan(node=target, kind="field", key="output"),
             )
-        # A CALL's value is committed HERE (at the filler/redirect site), not in eval_node —
+        # A spawner whose value is committed HERE (at the filler/redirect site), not in eval_node —
         # the spawner only yielded a Grow. So its node-local POST asserts (which read `${output}`)
-        # must fire HERE, against {**inputs, "output": value}. The call's input record is recovered
-        # from the persisted GrowRecord (its `seed` is the call-arg record), looked up by the FILLER
-        # `node_id` (only that id is stamped in `_spawner_expansion` for a CALL — a bare CALL spawner
+        # must fire HERE, against {**inputs, "output": value}. The input record is recovered
+        # from the persisted GrowRecord (its `seed` is the input record), looked up by the FILLER
+        # `node_id` (only that id is stamped in `_spawner_expansion` for a CALL — a bare spawner
         # id is never a key there; keying off `target` would miss the record). Leaf post-asserts
-        # still fire in eval_node.
-        if target != node_id and target_node.kind == NodeKind.CALL and target_node.post_asserts:
+        # still fire in eval_node. This is kind-blind: any redirect-commit spawner carrying
+        # `post_asserts` fires here. Today only CALL does — MAP is rejected `asserts:` at load
+        # (compose/validate.py), LOOP returns above at `loop_desc`, so the CALL path is byte-identical.
+        if target != node_id and target_node.post_asserts:
             desc = self._spawner_expansion.get(node_id)
             record = desc.seed if isinstance(desc, GrowRecord) else {}
             post_record = {**record, "output": event.output}
