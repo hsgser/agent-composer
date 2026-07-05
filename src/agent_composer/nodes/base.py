@@ -154,6 +154,13 @@ class Node(ABC):
             `_grow_*` expanders on a subflow terminal (a CALL/MAP child END filler,
             a MAP END-list filler, an agent resume continuation) to point back at the
             spawner id; `None` for an ordinary node (commit under its own id).
+        origin_id (`str`, *optional*):
+            "Attribute my grows and self-commit to this origin node." `None` on every
+            ordinary node. Set only on a self-respawning loop driver: the compiled loop
+            `L` sets `origin_id = L` (== self) and each fresh per-iteration clone `L~k`
+            sets `origin_id = L` too, so the engine can attribute every iteration's
+            `Grow`/`Output` to the single durable origin `L`. A driver is the origin iff
+            `self.id == self.origin_id`, which is what gates "do not self-prune".
     """
 
     kind: ClassVar[NodeKind]
@@ -180,11 +187,12 @@ class Node(ABC):
     # other spawner grows at a FRESH namespaced id per instance, so it needs no self-stamp.
     # Overridden True by AgentNode.
     grow_restamps_self: ClassVar[bool] = False
-    # Declares "I am the fixpoint-iteration driver" (LOOP). The growth core runs the loop-only
-    # per-iteration bookkeeping (live iteration index + the single live-iteration GrowRecord + its
-    # single-record ledger invariant) under this trait, since a self-committing terminal
-    # (`commit_as == spawner_id`) cannot distinguish a loop from a call/map. Overridden True by
-    # LoopNode; False for every other kind.
+    # Declares "I am the self-respawning fixpoint-iteration driver" (LOOP). The growth core
+    # (`_apply_grow`) gates the origin-keyed single-live-record ledger invariant under this trait:
+    # each iteration is a fresh driver clone whose grow is attributed to `origin_id` (the compiled
+    # loop) and supersedes the prior iteration's GrowRecord, so the ledger stays bounded to one
+    # record per loop. A plain trait check suffices — the core never dispatches on the kind.
+    # Overridden True by LoopNode; False for every other kind.
     is_loop: ClassVar[bool] = False
     # Declares "I am LLM-backed" (AGENT). When True, the read seam (`eval_node`) builds the
     # `caps['llm']` capability — a `model_from_config`-shaped factory the engine owns — and
@@ -219,6 +227,11 @@ class Node(ABC):
         # commits its Output under this spawner id instead of its own id. Stamped by the
         # `_grow_*` expanders; `None` for an ordinary node.
         self.commit_as: Optional[str] = None
+        # "Attribute my grows/self-commit to this origin" (see the class docstring). `None`
+        # on ordinary nodes; set to the compiled loop id on a loop driver (origin == self on
+        # the compiled `L`, == `L` on each fresh iteration clone `L~k`). A driver is the
+        # origin iff `self.id == self.origin_id` (which gates "do not self-prune").
+        self.origin_id: Optional[str] = None
 
     @abstractmethod
     def run(self, inputs: dict[str, Any], **caps: Any) -> "NodeResult":

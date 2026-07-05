@@ -59,16 +59,19 @@ address one by one (no scope/sequence decided yet).
   mirrored by a `_replay_expansions` arm. Collapse to one generic splice once nodes are
   self-describing.~~ One generic `_apply_grow`/`_prune` splice; `_apply_enqueue`/`_grow_map`/
   `_grow_call`/`_grow_residual` all deleted (census 0). -- 5d2f5e2..101e595
-- [ ] **LOOP policy lives in the engine** (`_loop_step` + the `loop_alias` hook): predicate, merge,
-  continue/stop, count. Move it into `LoopNode.run` (pure).
+- [x] ~~**LOOP policy lives in the engine** (`_loop_step` + the `loop_alias` hook): predicate, merge,
+  continue/stop, count. Move it into `LoopNode.run` (pure).~~ `_loop_step`/`loop_iter`/`loop_desc`/
+  `_apply_loop_bookkeeping`/`_on_success` loop-back all deleted; `LoopNode.run` owns predicate +
+  continue/stop + count + runaway guard and emits a self-respawning `Grow`. -- b7330da
 - [x] ~~**Node return contract is too narrow.** `Enqueue(target, inputs)` can't describe reconvergence
   wiring or references to sibling nodes spawned in the same enqueue. It needs to become a
   self-describing subgraph (nodes + edges incl. `__end__` wiring + roots + "commit end under me").~~ -- d217cff
-- [ ] **LOOP grows via a static-end + bespoke hook** instead of self-respawn. Target model: each
+- [x] ~~**LOOP grows via a static-end + bespoke hook** instead of self-respawn. Target model: each
   iteration spawns the body subflow; on body-end it spawns *itself* as a fresh namespaced instance
   (`loop#k+1`, incremented index + updated carried record baked in); the terminating iteration's
   `Output` commits under the ORIGINAL loop id (the one shared "subflow result → subflow node id" rule
-  MAP/CALL already use).
+  MAP/CALL already use).~~ Each iteration now grows `{body_k, fresh L~(k+1) driver}`; STOP commits
+  `Output(carried, commit_as=origin)` under the compiled loop id; origin-keyed single-record ledger. -- b7330da
 - [ ] **Reconvergence is the only per-kind concept left** (CALL=identity/alias, MAP=list collector,
   LOOP=predicate chain). Unify under the single "subflow result commits under the subflow node's id"
   rule.

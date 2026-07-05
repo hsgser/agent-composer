@@ -125,6 +125,13 @@ def clone_child(child, callsite: str, record: dict) -> ClonedSubgraph:
     for nid, node in child.nodes.items():
         clone = copy.deepcopy(node)
         clone.id = ns(callsite, nid)
+        # Re-namespace a self-attribution origin that pointed at THIS node's pre-clone id (a
+        # compiled loop `L` inside the child: `origin_id == old id`). The cloned loop is a NEW
+        # compiled origin at the namespaced callsite, so its origin must follow to `clone.id`;
+        # otherwise its `run`/`commit_as=origin` and body callsite key the un-namespaced id and
+        # `_on_success` cannot find `flow.nodes[origin]` (a loop nested in a CALL/MAP).
+        if getattr(node, "origin_id", None) == nid:
+            clone.origin_id = clone.id
         nodes[clone.id] = clone
 
     # Re-namespace EVERY node's wiring (internal ${X.output}/${input.X} re-pointed; no baking).
@@ -268,23 +275,41 @@ def map_subgraph(child, spawner_id: str, records: list) -> Subgraph:
     return Subgraph(nodes=nodes, edges=edges, wiring=wiring, roots=roots)
 
 
-def loop_iteration_subgraph(child, spawner_id: str, record: dict, iteration: int) -> Subgraph:
-    """The pure LOOP builder: ONE loop iteration's body fragment.
+def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) -> Subgraph:
+    """The pure LOOP CONTINUE builder: body_k + the fresh next-iteration driver.
 
-    Wraps `clone_child` (the deep-namespaced clone of the child's `START_ID..END_ID` at the
-    per-iteration callsite `map_callsite(spawner_id, iteration)` == `f"{spawner}#{iteration}"`,
-    mirroring MAP's `#i`, seeded with `record`), bakes `commit_as=spawner_id` on the cloned body END
-    filler, and returns a `Subgraph` (the self-describing fragment ONE loop iteration grows into).
+    `origin` is the ORIGIN loop id `L` (NOT the running driver id) — bodies are always keyed
+    on the origin so live `run` (on `L~k`) and durable `replay_grow` (on `L`) build the SAME
+    `L#k/…` namespace. `k` is THIS iteration's index; `carried` seeds body_k. `driver` is the
+    fresh `L~(k+1)` LoopNode the node minted via `respawn(k+1)`.
 
-    Unlike `call_subgraph`/`map_subgraph`, the baked `commit_as=spawner_id` does NOT route the
-    filler's Output to the generic commit-and-advance: the engine's `_on_success` recognizes
-    `target in self.loop_desc` and hands it to `_loop_step` (the predicate re-clone/commit decision)
-    instead. The filler id (`clone_child`'s `out_node_id`) is kept only as a LOCAL — it is derivable
-    from the subgraph as `ns(callsite, END_ID)` and is NOT a `Subgraph` field. `roots` is the
-    namespaced body START (the sole seed point)."""
-    cloned = clone_child(child, callsite=map_callsite(spawner_id, iteration), record=record)
-    cloned.nodes[cloned.out_node_id].commit_as = spawner_id   # body-END filler routes to _loop_step
-    return Subgraph(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring, roots=cloned.roots)
+    Splices: body_k (`clone_child` at `map_callsite(origin, k)`, NO baked `commit_as` — its
+    Output commits under its own id `L#k/END` and feeds the next driver by plain wiring), the
+    driver `L~(k+1)`, the producer edge `body_k.END -> L~(k+1)` (one input_group per carried
+    field), and the driver's wiring `{field: "${L#k/END.output.field}"}`. `roots` = [body_k.START]
+    (the sole seed point); the driver is scheduled by normal readiness when the edge fires.
+
+    Unlike `call_subgraph`/`map_subgraph`, the body-END carries NO `commit_as`: the CONTINUE arm
+    never commits under the origin (only the STOP arm's `Output(carried, commit_as=origin)` does),
+    so `_derived_terminals` returns `[]` for a continue grow and the terminal stamping no-ops."""
+    cloned = clone_child(child, callsite=map_callsite(origin, k), record=dict(carried))
+    body_end = cloned.out_node_id                          # ns(map_callsite(origin, k), END_ID)
+    nodes = dict(cloned.nodes)
+    edges = list(cloned.edges)
+    wiring = dict(cloned.wiring)
+    nodes[driver.id] = driver
+    # Wire the fresh driver's carried params off body_k.END by field name (the carried record is
+    # the body codomain == the driver's params). One producer edge per field.
+    driver_wiring: dict[str, str] = {}
+    driver_edges: list[Edge] = []
+    for i, field_name in enumerate(carried.keys()):
+        driver_wiring[field_name] = f"${{{body_end}.output.{field_name}}}"
+        driver_edges.append(Edge(
+            id=f"{body_end}->{driver.id}#{i}",
+            from_=body_end, to=driver.id, input_group=field_name))
+    wiring[driver.id] = driver_wiring
+    edges.extend(driver_edges)
+    return Subgraph(nodes=nodes, edges=edges, wiring=wiring, roots=cloned.roots)
 
 
 
