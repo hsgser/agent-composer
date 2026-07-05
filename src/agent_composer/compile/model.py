@@ -23,7 +23,7 @@ from agent_composer.nodes.start import StartNode
 START_ID = StartNode.ID
 END_ID = EndNode.ID
 
-__all__ = ["START_ID", "END_ID", "NodeState", "Edge", "FlowOutput", "CompiledFlow"]
+__all__ = ["START_ID", "END_ID", "NodeState", "Edge", "FlowOutput", "Flow", "CompiledFlow"]
 
 
 class NodeState(str, Enum):
@@ -71,14 +71,15 @@ class FlowOutput:
     from_: Any
 
 
-class CompiledFlow:
-    """
-    The immutable compiled graph: nodes, edges, adjacency, and flow-owned input wiring.
+class Flow:
+    """The shared topology core every flow carries: nodes, edges, wiring, and its boundary ids.
 
-    Topology only — it holds no run state, so one instance can back many independent runs.
-    All mutable per-run state (which nodes/edges were taken or skipped) lives in the
-    runtime's state manager. The sole mutation is [`add_subgraph`][agent_composer.CompiledFlow.add_subgraph],
-    the runtime's append-only overlay used when a spawner node expands the graph at run time.
+    This is the one type that both the top-level compiled flow (`CompiledFlow`) and every spliced
+    subgraph share. A flow *is a function*: it has a single entry (`start_id`) and a single result
+    node (`end_id`), and its body is the `nodes`/`edges`/`wiring` triple. Spliced subgraphs pass
+    their namespaced boundary ids; the top-level case defaults to the reserved `START_ID`/`END_ID`.
+
+    Topology only — a `Flow` holds no run state, so one instance can back many independent runs.
 
     Attributes:
         nodes (`dict[str, Node]`):
@@ -87,13 +88,45 @@ class CompiledFlow:
         edges (`list[Edge]`):
             All directed edges. Carries data edges (a producer output feeding a consumer
             input group) and pure control/ordering edges alike.
+        wiring (`dict[str, dict[str, Any]]`):
+            Authoritative input wiring `wiring[node_id][param] -> source`, where source is a
+            `${...}` binding string or a literal. `edges` is its derived data-flow projection.
+        start_id (`str`):
+            The flow's single entry node id — the node the engine seeds and advances at start.
+            Defaults to `START_ID` (the top-level synthesized START); spliced flows namespace it.
+        end_id (`str`):
+            The flow's result node id — the node whose value is the flow's output. Defaults to
+            `END_ID` (the top-level synthesized END); spliced flows namespace it.
+    """
+
+    def __init__(self, nodes: dict[str, Node], edges: list[Edge],
+                 wiring: Optional[dict[str, dict[str, Any]]] = None,
+                 start_id: str = START_ID, end_id: str = END_ID) -> None:
+        self.nodes = nodes                              # node id -> Node
+        self.edges = edges                              # all directed edges
+        # Authoritative input wiring: wiring[node_id][param_name] -> source, where source is a
+        # `${...}` binding string or a literal. `edges` is the derived data-flow projection of this.
+        self.wiring: dict[str, dict[str, Any]] = dict(wiring or {})
+        self.start_id = start_id                        # single entry node id
+        self.end_id = end_id                            # result node id
+
+
+class CompiledFlow(Flow):
+    """
+    The immutable compiled graph: nodes, edges, adjacency, and flow-owned input wiring.
+
+    Topology only — it holds no run state, so one instance can back many independent runs.
+    All mutable per-run state (which nodes/edges were taken or skipped) lives in the
+    runtime's state manager. The sole mutation is [`add_subgraph`][agent_composer.CompiledFlow.add_subgraph],
+    the runtime's append-only overlay used when a spawner node expands the graph at run time.
+
+    Extends [`Flow`][agent_composer.compile.model.Flow] with the runtime-only concerns below;
+    the shared topology core (`nodes`/`edges`/`wiring`/`start_id`/`end_id`) lives on the base.
+
+    Attributes:
         outputs (`list[FlowOutput]`):
             The declared `outputs:`; empty means the flow falls back to the raw terminal
             node value.
-        wiring (`dict[str, dict[str, Any]]`):
-            Authoritative input wiring `wiring[node_id][param] -> source`, where source is
-            a `${...}` binding string or a literal. `edges` is its derived data-flow
-            projection.
         flow_llm_config (`dict[str, Any]`):
             The flow's authored `llm_config:` model-selection defaults (the cascade's flow
             layer); `{}` when absent. `resolve_llm_cascade` gap-fills each agent's effective
@@ -104,14 +137,12 @@ class CompiledFlow:
                  outputs: Optional[list[FlowOutput]] = None,
                  wiring: Optional[dict[str, dict[str, Any]]] = None,
                  flow_llm_config: Optional[dict] = None) -> None:
-        self.nodes = nodes                              # node id -> Node
-        self.edges = edges                              # all directed edges
+        # The top-level compiled flow always roots at the synthesized START and returns END.
+        super().__init__(nodes=nodes, edges=edges, wiring=wiring,
+                         start_id=START_ID, end_id=END_ID)
         self.outputs = outputs or []                    # declared outputs; empty -> fall back to the raw terminal value
         # The flow's authored llm_config: defaults — the cascade's flow layer; {} when absent.
         self.flow_llm_config: dict = flow_llm_config or {}
-        # Authoritative input wiring: wiring[node_id][param_name] -> source, where source is a
-        # `${...}` binding string or a literal. `edges` is the derived data-flow projection of this.
-        self.wiring: dict[str, dict[str, Any]] = dict(wiring or {})
         # Adjacency indexes, built once from `edges`.
         self._incoming: dict[str, list[Edge]] = {}      # node id -> edges ending at it
         self._outgoing: dict[str, list[Edge]] = {}      # node id -> edges leaving it
@@ -132,17 +163,6 @@ class CompiledFlow:
         """The return-boundary node id (END_ID) when the synthesized END node exists — which is
         every loaded or built flow. None only for a hand-built graph that omits an END node."""
         return END_ID if END_ID in self.nodes else None
-
-    @property
-    def start_id(self) -> str:
-        """The input-boundary node id — always START_ID. Every flow begins with a synthesized
-        START node that binds the run inputs."""
-        return START_ID
-
-    @property
-    def end_id(self) -> str:
-        """The return-boundary node id — always END_ID. The flow's result is this node's value."""
-        return END_ID
 
     @classmethod
     def from_parts(cls, nodes: dict[str, Node], edges: list[Edge],

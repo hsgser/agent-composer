@@ -1,6 +1,6 @@
 """Unit tests for the CompiledFlow topology model."""
 
-from agent_composer.compile.model import END_ID, START_ID, Edge, CompiledFlow
+from agent_composer.compile.model import END_ID, START_ID, Edge, Flow, CompiledFlow
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from tests.engine._fakes import FuncNode
@@ -66,6 +66,37 @@ def test_compiled_flow_wiring_field_threads_and_defaults():
     g = CompiledFlow.from_parts(nodes, edges, wiring={"a": {"x": "${input.x}"}})
     assert g.wiring == {"a": {"x": "${input.x}"}}
     assert CompiledFlow.from_parts(nodes, edges).wiring == {}
+
+
+def test_flow_base_roundtrips_fields_with_boundary_defaults():
+    # A bare Flow round-trips nodes/edges/wiring; start_id/end_id default to the reserved boundary ids.
+    nodes = _nodes("a")
+    edges = [Edge("e0", START_ID, "a"), Edge("e1", "a", END_ID)]
+    wiring = {"a": {"x": "${input.x}"}}
+    f = Flow(nodes, edges, wiring=wiring)
+    assert f.nodes is nodes
+    assert f.edges is edges
+    assert f.wiring == wiring
+    assert f.start_id == START_ID
+    assert f.end_id == END_ID
+    # Spliced flows pass their own namespaced boundary ids.
+    spliced = Flow(nodes, edges, start_id="call#1/__start__", end_id="call#1/__end__")
+    assert spliced.start_id == "call#1/__start__"
+    assert spliced.end_id == "call#1/__end__"
+    assert spliced.wiring == {}  # wiring defaults to {}
+
+
+def test_compiled_flow_is_flow_and_keeps_boundary_and_terminal():
+    from agent_composer.compose import load_flow
+
+    compiled = load_flow(_OPTIONAL_EDGE_FLOW).compiled
+    assert isinstance(compiled, Flow)
+    assert compiled.start_id == START_ID
+    assert compiled.end_id == END_ID
+    # terminal_id resolves to END_ID while the synthesized END node is present, None once absent.
+    assert compiled.terminal_id == END_ID
+    compiled.nodes.pop(END_ID)
+    assert compiled.terminal_id is None
 
 
 def test_edge_optional_defaults_false_and_roundtrips():
