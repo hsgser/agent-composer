@@ -4,7 +4,15 @@ The loop carries `{n, exited}`, runs the body `bump` (`{n, exited} -> {n: n+1, e
 while `not ${exited}`, and terminates when the predicate goes false. Covers the multi-iteration
 happy path, the turn-0 (0-iteration) case (seed already satisfies exit), the max-exceeded
 runaway guard, and the error boundary — a `while:` predicate that raises at runtime and a
-node-budget blowup driven from `_loop_step` both become failed runs, never uncaught escapes.
+node-budget blowup both become failed runs, never uncaught escapes.
+
+Loop model (self-respawn, no engine `_loop_step`): each iteration is a fresh `LoopNode` driver
+clone. `L` is the compiled loop id (iteration 0); `L~k` is the fresh driver clone for iteration
+`k >= 1`; `L#k/…` is the cloned body namespace for iteration `k`. A driver's `run` decides
+continue-vs-stop: STOP returns `Output(carried, commit_as=L)` (generic commit under `L`);
+CONTINUE emits a `Grow` splicing `body_k` + a fresh `L~(k+1)` driver, self-pruning the previous
+body and (except the origin) itself. The CONTINUE body-END carries NO `commit_as` — it feeds the
+next driver by plain wiring.
 """
 
 from agent_composer.compose.loader import load_flow
@@ -72,6 +80,19 @@ def test_while_loop_max_exceeded_fails_run():
     assert "LoopMaxExceeded" in error_types
 
 
+def test_while_loop_max_permits_exactly_max_body_runs():
+    """The `max:` budget permits EXACTLY `max` body runs, not `max - 1` (the runaway guard
+    fires when the driver at index `k` would grow the (k+1)-th body past budget: raise on
+    `k >= max_iters`). COUNTER needs 3 iterations to reach `exited`, so `max: 3` succeeds
+    (3 bodies) while `max: 2` fails — pins the guard against an off-by-one either way."""
+    at_boundary = COUNTER.replace("max: 10", "max: 3")
+    ok = run_flow(load_flow(at_boundary), {})
+    assert ok.status == "succeeded"
+    assert ok.output == {"n": 3, "exited": True}   # exactly 3 bodies ran
+    below = COUNTER.replace("max: 10", "max: 2")   # one short -> runaway guard fires
+    assert run_flow(load_flow(below), {}).status != "succeeded"
+
+
 # The chat-shaped slice: a body that PAUSES each turn on a `human_input` leaf, folds the
 # delivered message into the carried {messages, exited} record, and loops until the human
 # types "bye". Drives run() -> paused -> resume -> paused -> ... -> succeeded in-process.
@@ -116,7 +137,7 @@ def test_loop_body_pauses_and_resumes_each_turn():
     r1 = run_flow(loaded, {})
     assert r1.status == "paused"
     assert len(r1.pause_reasons) == 1
-    # Deliver "hi" -> body END fires -> _loop_step clones the next iteration -> pauses again.
+    # Deliver "hi" -> body END fires -> the fresh driver `loop~1` grows the next iteration -> pauses.
     r2 = resume_flow(loaded, engine=r1.engine,
                      commands=[resume_command(loaded, r1.pause_reasons[0], "hi")])
     assert r2.status == "paused"
@@ -128,8 +149,9 @@ def test_loop_body_pauses_and_resumes_each_turn():
 
 
 # A loop that is NOT the terminal node: its committed record feeds a downstream code node.
-# Guards that `_loop_step` commits under the spawner id AND fires the spawner's out-edges
-# (the terminate -> commit -> advance tail), not just that a terminal loop returns a value.
+# Guards that the STOP `Output(commit_as=loop)` commits under the spawner id AND fires the
+# spawner's out-edges (the terminate -> commit -> advance tail), not just that a terminal loop
+# returns a value.
 DOWNSTREAM = COUNTER.replace(
     "output: ${loop.output}",
     """  after:
@@ -148,11 +170,12 @@ def test_loop_feeding_downstream_node_commits_and_advances():
     assert result.output == 6          # loop ends at n=3; double(3) = 6
 
 
-# The `while:` predicate is evaluated OUTSIDE eval_node's try/except (in `_loop_step` for
-# iterations >= 1). A predicate that raises at runtime must become a FAILED run, never an
-# uncaught escape from run(). Here the predicate divides by the carried `n` (`10 / ${n} > 0`)
-# and the body counts n down: the seed pre-check (n=2) and iteration-0 check (n=1) pass, then
-# iteration-1's check divides by 0 -> the predicate raises inside `_loop_step`.
+# The `while:` predicate is evaluated INSIDE the driver's `run` (in `_should_stop_now`), which
+# `eval_node` wraps in its try/except. A predicate that raises at runtime must become a FAILED
+# run, never an uncaught escape from run(). Here the predicate divides by the carried `n`
+# (`10 / ${n} > 0`) and the body counts n down: the seed pre-check (n=2, on the compiled `L`) and
+# iteration-0 check (n=1, on `loop~1`) pass, then iteration-1's check divides by 0 -> the predicate
+# raises inside the driver's `run`.
 PREDICATE_RAISES = """
 id: pred-raise
 name: pred_raise
@@ -183,7 +206,8 @@ output: ${loop.output}
 
 def test_while_loop_predicate_runtime_error_fails_run():
     # Must NOT raise out of run_flow; the predicate's division-by-zero on iteration 1 is
-    # converted to a located run failure at the loop's `while:`.
+    # converted to a located run failure. The predicate is evaluated inside the driver's `run`
+    # (via `_should_stop_now`), which `eval_node`'s boundary turns into a NodeFailed.
     result = run_flow(load_flow(PREDICATE_RAISES), {})
     assert result.status != "succeeded"
     assert "division by zero" in (result.error or "")
@@ -232,11 +256,11 @@ def test_until_runs_body_at_least_once():
 
 
 def test_loop_budget_exceeded_in_step_fails_run(monkeypatch):
-    # The node-budget guard inside `_grow_loop` raises a RuntimeError; when that grow is
-    # driven from `_loop_step` (iteration >= 1) it must become a failed run, not an uncaught
-    # escape. The COUNTER flow adds 3 nodes/iteration off a base of 3 (iter0 -> 6, iter1 -> 9),
-    # so a budget of 6 lets iteration 0 grow (via the `_apply_grow` splice path) and trips
-    # iteration 1 inside `_loop_step` — exercising the `_loop_step` boundary specifically.
+    # The node-budget guard inside `_apply_grow` raises a RuntimeError; when a fresh driver's
+    # grow (iteration >= 1, driven by `loop~1` off the body-END wiring) trips it, it must become a
+    # failed run, not an uncaught escape. The COUNTER flow adds ~3 body nodes + 1 driver node per
+    # iteration off a base of 3, so a budget of 6 lets iteration 0 grow and trips a later iteration
+    # inside `_apply_grow` — exercising the grow boundary specifically.
     import agent_composer.runtime.engine as engine_mod
 
     monkeypatch.setattr(engine_mod, "MAX_TOTAL_NODES", 6)
@@ -246,7 +270,7 @@ def test_loop_budget_exceeded_in_step_fails_run(monkeypatch):
 
 
 # `times: N` is a fixed count: exactly N body runs, no predicate. Seed n=10, times 3 ->
-# 10 -> 9 -> 8 -> 7 (three body runs), then the loop-back's count-based `cont` stops.
+# 10 -> 9 -> 8 -> 7 (three body runs), then the driver at k=3 stops (k >= N).
 TIMES_3 = """
 id: t3
 name: t3
@@ -316,15 +340,14 @@ def test_until_stops_when_predicate_becomes_true():
 
 def test_prune_drops_all_live_overlay_traces():
     """The generic `_prune(ids)` clears EVERY live-overlay trace of the named id-set — an iteration
-    `#i`'s nodes/edges, sm state (node_state/edge_state/executing), pool entries, and the loop-back
-    filler's baked `commit_as` (which rides on the node, so `remove_subgraph` drops it) — while
-    leaving the durable loop `GrowRecord` ledger untouched and the spawner id (no `#i` prefix) alone.
+    `#k`'s nodes/edges, sm state (node_state/edge_state/executing), pool entries — while leaving the
+    durable loop `GrowRecord` ledger untouched and the spawner id (no `#k` prefix) alone.
 
     Deterministic grown-#0 setup: drive `LOOP_CHAT` to its first pause. The body's `human_input`
     leaf parks the run with iteration #0 fully grown (its `#0/` nodes registered, the START seed
-    committed to `pool.store`, and the body-END filler `loop#0/__end__` carrying
-    `commit_as == 'loop'`) and NO `_loop_step` yet — so the `#0/` overlay is live and un-pruned,
-    the exact state prune must remove.
+    committed to `pool.store`). In the self-respawn model the body-END filler `loop#0/__end__`
+    carries NO `commit_as` — it feeds the fresh driver `loop~1` by plain wiring, not a loop-back
+    redirect. The `#0/` overlay is live and un-pruned, the exact state prune must remove.
     """
     loaded = load_flow(LOOP_CHAT)
     r = run_flow(loaded, {})
@@ -338,19 +361,22 @@ def test_prune_drops_all_live_overlay_traces():
     assert any(n.startswith(prefix) for n in engine.flow.nodes)
     assert any(n.startswith(prefix) for n in engine.pool.store)
     assert any(n.startswith(prefix) for n in engine.sm.node_state)
-    # the body-END filler carries the commit redirect back to the spawner
-    assert engine.flow.nodes[f"{spawner}#0/__end__"].commit_as == spawner
+    # The CONTINUE body-END filler carries NO commit_as (it feeds the next driver `loop~1` by
+    # plain wiring; only the STOP arm commits, under the origin `loop`).
+    assert engine.flow.nodes[f"{spawner}#0/__end__"].commit_as is None
+    # And the fresh next-iteration driver `loop~1` was spliced (bounded live overlay {L, body_0, L~1}).
+    assert "loop~1" in engine.flow.nodes
 
     # Snapshot the durable ledger BEFORE pruning — it must survive untouched.
     ledger_len = len(engine.expansions)
-    loop_desc = engine.loop_desc[spawner]
+    rec = engine._origin_record[spawner]
     # The loop GrowRecord's seed is the LIVE iteration's `(record, index)` pair.
-    record_before, index_before = loop_desc.seed
+    record_before, index_before = rec.seed
 
-    engine._prune(engine._iteration_ids(spawner, 0))
+    ids = frozenset(n for n in engine.flow.nodes if n.startswith(prefix))
+    engine._prune(ids)
 
-    # Every per-id registry is clean for the `#0/` prefix. The commit redirect rode on the
-    # body-END filler node, so `flow.nodes` being clean (above) already proves it is gone.
+    # Every per-id registry is clean for the `#0/` prefix.
     assert not any(n.startswith(prefix) for n in engine.flow.nodes)
     assert not any(n.startswith(prefix) for n in engine.pool.store)
     assert not any(k.startswith(prefix) for k in engine.depth)
@@ -363,18 +389,19 @@ def test_prune_drops_all_live_overlay_traces():
 
     # The durable GrowRecord ledger is UNTOUCHED — replay needs it intact.
     assert len(engine.expansions) == ledger_len
-    assert engine.loop_desc[spawner] is loop_desc
-    assert loop_desc.seed == (dict(record_before), index_before)
+    assert engine._origin_record[spawner] is rec
+    assert rec.seed == (dict(record_before), index_before)
 
-    # The spawner id itself (no `#i` prefix) is NOT pruned — live loop bookkeeping stays.
-    assert engine.loop_iter[spawner] == 0
+    # The spawner id itself (no `#k` prefix) is NOT pruned — it is the durable replay spawner.
+    assert spawner in engine.flow.nodes
 
 
 # A `times: 20` countdown far exceeds a lowered 40-node budget when NOTHING is pruned
-# (each iteration adds ~3 nodes off a small base). With committed-iteration pruning wired
-# into `_loop_step`, only ~one iteration is resident at a time, so the run stays bounded and
-# reaches its terminal. Drives `FlowEngine` directly because `run_flow(...).engine` is None on
-# a succeeded result (mirrors `test_durable_replay.py`).
+# (each iteration adds ~3 body nodes + 1 driver node off a small base). With the self-respawn
+# model's per-iteration self-prune (each driver retires the previous body + itself), only ~one
+# iteration is resident at a time, so the run stays bounded and reaches its terminal. Drives
+# `FlowEngine` directly because `run_flow(...).engine` is None on a succeeded result (mirrors
+# `test_durable_replay.py`).
 TIMES_20 = """
 id: t20
 name: t20
@@ -416,4 +443,30 @@ def test_long_loop_stays_within_node_budget(monkeypatch):
     assert engine.flow.nodes                          # sanity
     assert len(engine.flow.nodes) < 40                # bounded; un-pruned this would exceed 40
     assert terminal.output == {"n": 10}               # 30 - 20 body runs = 10
+
+
+def test_terminate_leaves_exactly_one_dead_final_body_and_driver():
+    """The STOP arm commits under `L` and does NOT prune the final body `L#(k-1)/` NOR the STOP
+    driver clone `L~k` — a bounded one-time residue (design risk #5 / D4). Self-prune happens ONLY
+    in the CONTINUE `Grow` arm; the STOP driver returns `Output` and grows nothing, so it and the
+    last body it read are left resident.
+
+    For `times: 3` on `n=10` the bodies run at k=0,1,2 and STOP fires on the fresh driver `loop~3`
+    reading `loop#2/__end__`. So the residue is EXACTLY: one dead body namespace `loop#2/` AND one
+    dead driver clone `loop~3`. The committed origin `loop` stays (legitimate result node)."""
+    from agent_composer.events import RunSucceeded
+    from agent_composer.runtime.engine import FlowEngine
+
+    engine = FlowEngine(load_flow(TIMES_3).compiled, run_inputs={})   # n=10, times 3
+    terminal = list(engine.run())[-1]
+    assert isinstance(terminal, RunSucceeded)
+    assert terminal.output == {"n": 7}
+    # (a) residual body namespaces: exactly one, the final iteration's `loop#2/`.
+    body_ns = {n.split("/", 1)[0] for n in engine.flow.nodes if n.startswith("loop#")}
+    assert body_ns == {"loop#2"}                          # exactly the final body namespace
+    # (b) residual driver clones: exactly one, the STOP driver `loop~3` (the origin `loop` is NOT a
+    #     `loop~<k>` clone — it is the compiled result node and is excluded by the `~` filter).
+    driver_clones = {n for n in engine.flow.nodes if n.startswith("loop~")}
+    assert driver_clones == {"loop~3"}                    # exactly the STOP driver clone
+    assert "loop" in engine.flow.nodes                    # committed origin stays (not residue)
 

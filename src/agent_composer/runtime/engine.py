@@ -47,11 +47,6 @@ from agent_composer.events import (
     NodeSucceeded,
     PauseRequested,
 )
-from agent_composer.compile.expand import (
-    loop_iteration_subgraph,
-    map_callsite,
-    ns,
-)
 from agent_composer.compile.model import END_ID, START_ID, CompiledFlow, Edge, NodeState
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.base import Grow
@@ -182,14 +177,13 @@ class FlowEngine:
             # "nest under parent vs new top-level" in `_apply_grow`. For multi-pause AGENTs,
             # every cloned resume_id AND the original spawner_id are stamped at the SAME
             # segment-0 record so segment i+1 nests under segment i.
-        # Loop-back bookkeeping: a loop-body END filler's baked `commit_as` names the loop spawner,
-        # and `_on_success` routes it to `_loop_step` (predicate -> re-clone the next iteration OR
-        # commit the final carried record + advance out-edges) via `target in self.loop_desc`,
-        # never the generic commit. `loop_iter` tracks the live iteration index per loop;
-        # `loop_desc` holds each loop's LIVE-iteration GrowRecord so `_loop_step`'s continue-branch
-        # can drop the superseded iteration's record (and it doubles as the loop-route discriminator).
-        self.loop_iter: dict[str, int] = {}    # loop spawner id -> current iteration index
-        self.loop_desc: dict[str, Any] = {}    # loop spawner id -> its live-iteration GrowRecord
+        # Loop ledger bookkeeping: each loop keeps exactly ONE live GrowRecord, keyed by its ORIGIN
+        # id (the compiled loop `L`). `_apply_grow` attributes every iteration's grow to `origin`
+        # (`flow.nodes[spawner_id].origin_id or spawner_id`) and drops the superseded iteration's
+        # record from its container, so the durable ledger stays single-record + bounded. The
+        # iteration index lives on the driver clone's `iteration` field + the record seed
+        # `(carried, k)`, not the engine — there is no engine-side loop step or iteration counter.
+        self._origin_record: dict[str, Any] = {}  # origin loop id -> its live GrowRecord
         self._cancel = False
 
     def request_abort(self) -> None:
@@ -604,14 +598,6 @@ class FlowEngine:
         self.sm.finish_executing(node_id)
         self.paused.append((node_id, reason))
 
-    def _iteration_ids(self, spawner_id: str, iteration: int) -> "frozenset[str]":
-        """The live-overlay id-set of one loop iteration — every node under the `f"{spawner}#{i}/"`
-        callsite namespace. Loop-driver helper: the finished iteration's id-set is what `_loop_step`
-        hands to `_prune` (on terminate) or folds into the next iteration's `Grow.prune` (on
-        continue). A single source for the prefix match so the two arms never duplicate the string."""
-        prefix = f"{map_callsite(spawner_id, iteration)}/"    # f"{spawner}#{iteration}/"
-        return frozenset(n for n in self.flow.nodes if n.startswith(prefix))
-
     def _prune(self, ids: "frozenset[str]") -> None:
         """Kind-BLIND retirement of a named id-set — the generic inverse of `_apply_grow`'s splice.
 
@@ -633,97 +619,6 @@ class FlowEngine:
                 self.pool.store.pop(nid, None)
                 self.depth.pop(nid, None)
                 self._spawner_expansion.pop(nid, None)
-
-    def _loop_step(self, filler_id: str, spawner_id: str, next_record: dict) -> None:
-        """A loop body END (`filler_id`, whose baked `commit_as` named `spawner_id`) fired with
-        `next_record` (the body's output = the next carried record). Decide CONTINUE (clone the
-        next iteration) vs STOP (commit the final carried record under the loop spawner and advance
-        its out-edges) per the loop kind: `while` continues while its predicate is true, `until`
-        (do-while) continues while its predicate is false, `times` continues while fewer than N
-        bodies have run (no predicate). Hitting `max_iters` on a while/until continue is a located
-        run failure.
-
-        Raises:
-            NodeExecutionError: on the runaway guard (`"LoopMaxExceeded"`, next iteration would
-                reach `max_iters`); when the final carried record fails the spawner's declared
-                `output_shape` on commit (wraps the `SegmentError` as the redirect-commit tail does);
-                and as the boundary wrap for any predicate-eval or `_apply_grow` raise (a runtime
-                predicate error or the node-budget guard) — always a `NodeExecutionError` so
-                `run()` yields `RunFailed`, never an uncaught escape."""
-        loop = self.flow.nodes[spawner_id]
-        self.sm.finish_executing(filler_id)
-        from agent_composer.expr.expressions import evaluate_when_record
-        # Predicate eval and iteration growth run OUTSIDE eval_node's try/except (like
-        # `_apply_grow`), so any raise here would escape run() uncaught. Wrap both: a
-        # predicate ExpressionError (a runtime type error on the carried record) and the
-        # `_apply_grow` budget RuntimeError become NodeExecutionError -> RunFailed. The
-        # intentional located raises (max guard, commit SegmentError) pass straight through.
-        #
-        # The continue decision `cont` branches on the loop kind (mirrors the turn-0 arm):
-        #   while  — continue while the predicate is TRUE on the next carried record.
-        #   until  — DO-WHILE: continue while the predicate is FALSE; stop once it is TRUE.
-        #   times  — fixed count: continue while fewer than N bodies have run. `loop_iter`
-        #            holds the JUST-FINISHED iteration index i (0-based), so i+1 bodies have
-        #            run; continue iff the NEXT index `i+1` has not reached the budget. No predicate.
-        if loop.predicate_kind == "times":
-            cont = not loop.should_stop(self.loop_iter[spawner_id] + 1)
-        else:
-            try:
-                truth = evaluate_when_record(loop.predicate, next_record)
-            except NodeExecutionError:
-                raise
-            except Exception as exc:  # noqa: BLE001 — boundary: any predicate error -> RunFailed
-                raise NodeExecutionError(
-                    spawner_id, str(exc), type(exc).__name__,
-                    locator=SourceSpan(node=spawner_id, kind="field", key=loop.predicate_kind),
-                )
-            # while: continue on TRUE; until (do-while): continue on FALSE, stop on TRUE.
-            cont = truth if loop.predicate_kind == "while" else not truth
-        if cont:
-            finished = self.loop_iter[spawner_id]   # the iteration whose body END just fired
-            nxt = finished + 1
-            if loop.should_stop(nxt):
-                raise NodeExecutionError(
-                    spawner_id, f"loop {spawner_id!r} exceeded max ({loop.max_iters})",
-                    "LoopMaxExceeded",
-                    locator=SourceSpan(node=spawner_id, kind="field", key="max"),
-                )
-            # `next_record` threads into the freshly grown `#nxt` seed, so the just-finished
-            # `#finished` iteration becomes dead overlay. Fold its prune INTO the grow: `_apply_grow`
-            # splices `#nxt` first, then retires `dead` — the next iteration's ids never overlap the
-            # finished ones (distinct `#k` namespaces), so splice-then-prune is safe, and a
-            # budget/predicate raise inside the grow leaves `#finished` intact for the located
-            # failure (the prune runs only after a successful splice).
-            dead = self._iteration_ids(spawner_id, finished)
-            try:
-                self._apply_grow(
-                    spawner_id,
-                    Grow(loop_iteration_subgraph(loop.child, spawner_id, next_record, nxt),
-                         prune=dead, seed=(next_record, nxt)),
-                )
-            except NodeExecutionError:
-                raise
-            except Exception as exc:  # noqa: BLE001 — boundary: any grow error -> RunFailed
-                raise NodeExecutionError(spawner_id, str(exc), type(exc).__name__)
-            return
-        # Predicate false: terminate. Commit the final carried record under the spawner id
-        # (same SegmentError -> NodeExecutionError guard the redirect-commit tail uses) and fire
-        # the spawner's out-edges.
-        try:
-            self.pool.set(spawner_id, next_record, declared=loop.output_shape)
-        except SegmentError as exc:
-            raise NodeExecutionError(
-                spawner_id, str(exc), type(exc).__name__,
-                locator=SourceSpan(node=spawner_id, kind="field", key="output"),
-            )
-        # The carried record now lives under the bare `spawner_id`, so the just-finished final
-        # iteration is dead overlay — prune it directly (no grow on terminate). `loop_iter[spawner_id]`
-        # is that index. ONLY after the commit succeeds: a SegmentError above must leave the
-        # iteration intact for the located failure, and `#finished`'s record has already threaded to
-        # the spawner id, so the downstream `_advance` reads the committed value.
-        self._prune(self._iteration_ids(spawner_id, self.loop_iter[spawner_id]))
-        for nid in self._advance(spawner_id):
-            self._schedule(nid)
 
     def _replay_expansions(self, records: list, *, is_top_level: bool = True) -> None:
         """Deterministic fold over the persisted `GrowRecord` tree: re-grow the live topology +
@@ -754,14 +649,15 @@ class FlowEngine:
         """Generic growth core (kind-BLIND): splice the node-built Subgraph, register it, enforce
         MAX_TOTAL_NODES, record ONE uniform `GrowRecord` in the durable ledger, apply the trait-driven
         growth bookkeeping (boundary asserts, REF depth, `_spawner_expansion` stamps, origin
-        `commit_as`, loop retention), finish/mark the spawner, and schedule its roots.
-        `schedule=False` suppresses scheduling+budget on replay; `record` reuses a deserialized
-        ledger entry on replay (so no new record is minted).
+        `commit_as`), finish/mark the spawner, apply `grow.prune` (enabling loop self-prune), and
+        schedule its roots. `schedule=False` suppresses scheduling+budget on replay; `record` reuses
+        a deserialized ledger entry on replay (so no new record is minted).
 
-        Ledger attach is kind-blind: mint a `GrowRecord(spawner_id, seed, [])`, then nest it under
-        the enclosing spawner's record if this spawner is INSIDE one (`_spawner_expansion` names it),
-        else append it top-level. The stamping step then stamps `_spawner_expansion` so a nested grow
-        finds THIS record."""
+        Ledger attach is kind-blind for non-loop kinds: mint a `GrowRecord(origin, seed, [])`, then
+        nest it under the enclosing spawner's record if this spawner is INSIDE one (`_spawner_expansion`
+        names it), else append it top-level. A LOOP takes the origin-keyed single-record path: the
+        record is attributed to the compiled loop `origin` and supersedes the prior iteration's
+        record in the same container (see the `node.is_loop` branch below)."""
         sg = grow.subgraph
         with self.sm.lock:
             self.flow.add_subgraph(sg.nodes, sg.edges, sg.wiring)
@@ -769,14 +665,18 @@ class FlowEngine:
             if schedule and len(self.flow.nodes) > MAX_TOTAL_NODES:
                 raise RuntimeError(
                     f"expansion exceeded node budget ({MAX_TOTAL_NODES}) at spawner {spawner_id!r}")
-        # Prune is the generic inverse of the splice — the outcome names which ids to retire; the
-        # engine stays kind-blind (∅ for call/map). Applied AFTER a successful splice so a budget
-        # raise above leaves the to-be-pruned ids intact; NOT entangled with the ledger mint below.
-        if grow.prune:
-            self._prune(grow.prune)
+        # Attribution origin (kind-blind): a loop driver clone `L~k` attributes its grow/commit to the
+        # compiled loop `L` via `origin_id`; every other node has `origin_id is None`, so `origin` is
+        # just the spawner id (no behavior change). The durable ledger keys on `origin`, so a loop's
+        # iterations fold into a single record under `L`. `is_loop` is read HERE (before the moved
+        # prune below) because a loop driver may SELF-prune `spawner_id`, after which
+        # `flow.nodes[spawner_id]` no longer exists.
+        spawner_node = self.flow.nodes[spawner_id]
+        origin = spawner_node.origin_id or spawner_id
+        spawner_is_loop = spawner_node.is_loop
         # Mint the one GrowRecord for this grow (live), OR reuse the deserialized one on replay.
         rec = record if record is not None else GrowRecord(
-            spawner_id=spawner_id, seed=grow.seed, children=[])
+            spawner_id=origin, seed=grow.seed, children=[])
         # Ledger parent captured BEFORE the stamping step: a self-restamping spawner (AGENT)
         # stamps `_spawner_expansion[spawner_id]`, which would otherwise shadow the ENCLOSING
         # spawner's record and make `rec` look like its own parent. A nested grow (its spawner is
@@ -809,11 +709,6 @@ class FlowEngine:
         # `commit_as`, so `origin == spawner_id`, which the terminal's `commit_as` already equals.
         # Runs AFTER the stamps above, which rely on the terminal's PROVISIONAL `commit_as`.
         self._apply_origin_commit_as(spawner_id, grow)
-        # Loop-only per-iteration bookkeeping (kind-blind gate on the `is_loop` trait): the live
-        # iteration index + the single live-iteration GrowRecord + its single-record ledger
-        # invariant. Gated on the trait — NOT a self-committing terminal, which CALL/MAP/LOOP share.
-        if self.flow.nodes[spawner_id].is_loop:
-            self._apply_loop_bookkeeping(spawner_id, grow, rec)
         # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
         # has run and expanded, so it finishes executing and enters EXPANDED. Idempotent for a loop
         # whose repeated iteration grows re-mark the same spawner; runs on replay too (the legacy
@@ -822,9 +717,32 @@ class FlowEngine:
         # failure.
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-        # Attach AFTER the stamping steps (attach-after-grow): a boundary-assert/budget raise above on
-        # the live path leaves NO orphan record in the ledger.
-        if record is None:
+        # Prune is the generic inverse of the splice — the outcome names which ids to retire; the
+        # engine stays kind-blind (∅ for call/map). Moved AFTER finish/mark (was before the splice
+        # bookkeeping) so a loop driver can SELF-prune: `grow.prune` may name the spawner id itself
+        # (`L~k` retires itself in its own grow), and finish/mark must run on the still-live spawner
+        # first. Safe because only loops ever set a non-empty `prune`, and the origin `L` (which the
+        # ledger attach below reads) is NEVER in the prune set (self-prune excludes the origin).
+        if grow.prune:
+            self._prune(grow.prune)
+        # Ledger attach AFTER the splice bookkeeping + prune (attach-after-grow): a boundary-assert /
+        # budget raise above on the live path leaves NO orphan record in the ledger.
+        if spawner_is_loop:
+            # Single-record-by-origin (replaces the deleted `_apply_loop_bookkeeping`). The
+            # parent/container is STABLE across iterations because `origin` is the compiled `L`
+            # (never pruned, never re-stamped by its own iterations): top-level -> `self.expansions`,
+            # nested in a CALL -> that CALL record's `children`. Drop the superseded iteration's
+            # record from the container and append the new one; the map is set on replay too so a
+            # post-restore continuation finds the live record.
+            parent = self._spawner_expansion.get(origin)
+            container = parent.children if isinstance(parent, GrowRecord) else self.expansions
+            prev = self._origin_record.get(origin)
+            if record is None:                         # live path: replace prev with rec
+                if prev is not None and prev in container:
+                    container.remove(prev)
+                container.append(rec)
+            self._origin_record[origin] = rec          # set on replay too (post-restore continuation)
+        elif record is None:                           # generic CALL/MAP/AGENT — unchanged
             if isinstance(parent, GrowRecord):
                 parent.children.append(rec)
             else:
@@ -851,12 +769,20 @@ class FlowEngine:
         subgraph AND its derived terminal(s) at `rec`, so a grow nested inside one of them nests its
         GrowRecord under `rec` and the commit-site post-assert recovery (`_on_success`) finds the
         seed. A self-restamping spawner (`grow_restamps_self` — AGENT) also stamps its OWN bare id,
-        so an agent that re-pauses at the same spawner id nests the next pause under `rec`."""
+        so an agent that re-pauses at the same spawner id nests the next pause under `rec`.
+
+        A loop CONTINUATION driver `L~(k+1)` in the subgraph is SKIPPED: it carries `origin_id` set
+        to the compiled loop and `!= its own id`, so its own grows attribute to the origin (§6b). If
+        it were stamped here, `_spawner_expansion[L~(k+1)]` would shadow the stable origin lookup and
+        break the single-record collapse. A compiled loop / genuine nested spawner (`origin_id` None,
+        or `== id`) is still stamped."""
         spawner = self.flow.nodes[spawner_id]
         sg = grow.subgraph
         if spawner.grow_restamps_self:
             self._spawner_expansion[spawner_id] = rec
         for nid, node in sg.nodes.items():
+            if getattr(node, "origin_id", None) is not None and node.origin_id != nid:
+                continue
             if node.is_spawner:
                 self._spawner_expansion[nid] = rec
         for term in self._derived_terminals(sg, spawner_id):
@@ -920,44 +846,12 @@ class FlowEngine:
             if bad is not None:
                 raise RuntimeError(f"{label} boundary assert failed: {bad}")
 
-    def _apply_loop_bookkeeping(self, spawner_id, grow, rec) -> None:
-        """LOOP per-iteration bookkeeping (gated on the `is_loop` trait by the growth core). Sets
-        `loop_iter` (the live iteration index `_loop_step` reads) and `loop_desc` (the loop's
-        live-iteration GrowRecord, keyed by the bare spawner id — the ledger `_loop_step`'s
-        continue-branch and `_on_success`'s loop route both read).
-
-        Maintains the SINGLE-record invariant: only the LIVE iteration's GrowRecord stays in the
-        ledger, so when a new iteration supersedes the prior one, the prior record is removed from
-        its container (the parent's `children` if nested, else `self.expansions`). `grow.seed` is the
-        loop's `(record, iteration)` pair."""
-        _record, iteration = grow.seed
-        self.loop_iter[spawner_id] = iteration
-        # SINGLE-record invariant: drop the superseded iteration's GrowRecord. The prior record
-        # `prev` lives in the SAME container as `rec` (the parent's `children` if this loop is nested
-        # inside another spawner, else `self.expansions`) — it was appended by its OWN earlier
-        # `_apply_grow`. The current `rec` is not attached yet (the caller appends it AFTER this
-        # returns, per attach-after-grow), so we only ever remove `prev`.
-        prev = self.loop_desc.get(spawner_id)
-        if prev is not None and prev is not rec:
-            parent = self._spawner_expansion.get(spawner_id)
-            container = parent.children if isinstance(parent, GrowRecord) else self.expansions
-            if prev in container:
-                container.remove(prev)
-        self.loop_desc[spawner_id] = rec
-
     def _on_success(self, node_id: str, event: NodeSucceeded) -> None:
         # The commit target: `commit_as` redirects a subflow terminal's value under its spawner
         # id (a cloned child END_ID / MAP END_ID-list / agent resume continuation / loop-body END),
         # else the node commits under its own id. This one line replaces the former `alias` /
         # `loop_alias` dict lookups.
         target = event.commit_as or node_id
-        # A loop-body END filler routes to `_loop_step` (predicate -> re-clone the next iteration
-        # OR commit the final carried record + advance) — NOT the generic commit below. `loop_desc`
-        # is keyed by the loop spawner and present from the first body grow onward, so `target`
-        # (the spawner id via commit_as) being a loop key discriminates the loop route.
-        if target in self.loop_desc:
-            self._loop_step(node_id, target, event.output)
-            return
         # Commit the value under `target` (the spawner id on a redirect, else `node_id`) with the
         # target's declared Shape (same SegmentError -> NodeExecutionError guard the tail uses),
         # then advance the target's out-edges. For a redirect the filler's own pool.set is SKIPPED;
@@ -985,7 +879,9 @@ class FlowEngine:
         # id is never a key there; keying off `target` would miss the record). Leaf post-asserts
         # still fire in eval_node. This is kind-blind: any redirect-commit spawner carrying
         # `post_asserts` fires here. Today only CALL does — MAP is rejected `asserts:` at load
-        # (compose/validate.py), LOOP returns above at `loop_desc`, so the CALL path is byte-identical.
+        # (compose/validate.py), and a LOOP body-END carries no `commit_as` on a CONTINUE (it feeds
+        # the next driver by wiring) while a STOP commits directly from `run` — so only CALL reaches
+        # this redirect-commit post-assert path, byte-identical to before.
         if target != node_id and target_node.post_asserts:
             desc = self._spawner_expansion.get(node_id)
             record = desc.seed if isinstance(desc, GrowRecord) else {}

@@ -592,9 +592,9 @@ def test_replay_does_not_promote_a_nested_child(monkeypatch):
 
 def test_grow_loop_schedule_false_registers_without_scheduling():
     """Replaying ONE loop iteration (`replay_grow(seed)` + `_apply_grow(schedule=False)`) rebuilds
-    the iteration overlay (clones + registers the `#0/` namespace, re-attaches the ledger to
-    `loop_desc`) but schedules NOTHING and does not trip the node-budget guard — the suppressed
-    replay path, mirroring the CALL/MAP replay."""
+    the iteration overlay (clones + registers the `#0/` body namespace AND the fresh `loop~1`
+    driver, re-attaches the single record to `_origin_record`) but schedules NOTHING and does not
+    trip the node-budget guard — the suppressed replay path, mirroring the CALL/MAP replay."""
     from agent_composer.compose.loader import load_flow
     from tests.engine.test_loop_run import COUNTER
 
@@ -603,9 +603,11 @@ def test_grow_loop_schedule_false_registers_without_scheduling():
     record = {"n": 0, "exited": False}
     rec = _replay_one(engine, spawner_id, (record, 0))
 
-    # Registered: the iteration's namespaced nodes are present and the ledger is re-attached.
+    # Registered: the iteration's namespaced body nodes + the fresh next driver are present and the
+    # single record is re-attached under the origin.
     assert any(n.startswith(f"{spawner_id}#0/") for n in engine.flow.nodes)
-    assert engine.loop_desc[spawner_id] is rec
+    assert "loop~1" in engine.flow.nodes                  # fresh next-iteration driver rebuilt
+    assert engine._origin_record[spawner_id] is rec
 
     # Scheduled: nothing — the serial ready queue is empty right after the suppressed grow.
     assert list(engine.ready) == []
@@ -613,29 +615,31 @@ def test_grow_loop_schedule_false_registers_without_scheduling():
 
 def test_replay_reproduces_live_loop_overlay():
     """Replaying a paused-loop `ckpt.expansions` onto a FRESH recompiled flow rebuilds the SAME
-    live iteration overlay the live engine grew: flow.nodes / the baked `commit_as` redirect /
-    sm.node_state (set-equality), the spawner staying EXPANDED, and the ledger re-attached to
-    `loop_desc`.
+    live iteration overlay the live engine grew: flow.nodes (the `loop#0/` body + the fresh `loop~1`
+    driver) / the baked `commit_as` map / sm.node_state (set-equality), the spawner staying
+    EXPANDED, and the single record re-attached to `_origin_record`.
 
     Pruning drops committed iterations before any pause, so exactly ONE iteration (the LIVE one)
-    is resident — the replay re-grows that single last-recorded seed at its recorded index."""
+    is resident — the replay re-grows that single last-recorded seed at its recorded index. The
+    CONTINUE body-END carries NO `commit_as` (it feeds `loop~1` by plain wiring), so the loop
+    contributes nothing to the `commit_as` map at this pause."""
     from agent_composer.compose.loader import load_flow
     from agent_composer.compose.run import run_flow
     from tests.engine.test_loop_run import LOOP_CHAT
 
-    # Drive LOOP_CHAT to its FIRST pause on a live engine: iteration #0 is grown (NOT yet pruned
-    # — pruning happens in _loop_step AFTER the body END fires, but the body parks BEFORE its END).
+    # Drive LOOP_CHAT to its FIRST pause on a live engine: iteration #0 is grown (its body parks on
+    # the human_input leaf BEFORE its END fires, so the #0 overlay is un-pruned and resident).
     loaded = load_flow(LOOP_CHAT)
     live = run_flow(loaded, {})
     assert live.status == "paused"
     live_engine = live.engine
 
-    # Precondition: the live overlay has the `loop#0/` namespace present (un-pruned live iter).
+    # Precondition: the live overlay has the `loop#0/` body namespace AND the fresh `loop~1` driver.
     assert any(n.startswith("loop#0/") for n in live_engine.flow.nodes)
+    assert "loop~1" in live_engine.flow.nodes
 
-    # Capture the loop-relevant overlay a replay must reproduce: the body-END filler's baked
-    # `commit_as` (the loop-back redirect, formerly `loop_alias`); also sm.node_state and the
-    # spawner's own EXPANDED state.
+    # Capture the loop-relevant overlay a replay must reproduce: flow.nodes, the baked `commit_as`
+    # map (the CONTINUE body-END carries none), sm.node_state, and the spawner's EXPANDED state.
     live_nodes = set(live_engine.flow.nodes)
     live_commit_as = {nid: n.commit_as for nid, n in live_engine.flow.nodes.items() if n.commit_as}
     live_node_state = set(live_engine.sm.node_state)
@@ -651,12 +655,13 @@ def test_replay_reproduces_live_loop_overlay():
     fresh = FlowEngine(load_flow(LOOP_CHAT).compiled)
     fresh._replay_expansions(ckpt.expansions)
 
-    # Set-for-set overlay equality against the live engine.
+    # Set-for-set overlay equality against the live engine — the rebuilt window {body_0, loop~1}
+    # matches live.
     assert set(fresh.flow.nodes) == live_nodes
     assert {nid: n.commit_as for nid, n in fresh.flow.nodes.items() if n.commit_as} == live_commit_as
     assert set(fresh.sm.node_state) == live_node_state
     assert fresh.sm.node_state["loop"] == NodeState.EXPANDED
-    assert fresh.loop_desc["loop"] is loop_descs[0]    # the ledger was re-attached
+    assert fresh._origin_record["loop"] is loop_descs[0]  # the single record was re-attached
 
 
 def test_durable_loop_resumes_on_fresh_flow():
@@ -665,12 +670,12 @@ def test_durable_loop_resumes_on_fresh_flow():
     terminal as the live in-process resume.
 
     Pruning drops committed iterations before any pause, so at the turn-1 pause only the LIVE
-    `loop#0/` iteration is resident. The checkpoint carries ONE loop GrowRecord with the live
-    seed recorded; restore()+replay re-grows exactly that iteration on a clean flow. Delivering
-    "hi" then drives the loop-back (`_loop_step`) which must grow turn 2 and prune turn 1 from
-    the RESTORED overlay — the post-restore `loop_iter`/`loop_desc` must be consistent for that
-    to compute the next index and read the predicate. Delivering "bye" sets exited=true ->
-    predicate false -> the run succeeds identically to the live oracle."""
+    `loop#0/` iteration (plus the fresh `loop~1` driver) is resident. The checkpoint carries ONE
+    loop GrowRecord with the live seed recorded; restore()+replay re-grows exactly that window on a
+    clean flow. Delivering "hi" then drives the fresh `loop~1` driver's grow, which must grow turn 2
+    and prune turn 1 (its previous body + itself) from the RESTORED overlay — the post-restore
+    `_origin_record` must be consistent for the next driver to attribute its grow. Delivering "bye"
+    sets exited=true -> predicate false -> the run succeeds identically to the live oracle."""
     from agent_composer.compose.loader import load_flow
     from agent_composer.compose.run import resume_command, resume_flow, run_flow
     from tests.engine.test_loop_run import LOOP_CHAT
@@ -709,7 +714,7 @@ def test_durable_loop_resumes_on_fresh_flow():
     parked_leaf = ckpt.pause_reasons[0].node_id
     assert parked_leaf in fresh.flow.nodes
 
-    # Deliver "hi" to the restored turn-1 pause -> the loop-back grows turn 2 -> a NEW pause.
+    # Deliver "hi" to the restored turn-1 pause -> the fresh `loop~1` driver grows turn 2 -> a NEW pause.
     dur2 = resume_flow(loaded, engine=fresh,
                        commands=[resume_command(loaded, ckpt.pause_reasons[0], "hi")])
     assert dur2.status == "paused", dur2.error
@@ -728,15 +733,15 @@ def test_loop_multi_hop_resnapshot_ledger_matches_live():
     `succeeded`.
 
     Mirrors `test_two_hop_agent_resnapshot_ledger_matches_live` for the loop: the durable hop must
-    continue growing the ONE re-attached descriptor object (`loop_desc[spawner]` is the deserialized
-    `expansions[0]`), so `_loop_step`'s continue-branch supersedes it on the ledger the re-snapshot
-    serializes."""
+    continue growing the ONE re-attached descriptor object (`_origin_record["loop"]` is the
+    deserialized `expansions[0]`), so the next driver's CONTINUE grow supersedes it on the ledger the
+    re-snapshot serializes."""
     from agent_composer.compose.loader import load_flow
     from agent_composer.compose.run import resume_command, resume_flow, run_flow
     from tests.engine.test_loop_run import LOOP_CHAT
 
     # --- Live oracle: drive LOOP_CHAT to the SECOND pause (turn 2) in-process; capture its ledger
-    # shape. Turn 1 grows iter #0; delivering "a" runs the loop-back, which grows iter #1
+    # shape. Turn 1 grows iter #0; delivering "a" drives the fresh `loop~1` driver, which grows iter #1
     # (seed = ({messages:["a"], exited:false}, 1)) and prunes #0 — exactly ONE record remains.
     loaded = load_flow(LOOP_CHAT)
     live1 = run_flow(loaded, {})
@@ -781,6 +786,164 @@ def test_loop_multi_hop_resnapshot_ledger_matches_live():
                        commands=[resume_command(loaded, ckpt2.pause_reasons[0], "bye")])
     assert dur3.status == "succeeded", dur3.error
     assert dur3.output == {"messages": ["a", "bye"], "exited": True}
+
+
+# --- nested loop durability (review S2): a loop whose body/callsite rides UNDER a CALL --------- #
+# Nothing else exercises a LOOP nested inside a CALL — the origin-keyed ledger must nest the loop's
+# ONE GrowRecord under the enclosing CALL record (origin = the NAMESPACED `wrap/loop`, since the CALL
+# clones the loop into its child callsite), stay bounded across iterations, and replay live==restored.
+
+# A `times: 3` loop nested in a CALL — completes with no pause. Pins the nested single-record ledger.
+_NESTED_LOOP_IN_CALL = """
+id: nlc
+name: nlc
+defs:
+  countdown:
+    input:
+      n: int
+    nodes:
+      step:
+        kind: code
+        code: tests.engine._compose_codefns:loop_countdown
+        input:
+          n: ${input.n}
+        output:
+          n: int
+    output: ${step.output}
+  looped:
+    input:
+      n: int
+    nodes:
+      loop:
+        kind: loop
+        call: countdown
+        input:
+          n: ${input.n}
+        times: 3
+    output: ${loop.output}
+nodes:
+  wrap:
+    kind: call
+    call: looped
+    input:
+      n: 10
+output: ${wrap.output}
+"""
+
+
+def test_nested_loop_in_call_ledger_single_record_nested_under_call():
+    """A `times: 3` loop nested inside a CALL: the ledger stays ONE top-level CALL GrowRecord whose
+    `children` carries EXACTLY ONE loop record (origin = the namespaced `wrap/loop`), stable across
+    the 3 iterations — not an unbounded chain (review S2). The run completes to `{n: 7}`. This also
+    guards the origin-namespacing fix in `clone_child`: without it the cloned loop keeps the
+    pre-clone origin `loop`, its STOP `commit_as` targets a non-existent `flow.nodes['loop']`, and
+    the run crashes."""
+    from agent_composer.compose.loader import load_flow
+
+    engine = FlowEngine(load_flow(_NESTED_LOOP_IN_CALL).compiled, run_inputs={})
+    terminal = list(engine.run())[-1]
+    assert isinstance(terminal, RunSucceeded)
+    assert terminal.output == {"n": 7}                      # 10 - 3 body runs = 7
+    # The CALL record is the sole top-level entry; the loop rides under it as ONE nested record.
+    assert len(engine.expansions) == 1
+    call_rec = engine.expansions[0]
+    assert call_rec.spawner_id == "wrap"
+    loop_kids = [c for c in call_rec.children if c.spawner_id == "wrap/loop"]
+    assert len(loop_kids) == 1                              # single record, not an unbounded chain
+    assert engine._origin_record["wrap/loop"] is loop_kids[0]
+
+
+# A PAUSING nested loop (chat body inside a CALL) — snapshot MID-loop, restore, resume to terminal.
+_NESTED_CHAT_LOOP_IN_CALL = """
+id: ncc
+name: ncc
+defs:
+  chat_turn:
+    input:
+      messages: list[str]
+    nodes:
+      ask:
+        kind: human_input
+        prompt: "your message"
+        output: str
+      fold:
+        kind: code
+        code: tests.engine._compose_codefns:chat_fold
+        input:
+          messages: ${input.messages}
+          msg: ${ask.output}
+        output:
+          messages: list[str]
+          exited: bool
+    output: ${fold.output}
+  looped:
+    input:
+      messages: list[str]
+    nodes:
+      loop:
+        kind: loop
+        call: chat_turn
+        input:
+          messages: ${input.messages}
+          exited: false
+        while: not ${exited}
+        max: 100
+    output: ${loop.output}
+nodes:
+  wrap:
+    kind: call
+    call: looped
+    input:
+      messages: []
+output: ${wrap.output}
+"""
+
+
+def test_nested_loop_in_call_durable_hop_bounded_and_matches_live():
+    """A loop nested in a CALL, iterating across a DURABLE hop: run -> mid-loop pause -> snapshot ->
+    restore(fresh) -> resume. The re-attached ledger stays ONE CALL record with ONE nested loop
+    record (origin `wrap/loop`) at each pause — bounded, no chain — and the restored run reaches the
+    SAME terminal as the live in-process run (review S2)."""
+    from agent_composer.compose.loader import load_flow
+    from agent_composer.compose.run import resume_command, resume_flow, run_flow
+
+    loaded = load_flow(_NESTED_CHAT_LOOP_IN_CALL)
+
+    # --- Live oracle: drive the nested chat loop to terminal in-process ("hi" then "bye").
+    live1 = run_flow(loaded, {})
+    assert live1.status == "paused"
+    assert live1.pause_reasons[0].node_id == "wrap/loop#0/ask"   # deep: CALL ns + loop body ns
+    live_tree = [(r.spawner_id, [c.spawner_id for c in r.children]) for r in live1.engine.expansions]
+    assert live_tree == [("wrap", ["wrap/loop"])]               # ONE call record, ONE nested loop
+    live2 = resume_flow(loaded, engine=live1.engine,
+                        commands=[resume_command(loaded, live1.pause_reasons[0], "hi")])
+    assert live2.status == "paused"
+    live3 = resume_flow(loaded, engine=live2.engine,
+                        commands=[resume_command(loaded, live2.pause_reasons[0], "bye")])
+    assert live3.status == "succeeded", live3.error
+    assert live3.output == {"messages": ["hi", "bye"], "exited": True}
+
+    # --- Durable hop: a fresh process parks at the turn-1 pause, persists, round-trips.
+    proc1 = run_flow(load_flow(_NESTED_CHAT_LOOP_IN_CALL), {})
+    assert proc1.status == "paused"
+    ckpt = RunCheckpoint.loads(proc1.checkpoint.dumps())
+    # The persisted ledger is bounded: ONE call record with ONE nested loop record.
+    ckpt_tree = [(r.spawner_id, [c.spawner_id for c in r.children]) for r in ckpt.expansions]
+    assert ckpt_tree == [("wrap", ["wrap/loop"])]
+
+    fresh = FlowEngine.restore(load_flow(_NESTED_CHAT_LOOP_IN_CALL).compiled, ckpt)
+    assert ckpt.pause_reasons[0].node_id in fresh.flow.nodes    # deep leaf rebuilt by replay
+    dur2 = resume_flow(loaded, engine=fresh,
+                       commands=[resume_command(loaded, ckpt.pause_reasons[0], "hi")])
+    assert dur2.status == "paused", dur2.error
+    # RE-snapshot mid-loop after the hop: STILL bounded — the next iteration superseded the prior.
+    hop_tree = [(r.spawner_id, [c.spawner_id for c in r.children])
+                for r in dur2.engine.snapshot().expansions]
+    assert hop_tree == [("wrap", ["wrap/loop"])]               # single record survives the hop
+    dur3 = resume_flow(loaded, engine=dur2.engine,
+                       commands=[resume_command(loaded, dur2.pause_reasons[0], "bye")])
+    assert dur3.status == "succeeded", dur3.error
+    assert dur3.output == live3.output                          # durable == live (same terminal)
 
 
 def test_snapshot_captures_num_workers():

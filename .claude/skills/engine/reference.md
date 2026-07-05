@@ -56,7 +56,7 @@ base `Node`; a kind overrides only what it needs.
 | `iter_boundary_records(seed) -> [(record,label)]` | growth core (`_apply_grow`): records eager-checked against the child's boundary asserts *before* the ledger attach | `[]` → `call` one, `map` one/element (agent/loop none) |
 | `grow_depth_delta: int\|None` | growth core: REF-depth increment stamped on the spliced spawners + terminal (positive bounded by `MAX_REF_DEPTH`) | `None` (loop/non-REF, no depth work) → `1` call/map, `0` agent |
 | `grow_restamps_self: bool` | growth core: also stamp `_spawner_expansion` at the spawner's OWN bare id (re-pause nesting) | `False` → `True` on `agent` |
-| `is_loop: bool` | growth core: gate the loop-only per-iteration bookkeeping (live index + single-live-record invariant) | `False` → `True` on `loop` |
+| `is_loop: bool` | growth core (`_apply_grow`): gate the origin-keyed single-live-record ledger invariant (the driver self-respawns, so each iteration's grow is attributed to `origin_id` and supersedes the prior record) | `False` → `True` on `loop` |
 | `needs_llm: bool` | read boundary (`eval_node`): build the `caps['llm']` cap (the engine-owned model factory) and pass it to `run` | `False` → `True` on `agent` |
 
 The rest of the splice (add subgraph, enforce `MAX_TOTAL_NODES`, mint one uniform `GrowRecord`,

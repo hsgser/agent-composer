@@ -1,3 +1,10 @@
+"""LoopNode direct-run unit tests — the self-respawning driver model.
+
+Each iteration is a fresh `LoopNode` driver clone whose `run` owns the whole loop policy:
+STOP → `Output(carried, commit_as=origin)`; CONTINUE → `Grow({body_k, L~(k+1)}, prune=…)`.
+These test `run`/`respawn`/`replay_grow` directly (no engine); e2e loop behavior is in
+`test_loop_run.py`.
+"""
 from agent_composer.compile.expand import map_callsite, ns
 from agent_composer.nodes.base import Grow, NodeKind, Output
 from agent_composer.nodes.loop import LoopNode
@@ -5,46 +12,125 @@ from agent_composer.nodes.loop import LoopNode
 from tests.engine.test_expand import _child_flow
 
 
+def test_node_origin_id_defaults_none():
+    from tests.engine._fakes import FuncNode
+    assert FuncNode("x", lambda p: {"output": 1}).origin_id is None
+
+
 def test_loop_is_a_spawner_kind():
     assert LoopNode.is_spawner is True
     assert NodeKind.LOOP.value == "loop"
 
 
-def test_loopnode_run_grows_iteration_zero_when_predicate_holds():
-    # `while not ${exited}` on a seed with exited=False -> the predicate holds, so turn 0 grows
-    # iteration #0 as a self-describing Grow carrying `seed=(record, 0)` for durable replay.
+def test_compiled_loop_origin_is_self():
+    node = LoopNode("lp", flow_id="f", child=object(), predicate_kind="while",
+                    predicate="${x}", max_iters=10)
+    assert node.origin_id == "lp" and node.iteration == 0
+
+
+def test_run_grows_iteration_zero_with_next_driver_when_continue():
     child = _child_flow()
-    node = LoopNode(
-        "chat_loop", flow_id="chat_turn", child=child,
-        predicate_kind="while", predicate="not ${exited}", max_iters=1000,
-    )
+    node = LoopNode("chat_loop", flow_id="ct", child=child, predicate_kind="while",
+                    predicate="not ${exited}", max_iters=1000)
+    node.params = child.nodes[child.start_id].params
     seed = {"messages": [], "exited": False}
     result = node.run(dict(seed))
     assert isinstance(result, Grow)
     assert result.seed == (seed, 0)
-    # the grown subgraph is iteration #0's body, namespaced under the per-iteration callsite.
-    callsite = map_callsite("chat_loop", 0)
-    assert result.subgraph.roots == [ns(callsite, child.start_id)]
+    assert result.subgraph.roots == [ns(map_callsite("chat_loop", 0), child.start_id)]
+    assert "chat_loop~1" in result.subgraph.nodes     # fresh next driver spliced
+    assert result.prune == frozenset()                # k==0: no previous body, origin never self-prunes
 
 
-def test_loopnode_run_commits_seed_when_while_predicate_false():
-    # `while ${exited}` on a seed with exited=False -> 0 body runs: commit the seed unchanged under
-    # the spawner id via Output(commit_as). No child clone is built (returns before the grow).
-    node = LoopNode(
-        "chat_loop", flow_id="chat_turn", child=object(),
-        predicate_kind="while", predicate="${exited}", max_iters=1000,
-    )
+def test_run_commits_seed_when_while_predicate_false():
+    node = LoopNode("chat_loop", flow_id="ct", child=object(), predicate_kind="while",
+                    predicate="${exited}", max_iters=1000)
     seed = {"messages": [], "exited": False}
     result = node.run(dict(seed))
     assert isinstance(result, Output)
-    assert result.value == seed
-    assert result.commit_as == "chat_loop"
+    assert result.value == seed and result.commit_as == "chat_loop"
+
+
+def test_clone_driver_self_prunes_previous_body_and_self():
+    child = _child_flow()
+    node = LoopNode("chat_loop", flow_id="ct", child=child, predicate_kind="while",
+                    predicate="not ${exited}", max_iters=1000)
+    node.params = child.nodes[child.start_id].params
+    clone = node.respawn(1)                            # L~1, iteration 1, origin chat_loop
+    clone.params = node.params
+    assert clone.id == "chat_loop~1" and clone.origin_id == "chat_loop" and clone.iteration == 1
+    result = clone.run({"messages": ["hi"], "exited": False})
+    assert isinstance(result, Grow)
+    # prune = previous body (chat_loop#0/*) + self (chat_loop~1)
+    assert "chat_loop~1" in result.prune
+    assert any(p.startswith("chat_loop#0/") for p in result.prune)
+    assert "chat_loop~2" in result.subgraph.nodes     # next driver
+
+
+def test_until_do_while_continues_on_iteration_zero():
+    child = _child_flow()
+    node = LoopNode("lp", flow_id="f", child=child, predicate_kind="until",
+                    predicate="${x} <= 0", max_iters=10)
+    node.params = child.nodes[child.start_id].params
+    result = node.run({"x": 5})                        # until stops on TRUE post-check; k==0 continues
+    assert isinstance(result, Grow)
+
+
+def test_times_stops_at_count():
+    child = _child_flow()
+    node = LoopNode("lp", flow_id="f", child=child, predicate_kind="times",
+                    times=3, max_iters=3)
+    node.params = child.nodes[child.start_id].params
+    node3 = node.respawn(3)                            # iteration 3 == times -> stop
+    node3.params = node.params
+    result = node3.run({"x": 1})
+    assert isinstance(result, Output) and result.commit_as == "lp"
+
+
+def test_replay_grow_rebuilds_body_and_next_driver_on_origin():
+    child = _child_flow()
+    node = LoopNode("lp", flow_id="f", child=child, predicate_kind="while",
+                    predicate="${x}", max_iters=10)
+    node.params = child.nodes[child.start_id].params
+    sg = node.replay_grow(({"x": 1}, 2))              # rebuild body_2 + lp~3
+    assert ns(map_callsite("lp", 2), child.start_id) in sg.nodes
+    assert "lp~3" in sg.nodes
+
+
+def test_replay_grow_matches_live_grow_byte_for_byte():
+    # Live grow on a clone L~2 and replay on origin L for the same (carried, k) must produce the
+    # SAME window nodes/edges (origin-keyed bodies): live == replay.
+    child = _child_flow()
+    origin = LoopNode("lp", flow_id="f", child=child, predicate_kind="while",
+                      predicate="${x}", max_iters=10)
+    origin.params = child.nodes[child.start_id].params
+    clone = origin.respawn(2)                          # driver@2
+    live = clone.run({"x": 1})                         # k==2 continue -> Grow window {body_2, lp~3}
+    replay = origin.replay_grow(({"x": 1}, 2))
+    assert set(live.subgraph.nodes) == set(replay.nodes)
+    assert {(e.from_, e.to) for e in live.subgraph.edges} == {(e.from_, e.to) for e in replay.edges}
+
+
+def test_runaway_guard_raises_loop_max_exceeded():
+    import pytest
+
+    from agent_composer.nodes.base import Grow
+    from agent_composer.nodes.loop.node import LoopMaxExceeded
+    child = _child_flow()
+    origin = LoopNode("lp", flow_id="f", child=child, predicate_kind="while",
+                      predicate="${x}", max_iters=1)     # max: 1 permits exactly ONE body run
+    origin.params = child.nodes[child.start_id].params
+    # driver@0 continues and grows body_0 (within budget: should_stop(0) is False) — NO raise.
+    assert isinstance(origin.run({"x": 1}), Grow)
+    # driver@1 would grow the 2nd body -> over budget (should_stop(1) True) -> guard trips.
+    with pytest.raises(LoopMaxExceeded):
+        origin.respawn(1).run({"x": 1})
 
 
 def test_should_stop_is_the_max_iters_budget():
-    node = LoopNode("l", flow_id="f", child=object(),
-        predicate_kind="while", predicate="${x}", max_iters=3)
+    node = LoopNode("l", flow_id="f", child=object(), predicate_kind="while",
+                    predicate="${x}", max_iters=3)
     assert node.should_stop(0) is False
     assert node.should_stop(2) is False
-    assert node.should_stop(3) is True   # index == budget -> stop
+    assert node.should_stop(3) is True
     assert node.should_stop(4) is True
