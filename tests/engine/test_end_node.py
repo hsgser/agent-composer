@@ -64,3 +64,29 @@ def test_end_post_asserts_fire_pool_scoped_through_eval_node():
     bad.post_asserts = ["${emit.output.n} > 100"]
     failed = list(eval_node(bad, flow, pool))
     assert any(isinstance(e, NodeFailed) and "post-assert failed" in e.error for e in failed)
+
+
+def test_end_post_asserts_resolve_namespaced_cross_node_ref_from_pool():
+    """A flow terminal's END post-assert reading a NAMESPACED cross-node ref
+    (`${each#0/n.output.X}`, the shape expand bakes onto a fanned-in child END) resolves
+    from the pool through the generic assert binder — holds/fails identically with no END
+    special case (P5.2: the `node.kind == NodeKind.END` post-assert branch is gone)."""
+    from types import SimpleNamespace
+
+    from agent_composer.events import NodeFailed, NodeSucceeded
+    from agent_composer.runtime.eval_node import eval_node
+    from agent_composer.state.pool import TypedVariablePool
+
+    pool = TypedVariablePool()
+    pool.set("each#0/n", {"score": 7})           # a namespaced child value only the pool holds
+    flow = SimpleNamespace(wiring={"__end__": {"n": "${each#0/n.output.score}"}})
+
+    ok_node = EndNode.record("__end__", output_names=["n"])
+    ok_node.post_asserts = ["${each#0/n.output.score} > 0"]   # pool head with `/` and `#`
+    ok = list(eval_node(ok_node, flow, pool))
+    assert any(isinstance(e, NodeSucceeded) for e in ok)
+
+    bad_node = EndNode.record("__end__", output_names=["n"])
+    bad_node.post_asserts = ["${each#0/n.output.score} > 100"]
+    failed = list(eval_node(bad_node, flow, pool))
+    assert any(isinstance(e, NodeFailed) and "post-assert failed" in e.error for e in failed)

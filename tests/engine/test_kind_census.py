@@ -53,9 +53,12 @@ CORE_MODULES = {
 # dropping the ceiling to 8.
 # P5.1 moved the two `eval_node` read-boundary reads (MAP over-mode, WAIT timed) behind the
 # node-owned `bind_reserved`/`binds_per_item` hooks, dropping the ceiling to 6.
-# The 6 that remain are all deleted in P5.2-P5.4: the `_grow_residual` kind dispatch (4 arms,
-# engine.py) + the CALL post-assert check (engine.py), plus 1 eval_node site (END post-assert).)
-BASELINE = 6
+# P5.2 bound assert-refs at the read boundary (record-first, pool-fallback) so END post-asserts
+# stop being special: the `node.kind == NodeKind.END` post-assert branch in `eval_node` is gone,
+# dropping the ceiling to 5.
+# The 5 that remain are all deleted in P5.3-P5.4: the `_grow_residual` kind dispatch (4 arms,
+# engine.py) + the CALL post-assert check (engine.py).)
+BASELINE = 5
 
 
 def _import_lines(tree: ast.Module) -> set[int]:
