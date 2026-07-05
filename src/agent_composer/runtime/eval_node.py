@@ -10,9 +10,9 @@ and turns the returned `NodeResult` into one terminal `NodeSucceeded`/`NodeFaile
 single `PauseRequested` for a returned `Pause`.
 
 Every node-side failure path funnels to `NodeFailed` so the two engines (serial + parallel)
-agree byte-for-byte on the same input: a node `raise`, an `Enqueue` returned by a NON-spawner
+agree byte-for-byte on the same input: a node `raise`, a `Grow` returned by a NON-spawner
 kind, and a non-`NodeResult` return all become `NodeFailed` inside the `try` — none
-escape the generator uncaught. (A spawner's `Enqueue` instead becomes `NodeExpanded`.)
+escape the generator uncaught. (A spawner's `Grow` instead becomes `NodeExpanded`.)
 
 The bind is PURE: it reads the node's sources ONLY from `flow.wiring[node.id]` joined to the
 node's `params` — the node carries no source. Direct-drive tests supply a stub `flow` with
@@ -41,17 +41,10 @@ from agent_composer.events import (
 )
 from agent_composer.expr import eval_binding, resolve_reference
 from agent_composer.expr.expressions import _evaluate, _resolve_in_record
-from agent_composer.nodes.base import Enqueue, Grow, NodeKind, Output, Pause, Route
+from agent_composer.nodes.base import Grow, NodeKind, Output, Pause, Route
 from agent_composer.nodes.binding import bind_params
 from agent_composer.nodes.wait.node import resolve_until
 from agent_composer.state.pool import TypedVariablePool
-
-# The kinds whose `run` may return an `Enqueue`/`list[Enqueue]` to grow the live graph.
-# Any other kind returning one is a clear NodeFailed. AGENT covers BOTH entry modes
-# (Fresh and the Resume continuation): a multi-pause agent's resumed AgentNode itself returns
-# an Enqueue continuation pair, so one kind suffices (no separate RESUME_AGENT). LOOP spawns
-# each iteration's callable, so it too may return an Enqueue.
-_SPAWNER_KINDS = (NodeKind.CALL, NodeKind.MAP, NodeKind.AGENT, NodeKind.LOOP)
 
 
 def eval_node(node, flow, pool: TypedVariablePool):
@@ -92,7 +85,7 @@ def eval_node(node, flow, pool: TypedVariablePool):
                 return
         # Per-kind narrow caps, built by the engine — never the pool itself.
         # HUMAN_INPUT/WAIT are deliver-as-Output: they always Pause and the engine
-        # delivers the answer. AGENT lowers a control pause to a continuation `Enqueue`,
+        # delivers the answer. AGENT lowers a control pause to a continuation `Grow`,
         # carrying its memo as graph data — so a mapped call's `bind_item` is the only cap now.
         caps: dict[str, Any] = {}
         if over_mode:
@@ -104,7 +97,7 @@ def eval_node(node, flow, pool: TypedVariablePool):
         # check — restores the isolation an earlier double-bind gave. Only paid when declared.
         post_input = copy.deepcopy(record) if node.post_asserts else None
         outcome = node.run(record, **caps)
-        if isinstance(outcome, (Output, Route, Pause, Enqueue, Grow, list)):
+        if isinstance(outcome, (Output, Route, Pause, Grow)):
             result = outcome
         elif inspect.isgenerator(outcome):  # a streaming kind: yields StreamChunk, returns a NodeResult
             result = yield from node._drain_node_generator(outcome)
@@ -112,23 +105,16 @@ def eval_node(node, flow, pool: TypedVariablePool):
             raise RuntimeError(
                 f"node {node.id!r} run() returned {type(outcome).__name__}, not a NodeResult"
             )
-        if isinstance(result, (Enqueue, list, Grow)):
-            # A spawner grows the live graph: hand the description to the dispatcher's
-            # _apply_expansion via NodeExpanded. Any non-spawner kind returning an
-            # Enqueue/list/Grow is a clear error (the graph only grows from spawners).
+        if isinstance(result, Grow):
+            # A spawner grows the live graph: hand the self-describing `Grow` to the dispatcher's
+            # `_apply_grow` via NodeExpanded. Any non-spawner kind returning a Grow is a clear error
+            # (the graph only grows from spawners).
             if not node.is_spawner:
                 raise RuntimeError(
-                    f"node {node.id!r} (kind {node.kind.value}) returned an Enqueue but is "
+                    f"node {node.id!r} (kind {node.kind.value}) returned a Grow but is "
                     f"not a spawner (CALL/MAP/AGENT/LOOP); only spawner kinds may grow the graph"
                 )
-            if isinstance(result, Grow):
-                # Self-describing expansion: the payload IS the Grow (the engine's
-                # _apply_expansion dispatches on payload type).
-                yield NodeExpanded(node.id, result)
-                return
-            # Legacy path: normalize an Enqueue/list[Enqueue] and hand it on unchanged.
-            enqueues = result if isinstance(result, list) else [result]
-            yield NodeExpanded(node.id, enqueues)
+            yield NodeExpanded(node.id, result)
             return
     except Exception as exc:  # noqa: BLE001 — boundary: any node error -> NodeFailed (both engines)
         # A failure may carry a `locator` (BindingError stamps a node-less input SourceSpan;

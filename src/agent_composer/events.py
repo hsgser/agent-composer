@@ -119,11 +119,12 @@ class NodeFailed:
 
 @dataclass
 class NodeExpanded:
-    """A spawner (REF/MAP/AGENT) returned Enqueue(s); the dispatcher's
-    _apply_enqueue grows the live graph. The node ran (value deferred to its alias filler)."""
+    """A spawner (CALL/MAP/AGENT/LOOP) returned a `Grow`; the dispatcher's `_apply_grow` splices
+    the subgraph into the live graph. The node ran (its value is committed by the subgraph
+    terminal via `commit_as`)."""
 
     node_id: str
-    enqueues: list = field(default_factory=list)
+    grow: Any = None
 
 
 @dataclass

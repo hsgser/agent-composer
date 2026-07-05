@@ -32,8 +32,8 @@ class NodeState(str, Enum):
     UNKNOWN  — not yet decided; the initial state of every node.
     TAKEN    — the node ran and its outputs are committed to the pool.
     SKIPPED  — the node will not run (a branch not taken, or skip-flooded from a skipped input).
-    EXPANDED — a spawner node (CALL/MAP) that ran and returned an `Enqueue`: it grew the graph,
-               and its own value is deferred to the alias node that fills in the expansion result.
+    EXPANDED — a spawner node (CALL/MAP/AGENT/LOOP) that ran and returned a `Grow`: it grew the
+               graph, and its own value is committed by the subgraph terminal via `commit_as`.
     """
 
     UNKNOWN = "unknown"

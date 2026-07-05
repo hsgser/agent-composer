@@ -194,7 +194,7 @@ class AgentNode(Node):
 
     def run(self, inputs: dict) -> NodeResult:
         # Dispatch on the closed `entry` sum. A mid-loop control pause lowers to a
-        # continuation `Enqueue`; the engine mints the Resume half and the re-entry
+        # continuation `Grow`; the engine mints the Resume half and the re-entry
         # frame rides as graph data. `llm_config` carries forward.
         if isinstance(self.entry, Resume):
             # Delimited continuation: replay `memo`, append the human answer as the pending

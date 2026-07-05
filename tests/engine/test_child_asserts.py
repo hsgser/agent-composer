@@ -68,7 +68,7 @@ def test_def_with_asserts_loads():
 
 # --- REF: non-vacuous boundary + post pairs, run through expansion. The same parent flow
 # stays `succeeded` with a satisfying value AND fails with a violating one (the eager
-# boundary eval in _apply_enqueue / the child END_ID pool-scoped post-assert). #
+# boundary eval in _apply_grow / the child END_ID pool-scoped post-assert). #
 def test_ref_child_boundary_assert_satisfying_value_succeeds():
     out = run_flow(load_flow(_REF_FLOW), {"v": 5})           # 5 >= 0 -> boundary holds
     assert out.status == "succeeded"
@@ -77,7 +77,7 @@ def test_ref_child_boundary_assert_satisfying_value_succeeds():
 
 def test_ref_child_boundary_assert_violating_value_fails():
     res = run_flow(load_flow(_REF_FLOW), {"v": -1})          # -1 violates ${input.n} >= 0
-    assert res.status == "failed"                            # eager boundary eval in _apply_enqueue
+    assert res.status == "failed"                            # eager boundary eval in _apply_grow
     assert "assert failed" in res.error
 
 

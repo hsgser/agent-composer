@@ -1,7 +1,7 @@
 """The agent **Resume entry** — the continuation of an `ask_user` pause (G2).
 
 A resumed agent is an `AgentNode` with a `Resume` entry (same `kind = AGENT`, no separate
-kind). Its `run(inputs) -> Output | Enqueue`: rebuild `messages` via
+kind). Its `run(inputs) -> Output | Grow`: rebuild `messages` via
 `messages_from_dict(memo)`, append `inputs["answer"]` as the `ToolMessage` matching
 `pending["call_id"]`, then call `agent_step` (which invokes the model exactly once on
 entry — the memo is replayed as messages, not re-invoked). No scratch.

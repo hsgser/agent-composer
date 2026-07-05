@@ -1,6 +1,6 @@
 """A `call` node's node-local POST `asserts:` must fire — at the alias-commit site.
 
-A `call` is a spawner: it yields an `Enqueue` (eval_node returns BEFORE the post-assert
+A `call` is a spawner: it returns a `Grow` (eval_node returns BEFORE the post-assert
 block), and its `${output}` is committed LATER, in `engine._on_success`'s alias branch when
 the cloned child's END filler finishes. So the call's `${output}` post-asserts can ONLY run
 there; eval_node's post-assert block never sees them. Before the fix they were silently

@@ -25,7 +25,7 @@ A node is a **pure function of its bound input record**. It implements
 | `Output(value)` | the one produced value; the engine writes it under the node id. Optional `Output(value, commit_as=<id>)` redirects the write to another id (and fires *that* id's out-edges) — the node-chosen commit target; `None` (the default) commits under the node's own id. |
 | `Route(handle)` | a routing-only outcome (a CASE picks an out-edge `handle`); carries no value, writes no pool entry. The engine emits `NodeRouted` and takes the chosen edge, skip-flooding the siblings. |
 | `Pause(reason)` | a leaf wait (HUMAN_INPUT / WAIT / agent control-pause). The engine emits `PauseRequested` and suspends; the answer is delivered as this node's `Output` (the node never re-runs). |
-| `Enqueue(target, inputs)` | grow the live graph — a description the engine splices in (the REF/MAP drivers, agent control-pause). |
+| `Grow(subgraph, prune, seed)` | grow the live graph — a self-describing `Subgraph` the engine splices in generically via `_apply_grow` (the CALL/MAP drivers, agent control-pause, loop iterations). `seed` is the pure builder input persisted for durable replay; `prune` names ids to retire in the same step. Only spawner kinds (`is_spawner`) may return it. |
 
 A streaming kind is a generator that yields `StreamChunk` and *returns* a
 `NodeResult`. **Failure is not a variant** — a node `raise`s and the engine
@@ -56,7 +56,7 @@ plumbing; re-add when real serving lands.
 | `call:` / `uses:` | function application / a module ref | nests to any depth |
 | the variable pool bind | `let (node_id, key) = ...` | immutable, no mutation |
 | `NodeKind` + `match` | a variant + exhaustive `match` | closed set, no registry |
-| `Output \| Pause \| Enqueue` | a sum type (the result) | failure is a `raise`, not a case |
+| `Output \| Route \| Pause \| Grow` | a sum type (the result) | failure is a `raise`, not a case |
 | pause / resume | algebraic effect + handler | node *performs* a pause; the scheduler *handles* it |
 | a package charter (`__init__`) | a module signature (`.mli`) | a narrow declared interface |
 

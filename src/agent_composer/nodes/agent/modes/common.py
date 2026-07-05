@@ -37,8 +37,8 @@ class AgentRunContext:
     retries: int = 2  # structured-generation self-correction cap (extra attempts)
 
 
-# A mode: a pure function of its context returning a NodeResult (Output | Enqueue) — the
-# agent pauses via the continuation `Enqueue`, never a direct `Pause`.
+# A mode: a pure function of its context returning a NodeResult (Output | Grow) — the
+# agent pauses via the continuation `Grow`, never a direct `Pause`.
 AgentMode = Callable[[AgentRunContext], NodeResult]
 
 MODES: dict[str, AgentMode] = {}

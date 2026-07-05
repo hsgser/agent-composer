@@ -135,24 +135,6 @@ class PauseNode(Node):
         return Pause(self.reason)
 
 
-class EnqueueNode(Node):
-    """A spawner fake: its run() returns a prebuilt Enqueue (or list[Enqueue]). `kind`
-    defaults to CALL (REF arm); pass `kind=NodeKind.MAP` so it rides the MAP arm of
-    _apply_enqueue (which branches on `node.kind == NodeKind.MAP`). Used by the expansion
-    and agent steps. `is_spawner=True` so the `eval_node` grow guard (keyed on `is_spawner`,
-    not kind) lets its expansion through."""
-
-    is_spawner = True
-
-    def __init__(self, node_id, enq, *, kind=NodeKind.CALL, **kw: Any) -> None:
-        super().__init__(node_id, **kw)
-        self.kind = kind          # instance override of the ClassVar; MAP -> the over arm
-        self._enq = enq
-
-    def run(self, inputs, **caps):  # accept any per-kind cap (system / bind_item)
-        return self._enq
-
-
 # Legacy alias: the re-run "pause once then complete" intent is gone (deliver-as-Output);
 # the alias keeps the pause-only call sites (which never injected) unchanged.
 PauseOnceNode = PauseNode

@@ -10,7 +10,7 @@ data transformation whose leaf computations may be LLM agents. Every engine
 change follows the same loop — **never jump straight to code.**
 
 **Companions:** [`reference.md`](reference.md) — the node contract
-(`Output | Pause | Enqueue`), the `NodeKind` table, the OCaml-analogue map, the
+(`Output | Route | Pause | Grow`), the `NodeKind` table, the OCaml-analogue map, the
 non-negotiable invariants, the layer ladder, and a design-note template.
 [`templates/node_kind/`](templates/node_kind/) — a copy-paste skeleton + a
 file-by-file [`WIRING.md`](templates/node_kind/WIRING.md) for adding a new

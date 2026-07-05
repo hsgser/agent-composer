@@ -9,7 +9,7 @@ from agent_composer.nodes.map import MapNode
 
 def _child():
     # a stub baked child: run only reads self.child for the not-baked guard + threads
-    # it into Enqueue.target; apply_defaults reads the (empty) child_inputs decls.
+    # it into the Grow subgraph; apply_defaults reads the (empty) child_inputs decls.
     return SimpleNamespace(nodes={}, edges=[], wiring={}, outputs=[])
 
 

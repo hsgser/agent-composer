@@ -55,7 +55,7 @@ from agent_composer.compile.expand import (
 from agent_composer.compile.model import END_ID, START_ID, CompiledFlow, Edge, NodeState
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.base import Grow, NodeKind
-from agent_composer.runtime.eval_node import _SPAWNER_KINDS, eval_node
+from agent_composer.runtime.eval_node import eval_node
 from agent_composer.runtime.state_manager import StateManager
 from agent_composer.state import SegmentError
 from agent_composer.suspension.expansions import GrowRecord
@@ -63,7 +63,7 @@ from agent_composer.state.pool import TypedVariablePool
 
 DEFAULT_HANDLE = "default"
 
-# Runtime expansion bounds. Enforced in `_apply_enqueue` (the dispatcher mints
+# Runtime expansion bounds. Enforced in `_apply_grow` (the dispatcher mints
 # every node); both raises funnel to RunFailed via the boundary wrap (clean status=="failed").
 MAX_TOTAL_NODES = 10_000   # the load-bearing runtime-size bound (nested MAP breadth multiplies)
 MAX_REF_DEPTH = 5          # defense-in-depth depth bound (the static call graph is acyclic+finite)
@@ -501,11 +501,11 @@ class FlowEngine:
                 self._on_pause(node_id, event.reason)
                 return
             elif isinstance(event, NodeExpanded):
-                # _apply_expansion runs OUTSIDE eval_node's try/except; wrap any raise
-                # (boundary-assert / bounds / unhandled-kind / clone_child error) into
+                # _apply_grow runs OUTSIDE eval_node's try/except; wrap any raise
+                # (boundary-assert / bounds / clone_child error) into
                 # NodeExecutionError so run() yields RunFailed, never an uncaught escape.
                 try:
-                    self._apply_expansion(node_id, event.enqueues)
+                    self._apply_grow(node_id, event.grow)
                 except NodeExecutionError:
                     raise
                 except Exception as exc:  # noqa: BLE001 — boundary: any apply error -> RunFailed
@@ -544,7 +544,7 @@ class FlowEngine:
             elif isinstance(event, NodeExpanded):
                 # Same wrap as the inline _run_node branch.
                 try:
-                    self._apply_expansion(event.node_id, event.enqueues)
+                    self._apply_grow(event.node_id, event.grow)
                 except NodeExecutionError:
                     raise
                 except Exception as exc:  # noqa: BLE001 — boundary: any apply error -> RunFailed
@@ -645,7 +645,7 @@ class FlowEngine:
         self.sm.finish_executing(filler_id)
         from agent_composer.expr.expressions import evaluate_when_record
         # Predicate eval and iteration growth run OUTSIDE eval_node's try/except (like
-        # _apply_enqueue), so any raise here would escape run() uncaught. Wrap both: a
+        # `_apply_grow`), so any raise here would escape run() uncaught. Wrap both: a
         # predicate ExpressionError (a runtime type error on the carried record) and the
         # `_apply_grow` budget RuntimeError become NodeExecutionError -> RunFailed. The
         # intentional located raises (max guard, commit SegmentError) pass straight through.
@@ -738,16 +738,6 @@ class FlowEngine:
             sg = spawner.replay_grow(rec.seed)
             self._apply_grow(rec.spawner_id, Grow(sg, seed=rec.seed), schedule=False, record=rec)
             self._replay_expansions(rec.children, is_top_level=False)
-
-    def _apply_expansion(self, node_id, payload):
-        """Route a NodeExpanded payload to the correct grower. Heterogeneous during the
-        migration to self-describing spawners (legacy `list[Enqueue]` OR a `Grow`); collapses to
-        Grow-only once every spawner returns `Grow`. The SOLE dispatch point so the serial and
-        pooled NodeExpanded handlers cannot drift."""
-        if isinstance(payload, Grow):
-            self._apply_grow(node_id, payload)
-        else:
-            self._apply_enqueue(node_id, payload)   # legacy list[Enqueue]
 
     def _apply_grow(self, spawner_id, grow, *, schedule=True, record=None):
         """Generic growth core (kind-BLIND): splice the node-built Subgraph, register it, enforce
@@ -855,7 +845,7 @@ class FlowEngine:
         # REF/MAP/AGENT nests under THIS record) + on the filler (the CALL post-assert record
         # recovery keys off it); stamp depth on those + the filler (the filler carries the depth).
         for nid, node in sg.nodes.items():
-            if node.kind in _SPAWNER_KINDS:
+            if node.is_spawner:
                 self.depth[nid] = d
                 self._spawner_expansion[nid] = rec
         self.depth[filler_id] = d                    # the filler carries the depth
@@ -913,7 +903,7 @@ class FlowEngine:
         # Stamp depth + `_spawner_expansion` (at `rec`) on each cloned spawner-eligible ELEMENT node
         # so a nested REF/MAP/AGENT nests under THIS record; stamp depth on the list-END filler.
         for nid, node in sg.nodes.items():
-            if node.kind in _SPAWNER_KINDS:
+            if node.is_spawner:
                 self.depth[nid] = d
                 self._spawner_expansion[nid] = rec
         self.depth[map_end_id] = d                   # the list-END filler carries the depth
@@ -944,7 +934,7 @@ class FlowEngine:
         self._spawner_expansion[spawner_id] = rec
         self._spawner_expansion[out_id] = rec
         for nid, node in grow.subgraph.nodes.items():
-            if node.kind in _SPAWNER_KINDS:
+            if node.is_spawner:
                 self._spawner_expansion[nid] = rec
 
         # Origin OVERRIDE of the builder's provisional `commit_as`: re-point the resume terminal so
@@ -991,50 +981,6 @@ class FlowEngine:
         self.sm.finish_executing(spawner_id)
         self.sm.mark_node(spawner_id, NodeState.EXPANDED)
 
-    def _apply_enqueue(self, spawner_id: str, enqueues: list) -> None:
-        """Grow the live graph from a LOOP spawner's turn-0 `Enqueue`. LOOP is the ONLY kind that
-        still returns `Enqueue` (turn 0 seeds the carried record); CALL/MAP/AGENT and loop
-        iterations 1+ all return `Grow` and flow through `_apply_grow`. A later phase moves the
-        turn-0 decision onto the node and deletes this method.
-
-        The turn-0 grow-vs-commit decision branches on the loop kind:
-          while  — grow #0 (run the body) IFF the predicate holds on the seed; else commit the seed
-                   unchanged (0 body runs). The carried record is defined at the seed (`inputs:`),
-                   so the predicate has something to read.
-          until  — DO-WHILE: always grow #0 (1+ runs); the predicate is a POST-check (`_loop_step`).
-          times  — always grow #0 (a `times >= 1` count is guaranteed at build)."""
-        spawner = self.flow.nodes[spawner_id]
-        if spawner.kind != NodeKind.LOOP:
-            raise RuntimeError(f"unhandled spawner kind {spawner.kind} in _apply_enqueue")
-        from agent_composer.expr.expressions import evaluate_when_record
-        seed = dict(enqueues[0].inputs)
-        # `until`/`times` grow #0 unconditionally; only `while` consults the seed predicate.
-        grow = spawner.predicate_kind != "while" or evaluate_when_record(spawner.predicate, seed)
-        if grow:
-            # Grow iteration #0; `_apply_grow` mints the loop's GrowRecord and the loop residual sets
-            # loop_iter/loop_desc + finish/mark-EXPANDED.
-            self._apply_grow(
-                spawner_id,
-                Grow(loop_iteration_subgraph(enqueues[0].target, spawner_id, seed, 0),
-                     seed=(seed, 0)),
-            )
-        else:
-            # 0 body runs: finish/mark the spawner, commit the seed as the final carried record,
-            # advance out-edges. (The grow path's finish/mark rides the loop residual; this
-            # no-grow branch owns its own.)
-            self.sm.finish_executing(spawner_id)
-            self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-            try:
-                self.pool.set(spawner_id, seed, declared=spawner.output_shape)
-            except SegmentError as exc:
-                raise NodeExecutionError(
-                    spawner_id, str(exc), type(exc).__name__,
-                    locator=SourceSpan(node=spawner_id, kind="field", key="output"),
-                )
-            for nid in self._advance(spawner_id):
-                self._schedule(nid)
-        return
-
     def _on_success(self, node_id: str, event: NodeSucceeded) -> None:
         # The commit target: `commit_as` redirects a subflow terminal's value under its spawner
         # id (a cloned child END_ID / MAP END_ID-list / agent resume continuation / loop-body END),
@@ -1052,6 +998,12 @@ class FlowEngine:
         # target's declared Shape (same SegmentError -> NodeExecutionError guard the tail uses),
         # then advance the target's out-edges. For a redirect the filler's own pool.set is SKIPPED;
         # `finish_executing` still runs on the FILLER `node_id` (the node that actually ran).
+        #
+        # A spawner that returned `Output` instead of `Grow` (a 0-iteration `while` loop committing
+        # its seed unchanged) flows through HERE, so it ends in the `NodeState.TAKEN` set by its
+        # `_enqueue` — NOT `EXPANDED`. That is intentional and correct: EXPANDED means "a spawner that
+        # ran and returned a Grow", and a 0-iteration loop grew nothing. Marking it EXPANDED would
+        # need a kind-aware special-case here, which the kind-agnostic commit path deliberately avoids.
         target_node = self.flow.nodes[target]
         try:
             self.pool.set(target, event.output, declared=target_node.output_shape)

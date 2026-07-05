@@ -1,6 +1,6 @@
 """Tests for the dispatcher-side expansion ledger.
 
-The dispatcher appends one descriptor per `_apply_enqueue` call; nested expansions ride
+The dispatcher appends one descriptor per `_apply_grow` call; nested expansions ride
 under their parent. The ledger is the source of truth for snapshot/restore; these tests
 verify the ledger shape itself.
 

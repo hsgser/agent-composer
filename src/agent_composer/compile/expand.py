@@ -1,7 +1,7 @@
 """Runtime graph-expansion machinery — the pure half.
 
 When a spawner (REF / MAP / agent-pause) runs, it does not run a child engine; it
-returns a *description* (`Enqueue`) and the engine GROWS the live graph by cloning the
+returns a *description* (`Grow(Subgraph)`) and the engine GROWS the live graph by cloning the
 target child(ren) deep-namespaced into the running `CompiledFlow`. This module holds the
 **pure** machinery that growth keys off:
 
@@ -61,7 +61,7 @@ class ClonedSubgraph:
     (the sole seed point — `[ns(callsite, child.start_id)]`); `out_node_id` is the namespaced
     child `END_ID` (the alias filler for REF / one element input for MAP). `boundary_asserts` are
     the child's BOUNDARY asserts exposed RAW (un-namespaced — they read `${inputs}/${system}`)
-    for the dispatcher to evaluate eagerly against the baked record in `_apply_enqueue` (fired only
+    for the dispatcher to evaluate eagerly against the baked record in `_apply_grow` (fired only
     there, NOT off the spliced child START_ID)."""
 
     nodes: dict[str, Node]
@@ -296,7 +296,7 @@ def loop_iteration_subgraph(child, spawner_id: str, record: dict, iteration: int
 def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: int = 2) -> ClonedSubgraph:
     """Materialize the agent-pause continuation PAIR namespaced at `callsite`.
 
-    `pair` is `[human_input_desc, resume_desc]` from `agent_step`'s `Enqueue`. The
+    `pair` is `[human_input_desc, resume_desc]` from `agent_step`'s continuation `Grow`. The
     `human_input` leaf is a ROOT (no incoming edge), so the engine's leaf-pause path applies and its
     `HumanInputRequired.node_id` is the namespaced `hi_id`. The resume node is an `AgentNode`
     with a `Resume` entry (the continuation arm — same `kind = AGENT`, no separate kind); it

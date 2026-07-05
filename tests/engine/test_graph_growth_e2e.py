@@ -5,7 +5,7 @@ contract, this locks the engine results end-to-end:
 
 - **scratch is eliminated** structurally: no `pool.scratch`/`NodeScratch`, no
   per-kind scratch cap module, no `Node` attribute or string referencing scratch.
-- **the live graph GROWS** under a REF/MAP run: an `Enqueue` deep-namespaces the child
+- **the live graph GROWS** under a REF/MAP run: a `Grow` deep-namespaces the child
   into the live `CompiledFlow` and `len(flow.nodes)` increases — driven via `FlowEngine.run()`
   directly (run_flow only attaches `.engine` on a pause).
 - the **START_ID..END_ID splice** is exercised: each call splices the namespaced child
@@ -141,7 +141,7 @@ def test_live_graph_grows_under_a_map_run():
     before = len(eng.flow.nodes)
     events = list(eng.run())
     assert isinstance(events[-1], RunSucceeded)
-    # the Enqueue expansion + add_subgraph grew the LIVE graph (child cloned per element)
+    # the Grow expansion + add_subgraph grew the LIVE graph (child cloned per element)
     assert len(eng.flow.nodes) > before
 
 

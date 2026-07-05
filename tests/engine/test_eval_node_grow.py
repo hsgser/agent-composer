@@ -38,7 +38,7 @@ def test_spawner_grow_becomes_node_expanded_carrying_the_grow():
     evs = list(drive(_FakeSpawner("s")))
     assert isinstance(evs[0], NodeStarted)
     assert isinstance(evs[-1], NodeExpanded)
-    assert isinstance(evs[-1].enqueues, Grow)
+    assert isinstance(evs[-1].grow, Grow)
     # No terminal NodeSucceeded/NodeFailed after the expansion.
     assert not any(isinstance(e, NodeFailed) for e in evs)
 

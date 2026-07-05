@@ -3,7 +3,7 @@
 # Pre-Phase-2 a HUMAN_INPUT/WAIT reachable inside a REF/MAP child was compile-rejected
 # (alang §4A — "a child can't suspend yet"). Phase 2 LIFTS that: the parent `call`s an
 # in-file `defs:` callable whose body suspends on a HUMAN_INPUT; the engine grows the live
-# graph via Enqueue, the inner effect parks under its NAMESPACED leaf id (`review/approve`),
+# graph via Grow, the inner effect parks under its NAMESPACED leaf id (`review/approve`),
 # and the deliver-as-Output resume feeds the answer into the namespaced child node. Shows:
 # nested suspension via graph-growth, a HUMAN_INPUT in a child, `case … on` routing the
 # answer inside the child, and the child re-exporting its confirmed value to the parent.

@@ -2,7 +2,7 @@
 
 Earlier the loader rejected a HUMAN_INPUT/WAIT reachable inside a `call` child at load
 (`reject_child_effects`), and the runtime `CallNode` raised as a backstop. The engine now
-grows the graph via `Enqueue` and resumes in-memory, so a child effect LOADS, RUNS to a
+grows the graph via `Grow` and resumes in-memory, so a child effect LOADS, RUNS to a
 pause on its NAMESPACED leaf id, and RESUMES to a terminal via the deliver-as-Output path
 (`resume_command` -> DeliverAnswerCommand on the live namespaced id). These 3 flows (REF
 child / MAP child / nested grandchild) are the end-to-end proof the whole graph-growth +

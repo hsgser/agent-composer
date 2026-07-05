@@ -8,7 +8,7 @@ returning the bound input record as ONE object keyed by input name -> store[<sta
 `inputs`-namespace replacement (binding at the boundary, not the driver).
 
 NO asserts on START_ID: boundary asserts stay at run.py (top-level) + the eager
-_apply_enqueue temp-pool (child). NOT START_ID's job: system/clock/run_id. Hidden from
+`_apply_grow` temp-pool (child). NOT START_ID's job: system/clock/run_id. Hidden from
 authors: a reserved __-prefixed id, never parseable.
 """
 

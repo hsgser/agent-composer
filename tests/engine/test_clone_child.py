@@ -104,7 +104,7 @@ def test_clone_child_rehomes_post_asserts_onto_child_end():
                    asserts=AssertSet(boundary=["${input.topic} != ''"],
                                      post=["${tail.output} != ''"]))
     cloned = clone_child(child, callsite="each", record={"topic": "ACME"})
-    # boundary stays exposed RAW for the eager eval in _apply_enqueue (not re-homed, no double-fire)
+    # boundary stays exposed RAW for the eager eval in _apply_grow (not re-homed, no double-fire)
     assert cloned.boundary_asserts == ["${input.topic} != ''"]
     # post-assert re-namespaced under the callsite via the node-first shape.
     assert cloned.nodes["each/__end__"].post_asserts == ["${each/tail.output} != ''"]

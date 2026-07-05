@@ -1,15 +1,12 @@
-"""Runtime graph expansion: eval_node Enqueue routing + the live CALL/MAP Grow path.
+"""Runtime graph expansion: the live CALL/MAP Grow path through the engine.
 
-Pins the `eval_node` -> `NodeExpanded` routing (a spawner returning an `Enqueue`/`list[Enqueue]`
-grows the live graph; a non-spawner kind fails loud), and the live CALL Grow path through the
-engine's generic `_apply_grow` (clone the child namespaced, substitute the spawner's value via the
-`commit_as` filler, fire its out-edges) plus the runtime bounds (MAX_TOTAL_NODES / MAX_REF_DEPTH).
+Covers the live CALL Grow path through the engine's generic `_apply_grow` (clone the child
+namespaced, substitute the spawner's value via the `commit_as` filler, fire its out-edges) plus
+the runtime bounds (MAX_TOTAL_NODES / MAX_REF_DEPTH). The `eval_node` -> `NodeExpanded` routing
+(spawner Grow grows the graph; a non-spawner Grow fails loud) is pinned in `test_eval_node_grow.py`.
 """
 
-from agent_composer.events import NodeExpanded, NodeStarted
-from agent_composer.nodes.base import Enqueue, NodeKind
-from agent_composer.state.pool import TypedVariablePool
-from tests.engine._fakes import EnqueueNode, drive, stamp_reads
+from tests.engine._fakes import stamp_reads
 
 
 # --- _rens_internal — re-namespace a binding source under a callsite (no baking) ---------- #
@@ -43,28 +40,7 @@ def test_rens_internal_computed_whole_span_renamespaces_all_leaves():
     )
 
 
-def test_eval_node_emits_node_expanded_for_single_enqueue():
-    enq = Enqueue(target="child", inputs={"x": 1})
-    events = list(drive(EnqueueNode("sp", enq)))
-    assert isinstance(events[0], NodeStarted)
-    exp = [e for e in events if isinstance(e, NodeExpanded)]
-    assert len(exp) == 1 and exp[0].node_id == "sp"
-    assert exp[0].enqueues == [enq]                      # one -> [one] (normalized)
-
-
-def test_eval_node_emits_node_expanded_for_list_enqueue():
-    enqs = [Enqueue(target="c", inputs={"i": 0}), Enqueue(target="c", inputs={"i": 1})]
-    n = EnqueueNode("m", enqs, kind=NodeKind.MAP)         # MAP (over-mode) -> list[Enqueue]
-    # A MAP pre-resolves `over` from flow.wiring before run; stamp+seed it (its value
-    # is irrelevant — run returns the prebuilt list verbatim, the point is the list -> one event).
-    stamp_reads(n, {"over": "${input.over}"})
-    pool = TypedVariablePool()
-    pool.set(START_ID, {"over": [0, 1]})
-    exp = [e for e in drive(n, pool) if isinstance(e, NodeExpanded)]
-    assert len(exp) == 1 and exp[0].enqueues == enqs     # list passes through verbatim
-
-
-# --- _apply_enqueue REF arm — clone namespaced, substitute spawner, fire out-edge -------- #
+# --- live CALL Grow path — clone namespaced, substitute spawner, fire out-edge ----------- #
 
 import pytest
 from agent_composer.events import RunSucceeded

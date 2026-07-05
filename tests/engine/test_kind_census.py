@@ -48,11 +48,13 @@ CORE_MODULES = {
 # isinstance dispatch. P3.5 unified the durability ledger to a single `GrowRecord` and made
 # replay kind-blind: the `*Expansion` union + its isinstance dispatch and the legacy
 # `_grow_call`/`_grow_map`/`_grow_agent` replay bodies are gone, dropping the ceiling to 13.
-# The 13 that remain are all deleted in P3.6+: the `_grow_residual` kind dispatch (4 arms), the
-# spawner-eligible `_SPAWNER_KINDS` stamps in the residuals (3), the `_apply_enqueue` LOOP guard,
-# the CALL post-assert check, plus 4 eval_node sites (`_SPAWNER_KINDS` def, MAP over-mode, WAIT,
-# END).)
-BASELINE = 13
+# P3.6 deleted `Enqueue`/`_apply_enqueue` (LOOP turn-0 now returns `Grow`) and swapped the 3
+# `_SPAWNER_KINDS` residual stamps + the `eval_node` def for the kind-blind `node.is_spawner`,
+# dropping the ceiling to 8.
+# The 8 that remain are all deleted in P4/P5/P8: the `_grow_residual` kind dispatch (4 arms,
+# engine.py) + the CALL post-assert check (engine.py), plus 3 eval_node sites (MAP over-mode,
+# WAIT timed, END post-assert).)
+BASELINE = 8
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

@@ -2,7 +2,7 @@
 
 A stub model drives the agent loop; each `ask_user` control call lowers to a
 continuation PAIR (a `human_input` leaf + a resume continuation — an `AgentNode` with a
-`Resume` entry) via `Enqueue`, the engine's single AGENT arm of `_apply_enqueue` clones it
+`Resume` entry) via `Grow`, the engine's generic `_apply_grow` clones it
 namespaced at the spawner, the human_input leaf parks, and the deliver-as-Output resume
 feeds the answer into the resume continuation. These tests pin: the pause->resume->finish round trip, no
 replay of turn 1 (the carried memo is replayed as messages, not re-invoked — asserted

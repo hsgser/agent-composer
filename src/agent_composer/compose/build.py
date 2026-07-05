@@ -714,9 +714,9 @@ def build_call_node(desc: CallDescriptor, resolver: ChildResolver) -> tuple[Node
         )
     child = _resolve_child(desc.id, desc.call, resolver)
     sig = child_signature(child)
-    # Stamp the child's AssertSet onto its compiled flow: the Enqueue target is `child.compiled`,
+    # Stamp the child's AssertSet onto its compiled flow: the Grow subgraph body is `child.compiled`,
     # and `expand.clone_child` reads `child_asserts` off the cloned child to carry the
-    # boundary asserts (eval'd eagerly in _apply_enqueue) + re-home the post asserts onto __out.
+    # boundary asserts (eval'd eagerly in the CALL grow residual) + re-home the post asserts onto __out.
     child.compiled.child_asserts = child.asserts
     errors: list[str] = []
     if is_map:
@@ -784,7 +784,7 @@ def build_loop_node(desc: LoopDescriptor, resolver: ChildResolver) -> tuple[Node
     """
     child = _resolve_child(desc.id, desc.call, resolver)
     sig = child_signature(child)
-    # Stamp the child's AssertSet onto its compiled flow (the Enqueue target), exactly as
+    # Stamp the child's AssertSet onto its compiled flow (the Grow subgraph body), exactly as
     # build_call_node — clone_child reads child_asserts off the cloned body child.
     child.compiled.child_asserts = child.asserts
     node = LoopNode(

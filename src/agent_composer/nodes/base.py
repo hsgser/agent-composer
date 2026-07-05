@@ -2,7 +2,7 @@
 
 A node is a **pure function of its bound input record**: it implements
 `run(inputs, **caps) -> NodeResult` and returns ONE of the closed sum
-`Output | Pause | Enqueue` (the node-result sum type) — **or**, for a streaming
+`Output | Route | Pause | Grow` (the node-result sum type) — **or**, for a streaming
 kind, a generator that yields `StreamChunk` and then *returns* a `NodeResult`.
 The node never receives the pool: the engine's `runtime.eval_node` seam binds its
 inputs (the read boundary) and hands it a record. The one effectful kind that still
@@ -83,16 +83,6 @@ class Pause:
 
 
 @dataclass(frozen=True)
-class Enqueue:
-    """Grow the live graph — a description the engine splices into the running flow
-    (graph expansion). Produced by the REF/MAP drivers and by an agent's mid-loop
-    control pause; the engine's `_apply_enqueue` interprets it."""
-
-    target: Any
-    inputs: Any
-
-
-@dataclass(frozen=True)
 class Subgraph:
     """A self-describing graph fragment a spawner returns for the engine to splice in.
     A Flow fragment (nodes/edges/wiring) plus `roots` (the entry nodes to schedule). By
@@ -128,7 +118,7 @@ class Grow:
 
 
 # The closed sum a pure `run(inputs)` returns.
-NodeResult = Union[Output, Route, Pause, Enqueue, Grow]
+NodeResult = Union[Output, Route, Pause, Grow]
 
 
 class Node(ABC):
@@ -136,7 +126,7 @@ class Node(ABC):
     The base contract every node kind implements: a pure function of its input record.
 
     A node implements [`run`][agent_composer.nodes.base.Node.run] and returns one of the
-    closed sum `Output | Pause | Enqueue` (or, for a streaming kind, a generator that yields
+    closed sum `Output | Route | Pause | Grow` (or, for a streaming kind, a generator that yields
     `StreamChunk` and returns a `NodeResult`). The node never receives the pool — the engine's
     `eval_node` seam binds its inputs and hands it a record — and never writes the pool; it
     *describes* its one output as `Output(value)` and the engine performs the write under the
@@ -167,7 +157,7 @@ class Node(ABC):
     """
 
     kind: ClassVar[NodeKind]
-    # Declares "I may grow the graph" (a spawner returns Enqueue/Grow). Overridden True by
+    # Declares "I may grow the graph" (a spawner returns a `Grow`). Overridden True by
     # the spawner kinds (CALL/MAP/AGENT/LOOP); the `eval_node` seam gates the grow path on it.
     is_spawner: ClassVar[bool] = False
 
@@ -203,7 +193,7 @@ class Node(ABC):
     def run(self, inputs: dict[str, Any], **caps: Any) -> "NodeResult":
         """Execute the node as a pure function of its bound input record.
 
-        Returns a `NodeResult` (`Output | Pause | Enqueue`), or — for a streaming kind —
+        Returns a `NodeResult` (`Output | Route | Pause | Grow`), or — for a streaming kind —
         a generator that yields `StreamChunk` and *returns* a `NodeResult`. The one effectful
         cap left is a mapped `call`'s `bind_item` (keyword-only); every other kind takes only `inputs`. A
         failure is a `raise`, not a variant — the engine boundary turns it into `NodeFailed`."""
@@ -245,6 +235,6 @@ class Node(ABC):
                 event = next(gen)
         except StopIteration as stop:
             result = stop.value
-            if not isinstance(result, (Output, Route, Pause, Enqueue, Grow)):
+            if not isinstance(result, (Output, Route, Pause, Grow)):
                 raise RuntimeError(f"node {self.id!r} generator did not return a NodeResult")
             return result

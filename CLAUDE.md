@@ -17,7 +17,7 @@ The engine **is** a small functional language. The canonical design reference is
 the package README — [`src/agent_composer/README.md`](src/agent_composer/README.md):
 flow-is-a-function, agent-is-a-flow, OCaml as the concept map, a closed
 `NodeKind` with explicit `match` dispatch, node purity (a node never writes the
-pool; it returns `Output | Pause | Enqueue`), a typed serializable variable
+pool; it returns `Output | Route | Pause | Grow`), a typed serializable variable
 pool, and durable suspend/resume. **Consult it before designing any engine or
 flow change.** The flow-authoring surface is documented in
 [`docs/syntax.md`](docs/syntax.md); docstring/style conventions are in

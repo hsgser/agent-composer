@@ -11,7 +11,7 @@ AgentLoopError -> NodeFailed) by `test_agent.py`.
 
 from agent_composer.compile.model import END_ID, START_ID, CompiledFlow, Edge
 from agent_composer.events import NodeFailed, NodeRouted, NodeStarted, NodeSucceeded, PauseRequested, RunFailed
-from agent_composer.nodes.base import Enqueue, Node, NodeKind, Output
+from agent_composer.nodes.base import Grow, Node, NodeKind, Output, Subgraph
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.map import MapNode
@@ -107,11 +107,14 @@ def test_routing_emits_node_routed():
 # --- review lock-ins: every node-side failure path funnels to NodeFailed uniformly --------- #
 
 
-class _EnqueueNode(Node):
+class _NonSpawnerGrowNode(Node):
+    """A non-spawner (is_spawner=False by default) whose run returns a Grow — a clear error:
+    only spawner kinds may grow the graph."""
+
     kind = NodeKind.CODE
 
     def run(self, inputs):
-        return Enqueue(target="child", inputs={})
+        return Grow(Subgraph(nodes={}, edges=[], wiring={}, roots=[]))
 
 
 class _BadReturnNode(Node):
@@ -135,25 +138,25 @@ class _MutatingNode(Node):
         return Output(value="done")
 
 
-def test_enqueue_from_non_spawner_kind_is_node_failed():
-    # A non-spawner (CODE) returning Enqueue is a clear error, not a silent NodeExpanded.
-    evs = _drive(_EnqueueNode("n"))                       # _EnqueueNode.kind == NodeKind.CODE
+def test_grow_from_non_spawner_kind_is_node_failed():
+    # A non-spawner (CODE) returning Grow is a clear error, not a silent NodeExpanded.
+    evs = _drive(_NonSpawnerGrowNode("n"))               # is_spawner is False (default)
     assert isinstance(evs[-1], NodeFailed)
-    assert "Enqueue" in evs[-1].error and "spawner" in evs[-1].error
+    assert "Grow" in evs[-1].error and "spawner" in evs[-1].error
     assert evs[-1].error_type == "RuntimeError"
 
 
-def test_non_spawner_enqueue_fails_run_in_both_engines():
+def test_non_spawner_grow_fails_run_in_both_engines():
     # The seam must normalize identically on the serial and pooled engines — no uncaught
-    # escape on serial. A non-spawner kind returning Enqueue fails the run on both.
+    # escape on serial. A non-spawner kind returning Grow fails the run on both.
     def graph():
-        return _graph([_EnqueueNode("n")], [(START_ID, "n"), ("n", END_ID)])
+        return _graph([_NonSpawnerGrowNode("n")], [(START_ID, "n"), ("n", END_ID)])
 
     serial = list(FlowEngine(graph()).run())
-    assert isinstance(serial[-1], RunFailed) and "Enqueue" in serial[-1].error
+    assert isinstance(serial[-1], RunFailed) and "Grow" in serial[-1].error
 
     par = list(FlowEngine(graph(), num_workers=4).run())   # ParallelFlowEngine retired
-    assert isinstance(par[-1], RunFailed) and "Enqueue" in par[-1].error
+    assert isinstance(par[-1], RunFailed) and "Grow" in par[-1].error
 
 
 def test_bad_return_type_is_clear_node_failed():

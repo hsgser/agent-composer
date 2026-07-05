@@ -1,11 +1,11 @@
-"""The `NodeResult` closed sum: Output | Route | Pause | Enqueue.
+"""The `NodeResult` closed sum: Output | Route | Pause | Grow.
 
-The FAILED path is `raise` -> engine boundary `NodeFailed` (no `Failure` variant). `Enqueue` is
-defined here but produced/interpreted by the composition drivers. Routing rides `Route` (tested
-in `test_route.py`).
+The FAILED path is `raise` -> engine boundary `NodeFailed` (no `Failure` variant). `Grow` is
+defined in `nodes.base` but produced by spawner nodes and interpreted by the dispatcher's
+`_apply_grow`. Routing rides `Route` (tested in `test_route.py`).
 """
 
-from agent_composer.nodes.base import Enqueue, Output, Pause
+from agent_composer.nodes.base import Grow, Output, Pause, Subgraph
 
 
 def test_output_carries_value():
@@ -16,7 +16,9 @@ def test_pause_carries_reason():
     assert Pause(reason="needs-input").reason == "needs-input"
 
 
-def test_enqueue_is_defined():
-    e = Enqueue(target="child", inputs={"x": 1})
-    assert e.target == "child"
-    assert e.inputs == {"x": 1}
+def test_grow_is_defined():
+    sg = Subgraph(nodes={}, edges=[], wiring={}, roots=[])
+    g = Grow(subgraph=sg, seed={"x": 1})
+    assert g.subgraph is sg
+    assert g.seed == {"x": 1}
+    assert g.prune == frozenset()

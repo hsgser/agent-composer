@@ -42,7 +42,7 @@ The run-loop primitives live in `agent_composer.compose.run`.
 Every node implements one contract — a pure function of its bound input record —
 and reports its kind through the closed [`NodeKind`][agent_composer.nodes.base.NodeKind]
 vocabulary. A node returns one of the closed sum
-`Output | Pause | Enqueue` and never touches the variable pool.
+`Output | Route | Pause | Grow` and never touches the variable pool.
 
 ::: agent_composer.nodes.base.NodeKind
 
@@ -50,9 +50,13 @@ vocabulary. A node returns one of the closed sum
 
 ::: agent_composer.nodes.base.Output
 
+::: agent_composer.nodes.base.Route
+
 ::: agent_composer.nodes.base.Pause
 
-::: agent_composer.nodes.base.Enqueue
+::: agent_composer.nodes.base.Subgraph
+
+::: agent_composer.nodes.base.Grow
 
 ### Node kinds
 
