@@ -2,11 +2,12 @@
 
 <2-4 sentences: the node's single responsibility — what it consumes (its bound
 input record) and the one value it produces. Name its OCaml analogue if it has
-one. State any effect: does it pause (return Pause) or grow the graph (return
-Enqueue)? A pure leaf returns Output only.>
+one. State any effect: does it route (return Route), pause (return Pause), or grow
+the graph (return Grow)? A pure leaf returns Output only.>
 
 Invariant (every node): reads only its bound `inputs` record, never the pool;
-returns ONE of `Output | Pause | Enqueue`; a failure is a `raise`, not a variant.
+returns ONE of the closed `Outcome` sum `Output | Route | Pause | Grow`; a failure
+is a `raise`, not a variant.
 """
 
 from agent_composer.nodes.base import Node, NodeKind, Output
@@ -31,9 +32,10 @@ class XxxNode(Node):
         super().__init__(node_id, title=title)
         self.param = param
 
-    def run(self, inputs: dict) -> Output:
-        # Pure: read only `inputs` (the bound record), never the pool.
-        # Compute the ONE output value and describe it as Output(value=...).
-        # The engine performs the write under this node's id.
+    def run(self, inputs: dict, **caps) -> Output:
+        # Pure: read only `inputs` (the bound record), never the pool. `**caps` accepts the
+        # engine-owned capability providers (e.g. `bind_item`, `llm`) it's gated to receive;
+        # a pure leaf ignores them. Compute the ONE output value and describe it as
+        # Output(value=...). The engine performs the write under this node's id.
         result = ...  # derive from inputs + self.param
         return Output(value=result)

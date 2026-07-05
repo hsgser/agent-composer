@@ -221,6 +221,7 @@ scheduled; the loop node does not know how state is stored.
 | `grow_depth_delta` | my REF-depth increment for the growth core: `1` (call/map, bounded), `0` (agent), `None` (loop / non-REF, no depth work) |
 | `grow_restamps_self` | declares "on a grow, also stamp my own id" (agent re-pause nesting); default `False` |
 | `is_loop` | declares "I am the fixpoint-iteration driver"; gates the loop-only per-iteration bookkeeping in the growth core; default `False` |
+| `needs_llm` | declares "I am LLM-backed" (agent); the read seam then builds the `caps['llm']` model-factory cap and passes it to `run`; default `False` |
 
 ## Why this shape
 

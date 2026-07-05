@@ -50,13 +50,15 @@ IS a flow" — they expand into `__start__ → children → __end__` (`run` → 
 move all graph-growth semantics out of the engine and into the nodes. Below are the problems to
 address one by one (no scope/sequence decided yet).
 
-- [ ] **Engine owns MAP's fan-in wiring.** The collector `EndNode.list_` + the
+- [x] ~~**Engine owns MAP's fan-in wiring.** The collector `EndNode.list_` + the
   `e{i} <- ${child#i.end.output}` edges are built inside `_grow_map` (`engine.py:705-715`); they
   belong in `MapNode`. (Enabler: namespacing is deterministic and `clone_child` is already pure, so
-  the node can compute every id and emit the wiring itself.)
-- [ ] **`_apply_enqueue` branches per kind** (`engine.py:1058` LOOP, `1107` CALL, `1137` MAP), each
+  the node can compute every id and emit the wiring itself.)~~ `MapNode.run` now emits the whole MAP
+  subgraph (child clones + list-END fan-in) via `map_subgraph`; `_grow_map` is deleted. -- 6abcc91
+- [x] ~~**`_apply_enqueue` branches per kind** (`engine.py:1058` LOOP, `1107` CALL, `1137` MAP), each
   mirrored by a `_replay_expansions` arm. Collapse to one generic splice once nodes are
-  self-describing.
+  self-describing.~~ One generic `_apply_grow`/`_prune` splice; `_apply_enqueue`/`_grow_map`/
+  `_grow_call`/`_grow_residual` all deleted (census 0). -- 5d2f5e2..101e595
 - [ ] **LOOP policy lives in the engine** (`_loop_step` + the `loop_alias` hook): predicate, merge,
   continue/stop, count. Move it into `LoopNode.run` (pure).
 - [x] ~~**Node return contract is too narrow.** `Enqueue(target, inputs)` can't describe reconvergence
@@ -110,9 +112,11 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
   asserts (`each#0/n.output.X`, `expand.py:174`) become ordinary bound record entries.~~ -- cf9c6a6
 - [x] ~~**`is_spawner` trait on `NodeBase`** (default `False`) replaces `_SPAWNER_KINDS`; only a
   subflow node may return `Grow`.~~ -- d217cff
-- [ ] **Node return contract → `Outcome = Output | Route | Pause | Grow(subgraph)`** — four arms, the
+- [x] ~~**Node return contract → `Outcome = Output | Route | Pause | Grow(subgraph)`** — four arms, the
   ONLY thing the engine matches on (never on kind). Supersedes narrow `Enqueue(target, inputs)` (and
-  folds in the earlier "self-describing subgraph" item above). Decided pieces:
+  folds in the earlier "self-describing subgraph" item above).~~ All four arms live in `nodes/base.py`;
+  `Enqueue` deleted; the engine dispatches only on the returned outcome (census 0). Sub-detail notes
+  below record which redirect pieces landed. -- bd20557..101e595 Decided pieces:
   - **`Output(value, commit_as=None)`** — `commit_as` (default → the node's own id) lets a subflow
     terminal publish under its spawner. The spawner *bakes* it onto the terminal (`__end__` for
     call/map; the terminating iteration for loop, `commit_as=origin_id`), and the terminal echoes it
@@ -144,9 +148,10 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
   `clone_child`'s `ClonedSubgraph` (`expand.py:55`) and the top-level `CompiledFlow`
   (`compile/model.py`) are one type. Drops `roots`/`out_node_id` via the `__start__`/`__end__`
   convention (entry = `__start__`, result = `__end__`).
-- [ ] **`on_failure(exc)` no-op hook on `NodeBase`** (default re-raise) — the error-strategy seam
+- [x] ~~**`on_failure(exc)` no-op hook on `NodeBase`** (default re-raise) — the error-strategy seam
   (retry / fallback / fail-branch). Define the signature now; **defer the behavior** to the
-  error-strategy work.
+  error-strategy work.~~ `on_failure(self, exc, inputs, **caps) -> NodeResult` on `NodeBase`
+  (default re-raise), called from the generic `run_node` wrapper; behavior still deferred. -- bd20557
 - [ ] **Budget / GC has no home in a grow-only `splice` (DECIDED — implement).**
   The target engine models growth as one generic `graph.splice(subgraph)`; it now gains one generic
   inverse. Three live mechanisms are all decided:

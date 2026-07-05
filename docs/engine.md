@@ -319,6 +319,7 @@ Static at authoring time, but a `Grow` outcome splices in more — and, when the
 | `node.binds_per_item` / `node.bind_reserved(wiring, pool)` | read-boundary hooks: bind per element (map) / pre-resolve reserved keys (`until`, `over`) before `run` |
 | `node.iter_boundary_records(seed)` | growth hook: the records to eager-check against the child's boundary asserts before splicing (∅ = no check) |
 | `node.grow_depth_delta` / `node.grow_restamps_self` / `node.is_loop` | growth traits: REF-depth increment; self-restamp on re-pause; loop bookkeeping gate |
+| `node.needs_llm` | read-boundary trait: build the `caps['llm']` model-factory cap for an LLM-backed node (agent) |
 
 That is the complete list — a small set of traits/hooks plus `run`. No node kind, no
 map/loop/agent-specific `if`, is visible to the engine: the read boundary and the growth core read
