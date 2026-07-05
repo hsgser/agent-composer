@@ -22,3 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
+| `dev/engine/loop-self-respawn` | `main` | Model-A loop: move predicate/continue-stop policy onto LoopNode via fresh self-respawning driver clones; delete engine-side `_loop_step`/`loop_iter`/`loop_desc` | 2026-07-05 |
