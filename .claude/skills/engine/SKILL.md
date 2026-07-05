@@ -58,8 +58,10 @@ Our north star is a *functional language of agents*. Design the feature as a
   instead of hidden failure). Map our pause/resume, failure, and binding onto
   those shapes rather than inventing ad-hoc control flow.
 - **Sum types + exhaustive match.** OCaml models a closed set of cases as a
-  variant and forces an exhaustive `match`. That's exactly our `NodeKind` — keep
-  it closed, no registry/metaclass.
+  variant and forces an exhaustive `match`. Our closed sets are `NodeKind` (kept
+  closed, no registry/metaclass) and the node result `Outcome`. Note the *core*
+  matches on `Outcome`, not on `NodeKind` — any kind-specific `match` belongs in a
+  node's own `run` or is expressed via node-owned traits/hooks, never in the engine.
 - **Modules with explicit signatures (`.mli`).** A package exposes a narrow,
   declared interface and hides the rest — which is just the `structure` skill's
   package charters. Honor the boundary.
@@ -114,7 +116,12 @@ Most are just the functional model (above) made enforceable:
 - **Domain-agnostic** — no domain-specific field names or types in the engine;
   domain lives at the contract/boundary (the loader/builder). The `system`
   namespace is generic.
-- **Closed `NodeKind` + explicit `match` dispatch** — no registry/metaclass.
+- **Closed `NodeKind` vocabulary; the core is kind-BLIND** — `NodeKind` stays a closed enum (no
+  registry/metaclass), but the engine core (`runtime/engine.py` + `runtime/eval_node.py`) does NOT
+  branch on it. Any kind-specific `match` lives in a node's own `run`; the core dispatches only on
+  the closed `Outcome` sum and on node-owned traits/hooks (`binds_per_item`, `bind_reserved`,
+  `iter_boundary_records`, `grow_depth_delta`, `grow_restamps_self`, `is_loop`). A ratchet test
+  (`tests/engine/test_kind_census.py`) holds the core's `NodeKind`/`*Expansion` dispatch count at 0.
 - **Single-writer invariant** — workers are pure executors; the dispatcher is the
   only state mutator.
 - **Single-process CLI target** — favor the simplest thing that works in-process;

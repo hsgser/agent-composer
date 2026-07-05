@@ -1,8 +1,8 @@
 # Nodes
 
-> **Target design.** This is the `NodeBase` contract the code is being refactored *toward* — a
-> clean redesign, not today's code. Refactor items: [Roadmap → TODO](backlog/TODO.md). For the
-> other half of the contract (how the engine drives nodes), see [The Engine](engine.md).
+> This is the `NodeBase` contract the code implements today. Each kind supplies `run` plus a few
+> static traits/hooks; the engine core reads only those and the returned `Outcome`, never the node's
+> kind. For the other half of the contract (how the engine drives nodes), see [The Engine](engine.md).
 
 ## What a node is (for a reader who has never seen this project)
 
@@ -43,6 +43,18 @@ class NodeBase(ABC):
     pre_asserts:  list[Expr]         # conditions the engine checks BEFORE running me
     post_asserts: list[Expr]         # conditions the engine checks AFTER I run
     is_spawner: bool = False         # may I return Grow (expand the graph)?
+
+    # --- read-boundary hooks (how the engine binds my inputs) -------------------
+    binds_per_item: bool = False     # bind my inputs PER ELEMENT (map), not once up front
+    def bind_reserved(self, wiring, pool) -> dict:  # reserved keys to pre-resolve before run
+        return {}                    # e.g. wait -> {"until": ts}; map -> {"over": [...]}
+
+    # --- growth hooks/traits (only read for a spawner) --------------------------
+    grow_depth_delta: int | None = None  # REF-depth increment: 1 call/map, 0 agent, None loop
+    grow_restamps_self: bool = False     # also stamp my own id on a grow (agent re-pause)
+    is_loop: bool = False                # I drive fixpoint iteration (loop bookkeeping gate)
+    def iter_boundary_records(self, seed) -> list:  # records to eager boundary-check before splice
+        return []                    # call -> one; map -> one per element; agent/loop -> none
 
     @abstractmethod
     def run(self, inputs, **caps) -> Outcome:  # the ONE thing each kind implements
@@ -102,10 +114,12 @@ def on_failure(self, exc, inputs, **caps) -> Outcome:
 
 Two things make this clean:
 
-- **Assertions are pure.** They evaluate against the `inputs` (a plain dict), never the shared
-  memory. This works because the engine bound *everything an assertion mentions* into the inputs
-  before calling — so even an assertion that references another node reads it as an ordinary
-  dictionary entry. No node needs special access to memory, not even the END node.
+- **Assertions are pure.** They evaluate against the bound `inputs` (a plain dict), never live
+  shared memory. Each referenced path resolves **record-first, pool-fallback**: a declared input (or
+  the synthetic `${output}` the post-check injects) reads from the record, and any other head — a
+  namespaced cross-node ref — falls back to a read-only pool lookup. That fallback is what lets a
+  flow's END terminal check refs to other nodes with **no special case** — END is an ordinary node
+  to the assert path.
 - **Failures are just exceptions.** `run` raises; `run_node` offers `on_failure` a chance to
   recover; otherwise the exception propagates to the engine, which turns it into a `NodeFailed`
   event with a source locator. The node never emits events.
@@ -165,8 +179,9 @@ class MapNode(NodeBase):               # SUBFLOW — run a child once per item
         children = [clone(self.body, i, bake(item))     # one clone per element of `over`
                     for i, item in enumerate(inputs["over"])]
         end      = ListEnd(n=len(children),             # __end__: gathers the N results into a list
-                           commit_as=self.id,           # its Output publishes under THIS map node
-                           post_asserts=self.post_asserts)  # my post-conditions ride the terminal
+                           commit_as=self.id)           # its Output publishes under THIS map node;
+                                                         #   the map's own post_asserts are re-checked
+                                                         #   at the commit site, not rehomed here
         return Grow(Subgraph(                           # a well-formed sub-flow: __start__ … __end__
             nodes = [start] + children + [end],
             edges = fan_out(start, children)            # __start__ → each child
@@ -200,6 +215,12 @@ scheduled; the loop node does not know how state is stored.
 | `params` | my declared input *names*; the **flow** owns their sources (wiring) — the engine binds the two into the `inputs` dict, and the wiring's data edges are the node's scheduling dependencies |
 | `pre_asserts` / `post_asserts` | conditions checked (purely) before / after `run`; a failure becomes a `NodeFailed` |
 | `is_spawner` | declares "I may return `Grow`"; lets the engine reject a leaf that tries to grow the graph |
+| `binds_per_item` | declares "bind my inputs PER ELEMENT via a `bind_item` cap" (map); the read seam then starts my record empty instead of binding `params` once |
+| `bind_reserved(wiring, pool)` | reserved input keys the read seam pre-resolves before `run` (timed `wait` → `until`, `map` → `over`); default `{}` |
+| `iter_boundary_records(seed)` | the input records the growth core eager-checks against my child's boundary asserts *before* splicing; default `[]` (no check) |
+| `grow_depth_delta` | my REF-depth increment for the growth core: `1` (call/map, bounded), `0` (agent), `None` (loop / non-REF, no depth work) |
+| `grow_restamps_self` | declares "on a grow, also stamp my own id" (agent re-pause nesting); default `False` |
+| `is_loop` | declares "I am the fixpoint-iteration driver"; gates the loop-only per-iteration bookkeeping in the growth core; default `False` |
 
 ## Why this shape
 

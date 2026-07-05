@@ -36,9 +36,34 @@ inputs, **caps) -> NodeResult` to recover (default re-raises).
 inputs); a node never writes the pool (it *describes* `Output(value)`, the engine
 performs the write). Keeps nodes pure and the state immutable (`let`-bindings).
 
+## Node-owned traits/hooks (how the core stays kind-blind)
+
+The engine core reads these node members instead of branching on `node.kind`. Defaults sit on the
+base `Node`; a kind overrides only what it needs.
+
+| Member | Where the core reads it | Default → overrides |
+|--------|-------------------------|---------------------|
+| `binds_per_item: bool` | read boundary (`eval_node`): bind PER ELEMENT via a `bind_item` cap vs bind `params` once | `False` → `True` on `map` |
+| `bind_reserved(wiring, pool) -> dict` | read boundary: reserved keys pre-resolved into the record before `run` | `{}` → timed `wait` `{"until": ts}`, `map` `{"over": [...]}` |
+| `iter_boundary_records(seed) -> [(record,label)]` | growth core (`_apply_grow`): records eager-checked against the child's boundary asserts *before* the ledger attach | `[]` → `call` one, `map` one/element (agent/loop none) |
+| `grow_depth_delta: int\|None` | growth core: REF-depth increment stamped on the spliced spawners + terminal (positive bounded by `MAX_REF_DEPTH`) | `None` (loop/non-REF, no depth work) → `1` call/map, `0` agent |
+| `grow_restamps_self: bool` | growth core: also stamp `_spawner_expansion` at the spawner's OWN bare id (re-pause nesting) | `False` → `True` on `agent` |
+| `is_loop: bool` | growth core: gate the loop-only per-iteration bookkeeping (live index + single-live-record invariant) | `False` → `True` on `loop` |
+
+The rest of the splice (add subgraph, enforce `MAX_TOTAL_NODES`, mint one uniform `GrowRecord`,
+finish/mark the spawner, apply the origin `commit_as` to the derived terminal, schedule roots) is
+uniform. The old per-kind `_grow_*_residual` switch is gone. Success-path routing (CASE branch/skip,
+subflow commit-under-spawner) rides `Outcome` data (`Route.handle`, `Output.commit_as`); a spawner's
+`post_asserts` are re-checked at the **commit site** when a terminal commits under a different id —
+not rehomed onto the terminal.
+
 ## `NodeKind` (closed vocabulary)
 
-Dispatch is an explicit `match`, never a registry/metaclass.
+`NodeKind` is a closed enum (no registry/metaclass), but the engine **core does not dispatch on
+it** — `runtime/engine.py` + `runtime/eval_node.py` branch only on the closed `Outcome` sum and on
+node-owned traits/hooks (below). Any kind-specific `match` lives in a node's own `run`. A ratchet
+test (`tests/engine/test_kind_census.py`) holds the core's `NodeKind`/`*Expansion` dispatch count
+at 0.
 
 | Authorable leaves | Internal-only (loader-synthesized / runtime-expanded) |
 |-------------------|-------------------------------------------------------|
@@ -55,7 +80,7 @@ plumbing; re-add when real serving lands.
 | an agent | a flow whose leaf is an LLM loop | no special contract |
 | `call:` / `uses:` | function application / a module ref | nests to any depth |
 | the variable pool bind | `let (node_id, key) = ...` | immutable, no mutation |
-| `NodeKind` + `match` | a variant + exhaustive `match` | closed set, no registry |
+| `NodeKind` + `match` | a variant + exhaustive `match` | closed set, no registry; but the CORE matches on `Outcome`/traits, not on kind |
 | `Output \| Route \| Pause \| Grow` | a sum type (the result) | failure is a `raise`, not a case |
 | pause / resume | algebraic effect + handler | node *performs* a pause; the scheduler *handles* it |
 | a package charter (`__init__`) | a module signature (`.mli`) | a narrow declared interface |
@@ -100,7 +125,9 @@ model made enforceable.
   layer; env defaults stay in `model_from_config` (applied last). On a **durable resume
   it must run BEFORE `FlowEngine.restore`** — restore's replay re-clones children from
   the static graph, so the effective configs must be baked on first.
-- **Closed `NodeKind` + explicit `match`**; **single-writer** (workers are pure
+- **Closed `NodeKind`; the core is kind-blind** — `NodeKind` stays a closed enum, but the engine
+  core dispatches on `Outcome` + node-owned traits/hooks, never on `node.kind` (ratchet: census 0).
+  **single-writer** (workers are pure
   executors, the dispatcher is the only mutator); **single-process CLI target**.
 - **AGENT structured output** — a non-text `output:` Shape switches an agent from text
   producer to structured generation: `shape_to_schema` (`nodes/agent/structured.py`)

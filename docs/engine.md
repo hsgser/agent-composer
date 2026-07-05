@@ -1,9 +1,9 @@
 # The Engine
 
-> **Target design.** This is the contract the engine is being refactored *toward* — a clean
-> redesign, not a description of today's code. The refactor items live in
-> [Roadmap → TODO](backlog/TODO.md) ("`eval_node` / NodeBase contract cleanup"). For the node
-> side of the same contract, see [Nodes](nodes.md).
+> This is the contract the engine implements today: the core (`runtime/engine.py` +
+> `runtime/eval_node.py`) is **kind-blind** — it branches only on the closed `Outcome` sum and on
+> node-owned traits/hooks, never on a node's `NodeKind`. For the node side of the same contract,
+> see [Nodes](nodes.md).
 
 ## What the engine is (for a reader who has never seen this project)
 
@@ -76,9 +76,22 @@ step 2; the node's own `run` is the kind-specific core inside that wrapper.
    └────────────── repeat ───────────────┘
 ```
 
-`run_node` is a fixed, kind-agnostic recipe the engine applies to *every* node: check the
-pre-conditions, call the node's `run`, offer `on_failure` a chance to recover, check the
-post-conditions. The only kind-specific part is `run` itself — see [Nodes](nodes.md).
+`run_node` is a fixed, kind-agnostic recipe the engine applies to *every* node: bind the inputs at
+the **read boundary**, check the pre-conditions, call the node's `run`, offer `on_failure` a chance
+to recover, check the post-conditions. The read boundary is itself kind-blind but **node-configured**:
+a node declares *how* to bind rather than the engine branching on kind.
+
+- **`binds_per_item`** (default `False`; `True` on `map`) — when set, the read seam starts the record
+  empty and hands `run` a `caps["bind_item"]` binder to resolve inputs PER ELEMENT, instead of
+  binding `params` once up front.
+- **`bind_reserved(node_wiring, pool)`** (default `{}`) — reserved input keys the seam pre-resolves
+  before `run` and merges into the record: a timed `wait` returns `{"until": <ISO ts>}`, a `map`
+  returns `{"over": <list>}`. The node owns *what* to pre-resolve; the seam owns *when*.
+
+Both pre- and post-asserts run one generic path: each assert's refs resolve **record-first,
+pool-fallback**, then evaluate purely. Because a namespaced cross-node ref falls through to the pool,
+the END terminal's flow-level post-asserts need no special case — END is an ordinary node here. The
+only kind-specific part is `run` itself — see [Nodes](nodes.md).
 
 ## `Outcome` — the only thing a node returns, the only thing the engine branches on
 
@@ -134,8 +147,12 @@ that, the engine derives the entry, and the terminal carries the reconvergence:
 
 This one convention unifies **call** (clone a child flow — it already has `__start__`/`__end__`) and
 **map** (synthesize a `__start__` that fans out to N children and an `__end__` that collects them
-back into a list). The spawner also rehomes its own `post_asserts` onto that terminal, so they fire
-in the ordinary `run_node` post-check against the committed value — no alias-site special case.
+back into a list). A spawner's own `post_asserts` are **not** rehomed onto the terminal. Instead the
+engine runs a generic **commit-site** post-check: when a terminal commits under a *different* id than
+its own (its `commit_as` redirects to the spawner) and that target still carries `post_asserts`, the
+engine re-checks them at the commit site against the committed value — recovering the spawner's seed
+record and locating the spawner by its committed id. This check is gated only on
+`target != node_id and target_node.post_asserts` — no `NodeKind` conjunct — so it is kind-blind.
 
 **Loop folds into the same mechanism.** A loop can't name its `__end__` when it spawns — it doesn't
 know which iteration is last until it tests the predicate. So each iteration spawns its body plus a
@@ -153,6 +170,36 @@ committed its `carried` forward. This stays kind-blind: the engine executes what
 outcome names; only the loop knows *which* namespace is spent. `call`/`map` return an empty `prune`
 (they add nodes but retire none). Bounding growth top-down is a separate, pure engine backstop
 (`MAX_TOTAL_NODES` counts nodes, not kinds); `prune` is the fine-grained per-iteration reclaim.
+
+### The growth core is kind-blind — trait-driven, not a per-kind switch
+
+Splicing a subgraph carries a few concerns beyond adding the boxes: check the child's boundary
+asserts before attaching, stamp REF-recursion depth, thread the durable ledger, and (for a loop)
+keep the single-live-iteration bookkeeping. These once lived in a four-arm `_grow_residual` switch
+on `spawner.kind` (one `_grow_*_residual` method per CALL/MAP/AGENT/LOOP). That switch is **gone**.
+`_apply_grow` is now one generic path that reads **node-owned traits/hooks** instead of the kind:
+
+- **`iter_boundary_records(seed) -> [(record, label), …]`** — the input records whose effective
+  inputs are checked EAGERLY against the child's boundary asserts *before* the ledger attach (so a
+  boundary failure leaves no orphan expansion). `call` returns one pair from its call-arg seed;
+  `map` returns one per element; `agent`/`loop` return `[]` (no boundary check).
+- **`grow_depth_delta`** — the REF-depth increment stamped on the spliced spawners and terminal:
+  `1` for `call`/`map` (each child is one deeper level, bounded by `MAX_REF_DEPTH`), `0` for `agent`
+  (a control-pause chain is one call — carry the parent depth, no bound), `None` for `loop` and any
+  non-REF grow (no depth work at all).
+- **`grow_restamps_self`** — whether the grow also stamps `_spawner_expansion` at the spawner's OWN
+  bare id. `True` for `agent` (a re-pausing agent grows twice at the same id, so its record must be
+  findable there for the re-pause to nest); `False` for every other spawner (each grows at a fresh
+  namespaced id).
+- **`is_loop`** — gates the loop-only per-iteration bookkeeping (the live iteration index and the
+  single-live-iteration ledger invariant). A self-committing terminal (`commit_as == spawner_id`) is
+  shared by call/map/loop, so the trait — not the terminal shape — is what tells the core "this is a
+  loop".
+
+Everything else in the splice (add the subgraph, enforce `MAX_TOTAL_NODES`, mint one uniform
+`GrowRecord`, finish/mark the spawner, apply the origin `commit_as` to the derived terminal, schedule
+the roots) is uniform across every spawner. Adding a new spawner kind means setting these traits on
+its node — the growth core never gains a branch.
 
 ## The run loop (pseudocode)
 
@@ -269,17 +316,26 @@ Static at authoring time, but a `Grow` outcome splices in more — and, when the
 | `node.is_spawner` | may it return `Grow`? (used only to reject a leaf that grows the graph) |
 | `node.run(inputs, **caps) -> Outcome` | the one kind-specific step; the engine calls it via `run_node` |
 | `node.on_failure(exc, inputs, **caps)` | error-strategy hook (default: re-raise); the recovery seam |
+| `node.binds_per_item` / `node.bind_reserved(wiring, pool)` | read-boundary hooks: bind per element (map) / pre-resolve reserved keys (`until`, `over`) before `run` |
+| `node.iter_boundary_records(seed)` | growth hook: the records to eager-check against the child's boundary asserts before splicing (∅ = no check) |
+| `node.grow_depth_delta` / `node.grow_restamps_self` / `node.is_loop` | growth traits: REF-depth increment; self-restamp on re-pause; loop bookkeeping gate |
 
-That is the complete list. No node kind, no map/loop/agent-specific field, is visible to the
-engine. The generic wrapper `run_node` and everything kind-specific inside `run` live on the node
-side — see [Nodes](nodes.md).
+That is the complete list — a small set of traits/hooks plus `run`. No node kind, no
+map/loop/agent-specific `if`, is visible to the engine: the read boundary and the growth core read
+these node-owned members, never `node.kind`. The generic wrapper `run_node` and everything
+kind-specific inside `run` live on the node side — see [Nodes](nodes.md).
 
 ## Design note: a closed match, just on the right axis
 
 An earlier version of the engine branched on node *kind* (`if node.kind == MAP: ...`) in several
-places. This design keeps the value of an explicit, closed `match` — but moves it to the right
-axis: the engine matches on the **`Outcome`** (four arms), not on the kind (a dozen and growing).
-Kind-specific behavior becomes ordinary polymorphism inside each node's `run`. New kinds extend
-the node side; the engine never changes. Success-path routing that once forked on kind — CASE's
-branch-and-skip, a subflow's commit-under-spawner — is now data on the `Outcome` (`Route`'s handle,
-`Output`'s `commit_as`), so it rides the same four-arm match.
+places. That kind dispatch is now **fully removed** from the core (`runtime/engine.py` +
+`runtime/eval_node.py`) — a ratchet test (`tests/engine/test_kind_census.py`) counts the remaining
+`NodeKind`/`*Expansion` dispatch sites in those two modules and holds the count at **zero**. The
+design keeps the value of an explicit, closed `match` — but moves it to the right axis: the engine
+matches on the **`Outcome`** (four arms), not on the kind (a dozen and growing). Kind-specific
+behavior becomes ordinary polymorphism inside each node's `run`, plus the node-owned traits/hooks the
+read boundary and growth core read (`binds_per_item`, `bind_reserved`, `iter_boundary_records`,
+`grow_depth_delta`, `grow_restamps_self`, `is_loop`). New kinds extend the node side; the engine
+never changes. Success-path routing that once forked on kind — CASE's branch-and-skip, a subflow's
+commit-under-spawner — is now data on the `Outcome` (`Route`'s handle, `Output`'s `commit_as`), so it
+rides the same four-arm match.

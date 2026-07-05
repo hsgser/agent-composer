@@ -14,8 +14,11 @@ Build bottom-up by dependency, **one test green before the next step** (CLAUDE.m
 
 ## 1. `nodes/base.py` — add the closed-vocabulary tag
 
-Add a member to the `NodeKind` enum. Dispatch is an explicit `match`, never a
-registry — this is the single source of the tag.
+Add a member to the `NodeKind` enum — the single source of the tag. It is a closed
+vocabulary (no registry/metaclass); the engine core does NOT dispatch on it, so a new
+leaf needs no engine change — its behavior is entirely in its own `run` (and, for a
+spawner, the node-owned growth traits/hooks: `binds_per_item`, `bind_reserved`,
+`iter_boundary_records`, `grow_depth_delta`, `grow_restamps_self`, `is_loop`).
 
 ```python
 class NodeKind(str, Enum):
