@@ -59,9 +59,9 @@ address one by one (no scope/sequence decided yet).
   self-describing.
 - [ ] **LOOP policy lives in the engine** (`_loop_step` + the `loop_alias` hook): predicate, merge,
   continue/stop, count. Move it into `LoopNode.run` (pure).
-- [ ] **Node return contract is too narrow.** `Enqueue(target, inputs)` can't describe reconvergence
+- [x] ~~**Node return contract is too narrow.** `Enqueue(target, inputs)` can't describe reconvergence
   wiring or references to sibling nodes spawned in the same enqueue. It needs to become a
-  self-describing subgraph (nodes + edges incl. `__end__` wiring + roots + "commit end under me").
+  self-describing subgraph (nodes + edges incl. `__end__` wiring + roots + "commit end under me").~~ -- d217cff
 - [ ] **LOOP grows via a static-end + bespoke hook** instead of self-respawn. Target model: each
   iteration spawns the body subflow; on body-end it spawns *itself* as a fresh namespaced instance
   (`loop#k+1`, incremented index + updated carried record baked in); the terminating iteration's
@@ -106,8 +106,8 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
   `condition_refs`/`expr_refs`) so asserts evaluate against a pure, fully-populated record — **END
   needs no pool access and stops being special** (deletes `eval_node.py:155-171`). The subflow END
   asserts (`each#0/n.output.X`, `expand.py:174`) become ordinary bound record entries.
-- [ ] **`is_spawner` trait on `NodeBase`** (default `False`) replaces `_SPAWNER_KINDS`; only a
-  subflow node may return `Grow`.
+- [x] ~~**`is_spawner` trait on `NodeBase`** (default `False`) replaces `_SPAWNER_KINDS`; only a
+  subflow node may return `Grow`.~~ -- d217cff
 - [ ] **Node return contract → `Outcome = Output | Route | Pause | Grow(subgraph)`** — four arms, the
   ONLY thing the engine matches on (never on kind). Supersedes narrow `Enqueue(target, inputs)` (and
   folds in the earlier "self-describing subgraph" item above). Decided pieces:
