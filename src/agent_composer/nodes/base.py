@@ -186,6 +186,11 @@ class Node(ABC):
     # (`commit_as == spawner_id`) cannot distinguish a loop from a call/map. Overridden True by
     # LoopNode; False for every other kind.
     is_loop: ClassVar[bool] = False
+    # Declares "I am LLM-backed" (AGENT). When True, the read seam (`eval_node`) builds the
+    # `caps['llm']` capability — a `model_from_config`-shaped factory the engine owns — and
+    # passes it to `run`; when False (the common case) no LLM cap is built. Mirrors
+    # `binds_per_item` gating. Overridden True by AgentNode.
+    needs_llm: ClassVar[bool] = False
 
     def __init__(
         self,
