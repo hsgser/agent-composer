@@ -22,3 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
+| `dev/engine/caps-llm` | `main` | P7 — inject LLM client via `caps["llm"]` (needs_llm trait) | 2026-07-05 |
