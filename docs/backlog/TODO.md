@@ -154,6 +154,9 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
       `should_stop` returns the terminating `Output(carried, commit_as=origin_id)` at the cap; a
       **while/until** loop treats the cap as a **safety limit** — hitting it is a failure, so
       `should_stop` raises (`LoopNotConverged`) → `on_failure` → `NodeFailed`, never a silent commit.
+      **LANDED** `d76db9a..07e9e82`: `LoopNode.should_stop(iteration)` (`iteration >= max_iters`) now
+      owns the budget; the driver decides the consequence (terminate for `times`, `LoopMaxExceeded`
+      for `while`/`until`). The `on_failure`-routed variant stays pending the error-strategy seam.
     - **The prune/GC inverse of `splice` — a generic `graph.prune(ids)`.** DECIDED (2026-07-04):
       replaces today's kind-specific `_prune_iteration` (`engine.py:820`, which drops a committed loop
       iteration's whole namespace). The prune set rides **on the `Grow` outcome**: a pure node returns
@@ -167,6 +170,11 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
       that cleanup path). Open sub-detail: the terminating iteration's own scratch is a bounded
       one-time residue (prune only fires on continue) — decide whether a final GC sweep reclaims it or
       it is left as negligible.
+      **LANDED** `d76db9a..07e9e82`: generic `_prune(ids)` (kind-blind removal of nodes/edges/state/
+      pool/depth/`_spawner_expansion`) + `_iteration_ids(spawner, i)`; `_apply_grow` applies
+      `grow.prune` after the splice; `_prune_iteration` deleted. The terminating iteration's scratch is
+      reclaimed on the terminate arm too. STILL OPEN in this checkbox: the `depth` REF-budget rider is
+      still stamped kind-shaped in the residuals (`engine.py` ~847/906) — a later phase moves it here.
 
 - [ ] **Inject the LLM client via `caps`, not baked on the node** — today `AgentNode.run` builds its
   own client from a baked `llm_config` (`nodes/agent/node.py:217`), so the node holds live I/O and

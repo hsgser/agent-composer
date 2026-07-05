@@ -62,6 +62,20 @@ This backlog is split four ways:
   (the 8 remaining sites deferred to P4/P5/P8).~~
   -- 5d2f5e2..74e401c (branch `dev/engine/grow-subgraph`)
 
+- [x] ~~**Kind-agnostic refactor — Phase P4: generic `prune` + loop budget on the node.** The prune/GC
+  inverse of `splice` is now generic: `_prune(ids)` does a kind-blind removal of a node-id set from every
+  live registry (`flow.nodes`/`edges`, `sm.node_state`/`executing`, `pool`, `depth`, `_spawner_expansion`)
+  under `sm.lock`, and `_apply_grow` applies `grow.prune` right after the splice — so growth AND GC are
+  both generic operations off the `Grow` outcome. Deleted the kind-specific `_prune_iteration`; added
+  `_iteration_ids(spawner, i)` for the loop's iteration namespace. The loop's hard iteration budget moved
+  onto the node as `LoopNode.should_stop(iteration)` (`iteration >= max_iters`); the engine's `_loop_step`
+  consults it as both the `times` stop-count (continue arm carries the finished iteration's ids in
+  `Grow(..., prune=dead)`) and the `while`/`until` runaway guard (raises located `LoopMaxExceeded`). The
+  terminating iteration's scratch is reclaimed on the terminate arm. Census stays 8. STILL OPEN in the
+  parent backlog item: the `depth` REF-budget rider is still kind-shaped in the residuals — a later phase
+  moves it onto the node.~~
+  -- d76db9a..07e9e82 (branch `dev/engine/prune-loop-budget`)
+
 
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with

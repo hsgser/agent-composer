@@ -22,4 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/engine/prune-loop-budget` | `main` | Kind-agnostic refactor P4 — `Grow.prune` applied generically (delete `_prune_iteration`), loop `max_iters` budget moves onto `LoopNode.should_stop` | 2026-07-05 |
