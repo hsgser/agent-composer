@@ -235,7 +235,7 @@ def test_loop_budget_exceeded_in_step_fails_run(monkeypatch):
     # The node-budget guard inside `_grow_loop` raises a RuntimeError; when that grow is
     # driven from `_loop_step` (iteration >= 1) it must become a failed run, not an uncaught
     # escape. The COUNTER flow adds 3 nodes/iteration off a base of 3 (iter0 -> 6, iter1 -> 9),
-    # so a budget of 6 lets iteration 0 grow (via the already-wrapped enqueue path) and trips
+    # so a budget of 6 lets iteration 0 grow (via the `_apply_grow` splice path) and trips
     # iteration 1 inside `_loop_step` — exercising the `_loop_step` boundary specifically.
     import agent_composer.runtime.engine as engine_mod
 

@@ -1,4 +1,4 @@
-"""The pure CALL builder `call_subgraph` — pins its output to `_grow_call`'s clone shape.
+"""The pure CALL builder `call_subgraph` — pins its output to the CALL residual's clone shape.
 
 `call_subgraph(child, callsite, record)` wraps `clone_child`, bakes `commit_as=callsite` on the
 cloned child END filler, and returns a `Subgraph` (the self-describing fragment a CALL spawner grows
