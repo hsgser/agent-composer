@@ -126,6 +126,21 @@ This backlog is split four ways:
   census-0 invariant.~~
   -- 59ec997 (branch `dev/engine/p8-final-sweep`)
 
+- [x] ~~**Kind-agnostic refactor — Phase P9: LOOP self-respawn (predicate/continue-stop policy onto
+  `LoopNode`).** Moved the whole loop policy off the engine and onto the node per the docs/nodes.md
+  Model-A self-respawn: each iteration is a fresh `LoopNode` driver clone (`L` = compiled origin at
+  iteration 0; `L~k` = clone for k≥1 with `origin_id = L`; body clones land at `L#k/…`). `LoopNode.run`
+  owns predicate + continue/stop + count + the runaway guard: STOP → `Output(carried, commit_as=origin)`
+  (generic commit under the compiled loop id); CONTINUE → `Grow({body_k, fresh L~(k+1) driver},
+  prune={body_{k-1}} ∪ {self unless origin}, seed=(carried, k))`. Deleted `_loop_step`, `loop_iter`,
+  `_iteration_ids`, `_apply_loop_bookkeeping`, `loop_desc`, and the `_on_success` loop-back route;
+  replaced loop bookkeeping with an origin-keyed single-record ledger (`_origin_record`). Moved
+  `grow.prune` after `finish_executing`+`mark_node(EXPANDED)` so a driver can self-prune its own id.
+  Durable replay rebuilds the live window purely from the seed via `LoopNode.replay_grow` /
+  `loop_continue_subgraph`. Runaway-guard contract preserved: `max: M` permits exactly M body runs.
+  Full engine suite green (1436).~~
+  -- b7330da (branch `dev/engine/loop-self-respawn`)
+
 
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
