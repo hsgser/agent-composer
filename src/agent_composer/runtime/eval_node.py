@@ -5,7 +5,8 @@ the read (bind the inputs from the pool) and the write (the dispatcher stores `O
 This generator is that read seam plus the assert + dispatch normalization, lifted out of
 the node (it replaces the temporary `Node._emit`). It yields `NodeStarted`, binds the
 record, pre-resolves reserved keys (timed WAIT `until` / mapped-call `over`), builds the per-kind
-narrow caps (only a mapped call's `bind_item` now — no node uses a private namespace), runs the node,
+narrow caps (a mapped call's `bind_item`, and `caps['llm']` — the engine-owned model factory —
+for an LLM-backed node gated on `node.needs_llm`), runs the node,
 and turns the returned `NodeResult` into one terminal `NodeSucceeded`/`NodeFailed` — or a
 single `PauseRequested` for a returned `Pause`.
 
@@ -90,8 +91,20 @@ def _first_failing_assert(asserts, record: dict, pool: TypedVariablePool):
     return None
 
 
-def eval_node(node, flow, pool: TypedVariablePool):
-    """Evaluate one node through the engine read/dispatch seam; yield its event stream."""
+def _default_llm(config):
+    """Default LLM provider for the caps['llm'] seam: a call-time lazy lookup of the package
+    factory, so monkeypatching `agent_composer.llm_clients.model_from_config` is honored."""
+    from agent_composer.llm_clients import model_from_config
+
+    return model_from_config(config)
+
+
+def eval_node(node, flow, pool: TypedVariablePool, llm=_default_llm):
+    """Evaluate one node through the engine read/dispatch seam; yield its event stream.
+
+    `llm` is the engine-owned LLM-client provider (a `model_from_config`-shaped callable)
+    handed to LLM-backed nodes via `caps['llm']` (gated on `node.needs_llm`); it defaults to
+    the lazy package-lookup thunk so a monkeypatched factory is honored on the direct path."""
     yield NodeStarted(node.id)
     try:
         # The flow-owned wiring for this node (the node/flow split): every kind's sources live here
@@ -127,6 +140,10 @@ def eval_node(node, flow, pool: TypedVariablePool):
             # Per-element bind from params + flow.wiring (pure). No system cap — the
             # cloned children share the one live pool, so `${system.X}` resolves directly.
             caps["bind_item"] = lambda el: bind_params(node.params or [], node_wiring, pool, item=el)
+        if node.needs_llm:
+            # LLM-backed node (AGENT): hand it the engine-owned model factory. The node no
+            # longer imports `model_from_config` — it builds its model from this provider.
+            caps["llm"] = llm
         # Pristine snapshot for the POST asserts: a leaf may mutate the dict it receives
         # (e.g. a CODE function transforming in place), which must not corrupt the contract
         # check — restores the isolation an earlier double-bind gave. Only paid when declared.
