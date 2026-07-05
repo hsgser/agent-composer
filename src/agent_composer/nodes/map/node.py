@@ -110,3 +110,9 @@ class MapNode(Node):
         per-element records (`seed`) via the SAME `map_subgraph` builder — no body re-run. The
         resolved `over:` list is captured on the seed, so replay needs no re-binding."""
         return map_subgraph(self.child, spawner_id=self.id, records=[dict(r) for r in seed])
+
+    def iter_boundary_records(self, seed: Any) -> list:
+        """One boundary record PER ELEMENT: each per-element record from `seed`, labelled
+        `MAP child <id> element <i>`. The engine checks each element's effective inputs against the
+        child's boundary asserts before attaching the grow."""
+        return [(dict(rec), f"MAP child {self.id!r} element {i}") for i, rec in enumerate(seed)]

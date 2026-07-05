@@ -82,3 +82,8 @@ class CallNode(Node):
         """Durable-replay inverse of `run`: rebuild the CALL child subgraph from the persisted
         call-arg record (`seed`) via the SAME `call_subgraph` builder — no body re-run."""
         return call_subgraph(self.child, callsite=self.id, record=dict(seed))
+
+    def iter_boundary_records(self, seed: Any) -> list:
+        """One boundary record: the call-arg record (`seed`), labelled `REF child <id>`. The engine
+        checks its effective inputs against the child's boundary asserts before attaching the grow."""
+        return [(dict(seed), f"REF child {self.id!r}")]

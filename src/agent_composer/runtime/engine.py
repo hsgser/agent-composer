@@ -775,7 +775,14 @@ class FlowEngine:
         # `self.expansions` root. On replay (`record is not None`) the record is already attached
         # (top-level by `_replay_expansions`, nested by deserialization), so this is skipped.
         parent = self._spawner_expansion.get(spawner_id) if record is None else None
-        # per-kind residual: depth/refdepth stamping, boundary asserts, loop retention.
+        # Eager boundary asserts (live path only): a subflow spawner's child BOUNDARY asserts are
+        # checked BEFORE the ledger attach (below), so a boundary failure leaves NO orphan expansion
+        # in `self.expansions` (the `eng.expansions == []` invariant). Kind-blind: the node names the
+        # records+labels via `iter_boundary_records` (∅ for AGENT/LOOP -> a no-op). Suppressed on
+        # replay (`schedule=False`) — the paused run already passed the check.
+        if schedule:
+            self._check_boundary_asserts(spawner_id, grow.seed)
+        # per-kind residual: depth/refdepth stamping, loop retention.
         self._grow_residual(spawner_id, grow, rec, schedule=schedule)
         # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
         # has run and expanded, so it finishes executing and enters EXPANDED. Idempotent for a loop
@@ -794,6 +801,34 @@ class FlowEngine:
         if schedule:
             for root in sg.roots:
                 self._schedule(root)
+
+    def _check_boundary_asserts(self, spawner_id, seed) -> None:
+        """Kind-blind eager boundary check: for each `(record, label)` the spawner names via
+        `iter_boundary_records(seed)`, evaluate the spawner's child BOUNDARY asserts against a temp
+        pool whose START_ID carries that record's EFFECTIVE inputs (coerce + default — the same view
+        the spliced child START_ID commits). Raises `NodeExecutionError`-free `RuntimeError`
+        `f"{label} boundary assert failed: {bad}"` on the first failing assert (the boundary-wrap in
+        the eval seam turns it into a located NodeFailed). A node with no boundary records (AGENT,
+        LOOP) or no boundary asserts is a no-op."""
+        from agent_composer.expr import first_failing_assert
+        from agent_composer.state.seeding import apply_defaults, coerce_inputs
+
+        spawner = self.flow.nodes[spawner_id]
+        records = spawner.iter_boundary_records(seed)
+        if not records:
+            return
+        child_asserts = getattr(spawner.child, "child_asserts", None)
+        boundary_asserts = list(child_asserts.boundary) if child_asserts is not None else []
+        if not boundary_asserts:
+            return
+        decls = spawner.child_inputs
+        for record, label in records:
+            temp = TypedVariablePool()
+            temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
+            temp.system = dict(self.pool.system)
+            bad = first_failing_assert(boundary_asserts, temp)
+            if bad is not None:
+                raise RuntimeError(f"{label} boundary assert failed: {bad}")
 
     def _grow_residual(self, spawner_id, grow, rec, *, schedule):
         """RESIDUAL, NOT the generic core: the per-kind depth/refdepth stamping + boundary asserts +
@@ -823,31 +858,9 @@ class FlowEngine:
 
         The filler id is recovered from the spliced subgraph via the `ns(callsite, END_ID)`
         convention (callsite == spawner_id), so `Grow`/`Subgraph` need no extra field."""
-        from agent_composer.expr import first_failing_assert
-        from agent_composer.state.seeding import apply_defaults, coerce_inputs
-
         spawner = self.flow.nodes[spawner_id]
         sg = grow.subgraph
-        record = dict(grow.seed)
         filler_id = ns(spawner_id, END_ID)          # the cloned child END filler (ns convention)
-
-        # Eager boundary-assert (live path only): the child's BOUNDARY asserts (raw, un-namespaced)
-        # evaluated against a temp pool whose START_ID carries the child's EFFECTIVE inputs (coerce +
-        # default — the same view the spliced child START_ID commits). Suppressed on replay
-        # (`schedule=False`) — the paused run already passed it.
-        if schedule:
-            boundary_asserts = []
-            child_asserts = getattr(spawner.child, "child_asserts", None)
-            if child_asserts is not None:
-                boundary_asserts = list(child_asserts.boundary)
-            if boundary_asserts:
-                decls = spawner.child_inputs
-                temp = TypedVariablePool()
-                temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
-                temp.system = dict(self.pool.system)
-                bad = first_failing_assert(boundary_asserts, temp)
-                if bad is not None:
-                    raise RuntimeError(f"REF child {spawner_id!r} boundary assert failed: {bad}")
 
         # REF depth bound (kind-shaped; a later phase removes it). The raise is gated on `schedule` —
         # replay re-derives depth top-down without re-tripping the guard.
@@ -878,33 +891,8 @@ class FlowEngine:
         namespaced spawner_id (`{spawner}#{i}/…`), re-derived on replay — no per-element slot needed.
 
         The list-END filler id is `ns(spawner_id, END_ID)` (the ns convention)."""
-        from agent_composer.expr import first_failing_assert
-        from agent_composer.state.seeding import apply_defaults, coerce_inputs
-
-        spawner = self.flow.nodes[spawner_id]
         sg = grow.subgraph
-        records = list(grow.seed)                    # the per-element raw records
         map_end_id = ns(spawner_id, END_ID)          # the list-END filler (ns convention)
-
-        # Per-element eager boundary-assert (live path only): the child's BOUNDARY asserts evaluated
-        # against a temp pool whose START_ID carries element i's EFFECTIVE inputs (coerce + default).
-        # Suppressed on replay (`schedule=False`).
-        if schedule:
-            boundary_asserts = []
-            child_asserts = getattr(spawner.child, "child_asserts", None)
-            if child_asserts is not None:
-                boundary_asserts = list(child_asserts.boundary)
-            if boundary_asserts:
-                decls = spawner.child_inputs
-                for i, record in enumerate(records):
-                    temp = TypedVariablePool()
-                    temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
-                    temp.system = dict(self.pool.system)
-                    bad = first_failing_assert(boundary_asserts, temp)
-                    if bad is not None:
-                        raise RuntimeError(
-                            f"MAP child {spawner_id!r} element {i} boundary assert failed: {bad}"
-                        )
 
         # REF depth bound (kind-shaped; a later phase removes it); the raise is gated on `schedule`.
         d = self.depth.get(spawner_id, 0) + 1
