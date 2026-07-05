@@ -51,10 +51,11 @@ CORE_MODULES = {
 # P3.6 deleted `Enqueue`/`_apply_enqueue` (LOOP turn-0 now returns `Grow`) and swapped the 3
 # `_SPAWNER_KINDS` residual stamps + the `eval_node` def for the kind-blind `node.is_spawner`,
 # dropping the ceiling to 8.
-# The 8 that remain are all deleted in P4/P5/P8: the `_grow_residual` kind dispatch (4 arms,
-# engine.py) + the CALL post-assert check (engine.py), plus 3 eval_node sites (MAP over-mode,
-# WAIT timed, END post-assert).)
-BASELINE = 8
+# P5.1 moved the two `eval_node` read-boundary reads (MAP over-mode, WAIT timed) behind the
+# node-owned `bind_reserved`/`binds_per_item` hooks, dropping the ceiling to 6.
+# The 6 that remain are all deleted in P5.2-P5.4: the `_grow_residual` kind dispatch (4 arms,
+# engine.py) + the CALL post-assert check (engine.py), plus 1 eval_node site (END post-assert).)
+BASELINE = 6
 
 
 def _import_lines(tree: ast.Module) -> set[int]:
