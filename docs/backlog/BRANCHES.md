@@ -22,5 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/engine/grow-subgraph` | `main` | Kind-agnostic refactor P3 (crux) — self-describing spawners: `Grow(Subgraph)` replaces `Enqueue` + the `_apply_enqueue` 5-way dispatch + the four `_grow_*` helpers | 2026-07-04 |
-

@@ -46,6 +46,23 @@ This backlog is split four ways:
   kind-dispatch).~~
   -- 84c0bd6 (branch `dev/engine/commit-as`)
 
+- [x] ~~**Kind-agnostic refactor — Phase P3: self-describing spawners (`Grow(Subgraph)`).** Every
+  spawner (CALL/MAP/AGENT-continuation/LOOP) now `run`s to a self-describing `Grow(subgraph, prune,
+  seed)` where `Subgraph(nodes, edges, wiring, roots)` is the fragment the engine splices in via ONE
+  generic `_apply_grow` — replacing the deleted `Enqueue(target, inputs)` outcome and the per-kind
+  `_apply_enqueue` dispatch. Nodes build their own subgraphs (`call_subgraph`, MAP's N clones + list-END
+  fan-in, the agent resume continuation, `loop_iteration_subgraph`); `commit_as` on the subgraph
+  terminal publishes the spawner's value. Durability unified to a single `GrowRecord(spawner_id, seed,
+  children)` ledger record per grow — kind-blind replay rebuilds the live subgraph from the persisted
+  `seed` via each node's `replay_grow` (nested grows ride the parent's `children`; loops keep the single
+  live-iteration invariant); `CHECKPOINT_VERSION` -> 7.0. LOOP's turn-0 grow-vs-commit decision moved
+  onto `LoopNode.run` (a 0-iteration `while` returns `Output(seed, commit_as=self.id)`). `is_spawner`
+  ClassVar replaced the `_SPAWNER_KINDS` membership test; `NodeExpanded.enqueues` -> `.grow`. Absorbs
+  the planned P6 (kind-blind durability / replay ledger) — done here as part of P3.5. Census 20 -> 8
+  (the 8 remaining sites deferred to P4/P5/P8).~~
+  -- 5d2f5e2..74e401c (branch `dev/engine/grow-subgraph`)
+
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and
