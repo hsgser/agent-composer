@@ -22,4 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/engine/run-node-generic` | `main` | Kind-agnostic refactor P5 — node-owned read hooks (`bind_reserved`/`binds_per_item`), generic assert-ref binding at the read boundary (END/CALL stop being special), and a generic `_grow_residual`; drives the kind-dispatch census 8 → ~0 | 2026-07-05 |

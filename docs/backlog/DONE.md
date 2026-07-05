@@ -77,6 +77,25 @@ This backlog is split four ways:
   -- d76db9a..07e9e82 (branch `dev/engine/prune-loop-budget`)
 
 
+- [x] ~~**Kind-agnostic refactor — Phase P5: generic `run_node`, node-owned read boundary, generic
+  `_grow_residual`.** Drove the kind-dispatch census (`test_kind_census.py`) from 8 to **0** — the engine
+  core (`runtime/engine.py` + `runtime/eval_node.py`) no longer references `NodeKind` at all. The read
+  boundary became node-owned: `bind_reserved(node_wiring, pool)` (WAIT `until`, MAP `over`) +
+  `binds_per_item` (MAP), replacing the MAP/WAIT `if node.kind ==` reads. Asserts now bind their refs at
+  the read boundary (record-first, pool-fallback) and evaluate purely, so END stops being special (the
+  `node.kind == NodeKind.END` post-assert branch is gone). The commit-site post-assert lost its
+  `NodeKind.CALL` gate (now `target != node_id and target_node.post_asserts`), keeping seed-record
+  recovery + the spawner-id locator byte-for-byte. The `_grow_residual` 4-arm switch and its four
+  `_grow_*_residual` methods were deleted; residual concerns are now generic rules in `_apply_grow`
+  driven by node traits/hooks: `iter_boundary_records(seed)` (eager boundary asserts, still before the
+  ledger attach), `grow_depth_delta` (CALL/MAP=1, AGENT=0, LOOP=None; drives MAX_REF_DEPTH),
+  `grow_restamps_self` (AGENT), `is_loop` (loop bookkeeping); the AGENT origin `commit_as` override is
+  engine-computed and applied generically to the derived terminal. Behavior-preserving (1414 tests
+  green); two-round adversarial plan review + a final adversarial code review (APPROVED). Docs updated:
+  `docs/engine.md`, `docs/nodes.md`, the `engine` skill.~~
+  -- 066cfcf..660322b (branch `dev/engine/run-node-generic`)
+
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and
