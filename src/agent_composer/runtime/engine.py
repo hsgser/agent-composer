@@ -1057,8 +1057,74 @@ class FlowEngine:
         """RESIDUAL, NOT the generic core: the per-kind depth/refdepth stamping + finish/mark
         policy the kind-blind growth core cannot yet subsume without a behavior change. Kind-shaped
         ON PURPOSE — counted by the census, removed by the later prune/run_node phases. Filled per
-        kind as each spawner migrates to `Grow`; a no-op stub for now (no node emits `Grow` yet)."""
-        pass
+        kind as each spawner migrates to `Grow`; a no-op for kinds that still grow via `Enqueue`."""
+        spawner = self.flow.nodes[spawner_id]
+        if spawner.kind == NodeKind.CALL:
+            self._grow_call_residual(spawner_id, grow)
+
+    def _grow_call_residual(self, spawner_id, grow):
+        """CALL residual — reproduces `_grow_call` + the `_apply_enqueue` CALL arm's per-kind policy
+        on the live `Grow` path (the generic core already spliced+registered+scheduled). Preserves,
+        exactly: the eager boundary-assert temp-pool check; the REF depth stamp (+1 on the cloned
+        spawner-eligible nodes AND the filler) + `MAX_REF_DEPTH` bound; the one finish/mark-EXPANDED;
+        and — TRANSITIONAL — the `CallExpansion` ledger write + parent attach + `_spawner_expansion`
+        stamps that keep replay and the `_on_success` CALL post-assert record recovery working.
+
+        The filler id is recovered from the spliced subgraph via the `ns(callsite, END_ID)`
+        convention (callsite == spawner_id), so `Grow`/`Subgraph` need no extra field."""
+        from agent_composer.expr import first_failing_assert
+        from agent_composer.state.seeding import apply_defaults, coerce_inputs
+        from agent_composer.suspension.expansions import CallExpansion
+
+        spawner = self.flow.nodes[spawner_id]
+        sg = grow.subgraph
+        record = dict(grow.seed)
+        filler_id = ns(spawner_id, END_ID)          # the cloned child END filler (ns convention)
+
+        # Eager boundary-assert: the child's BOUNDARY asserts (raw, un-namespaced) evaluated against
+        # a temp pool whose START_ID carries the child's EFFECTIVE inputs (coerce + default — the
+        # same view the spliced child START_ID commits). Same logic as the legacy `_assert_call`.
+        boundary_asserts = []
+        child_asserts = getattr(spawner.child, "child_asserts", None)
+        if child_asserts is not None:
+            boundary_asserts = list(child_asserts.boundary)
+        if boundary_asserts:
+            decls = spawner.child_inputs
+            temp = TypedVariablePool()
+            temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
+            temp.system = dict(self.pool.system)
+            bad = first_failing_assert(boundary_asserts, temp)
+            if bad is not None:
+                raise RuntimeError(f"REF child {spawner_id!r} boundary assert failed: {bad}")
+
+        # REF depth bound (kind-shaped; a later phase removes it). A genuinely deep REF chain trips
+        # MAX_REF_DEPTH before MAX_TOTAL_NODES.
+        d = self.depth.get(spawner_id, 0) + 1
+        if d > MAX_REF_DEPTH:
+            raise RuntimeError(
+                f"expansion exceeded MAX_REF_DEPTH ({MAX_REF_DEPTH}) at {spawner_id!r}"
+            )
+
+        # TRANSITIONAL (a later sub-phase unifies this to GrowRecord): create the CallExpansion,
+        # stamp `_spawner_expansion` on the cloned spawner-eligible nodes so a nested REF/MAP/AGENT
+        # finds THIS descriptor, stamp depth on those + the filler (the filler carries the depth),
+        # stamp the filler's `_spawner_expansion` (the CALL post-assert record recovery keys off it),
+        # then attach to the ledger (top-level -> self.expansions, else under the parent).
+        desc = CallExpansion(spawner_id=spawner_id, record=record, children=[])
+        parent_desc = self._spawner_expansion.get(spawner_id)
+        for nid, node in sg.nodes.items():
+            if node.kind in _SPAWNER_KINDS:
+                self.depth[nid] = d
+                self._spawner_expansion[nid] = desc
+        self.depth[filler_id] = d                    # the filler carries the depth
+        self._spawner_expansion[filler_id] = desc
+        if parent_desc is not None:
+            _append_child(parent_desc, desc)
+        else:
+            self.expansions.append(desc)
+
+        self.sm.finish_executing(spawner_id)
+        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
 
     def _apply_enqueue(self, spawner_id: str, enqueues: list) -> None:
         """Grow the live graph from a spawner's Enqueue(s) (the dispatcher's sole-writer

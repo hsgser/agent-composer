@@ -27,7 +27,7 @@ from typing import Any, Optional
 
 from agent_composer.compile.model import Edge, START_ID
 from agent_composer.expr import rewrite_template_refs
-from agent_composer.nodes.base import Node
+from agent_composer.nodes.base import Node, Subgraph
 
 
 def ns(callsite: str, child_id: str) -> str:
@@ -195,6 +195,28 @@ def _producer_of(src: str) -> Optional[str]:
     if len(parts) >= 2 and parts[1] == "output":
         return parts[0]
     return None
+
+
+def call_subgraph(child, callsite: str, record: dict) -> Subgraph:
+    """The pure CALL builder: the self-describing fragment a CALL spawner grows into.
+
+    Wraps `clone_child` (the deep-namespaced clone of the child's `START_ID..END_ID` at `callsite`,
+    seeded with `record`), bakes `commit_as=callsite` on the cloned child END filler (so its Output
+    commits under the spawner id on the ordinary success path), and returns a `Subgraph`. The
+    filler id (`clone_child`'s `out_node_id`) is kept only as a LOCAL — it is derivable from the
+    subgraph as `ns(callsite, END_ID)` and is NOT a `Subgraph` field. The boundary asserts stay on
+    the `ClonedSubgraph` and are re-derived engine-side (the residual reads the child's raw
+    START_ID record view), so they are not carried on the returned `Subgraph`."""
+    cloned = clone_child(child, callsite=callsite, record=record)
+    out_node_id = cloned.out_node_id                     # local only: derivable as ns(callsite, END_ID)
+    cloned.nodes[out_node_id].commit_as = callsite
+    return Subgraph(
+        nodes=cloned.nodes,
+        edges=cloned.edges,
+        wiring=cloned.wiring,
+        roots=cloned.roots,
+    )
+
 
 
 # --------------------------------------------------------------------------- #

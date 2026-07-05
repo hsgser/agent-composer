@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_composer.nodes.base import Enqueue, NodeKind
+from agent_composer.nodes.base import Enqueue, Grow, NodeKind
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.map import MapNode
 
@@ -28,11 +28,19 @@ def test_map_node_kind_and_parallel_fields():
     assert MapNode("d", flow_id="child", child=_child()).parallel is False
 
 
-def test_call_ref_mode_returns_one_enqueue():
-    node = CallNode("c", flow_id="child", child=_child(), child_inputs=[])
+def test_call_ref_mode_returns_grow():
+    # CALL is self-describing now: run builds the child subgraph and returns a Grow whose seed is
+    # the raw call-arg record (the durable builder input); the root is the namespaced child START.
+    from agent_composer.compile.expand import ns
+    from agent_composer.compile.model import END_ID
+    from tests.engine.test_expand import _child_flow
+
+    node = CallNode("c", flow_id="child", child=_child_flow(), child_inputs=[])
     out = node.run({"topic": "ACME"})
-    assert isinstance(out, Enqueue)
-    assert out.inputs == {"topic": "ACME"} and out.target is node.child
+    assert isinstance(out, Grow)
+    assert out.seed == {"topic": "ACME"}
+    assert out.subgraph.roots == [ns("c", _child_flow().start_id)]
+    assert out.subgraph.nodes[ns("c", END_ID)].commit_as == "c"
 
 
 def test_map_returns_list_of_enqueue():

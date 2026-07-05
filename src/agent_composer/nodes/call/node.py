@@ -4,8 +4,10 @@
 the MAP half is `nodes.map.MapNode` (`kind: map` + `over:`, `list['a] -> list['b]`) — the two are
 distinct typed drivers. `CallNode` carries NO `over`/`parallel`.
 
-`run` returns one `Enqueue` *description* — the engine's `_apply_enqueue` REF arm clones the baked
-child + grows the live graph: `Enqueue(child, dict(inputs))` (the call-args RAW). The spliced child
+`run` returns one `Grow(Subgraph)` — self-describing expansion: it builds the child subgraph
+(`call_subgraph`) and the engine's generic `_apply_grow` splices it into the live graph, with a
+per-kind CALL residual (depth/refdepth/finish-mark + the transitional boundary-assert/ledger). The
+`Grow.seed` is the raw call-arg record (the durable builder input). The spliced child
 START_ID owns omitted-input defaulting (its params carry default/required), so the driver no longer
 pre-defaults. `child`/`child_inputs`/`child_asserts` are baked at load by
 `compose.build` (`build_call_node`); `child_inputs` is read by compile validation
@@ -15,7 +17,8 @@ coerce+default view for the eager `${input.X}` check).
 
 from typing import Any, ClassVar, Optional
 
-from agent_composer.nodes.base import Enqueue, Node, NodeKind
+from agent_composer.compile.expand import call_subgraph
+from agent_composer.nodes.base import Grow, Node, NodeKind
 
 
 class CallNode(Node):
@@ -23,8 +26,9 @@ class CallNode(Node):
     The REF driver (`kind: call`) — apply a callable flow once (`'a flow -> 'b`).
 
     The REF half of the REF/MAP pair (the MAP half is
-    [`MapNode`][agent_composer.nodes.map.node.MapNode]). `run` returns one `Enqueue` description;
-    the engine's `_apply_enqueue` clones the baked child and grows the live graph. The spliced
+    [`MapNode`][agent_composer.nodes.map.node.MapNode]). `run` returns one `Grow(Subgraph)`
+    description; the engine's generic `_apply_grow` splices the built child subgraph and grows the
+    live graph. The spliced
     child START owns omitted-input defaulting, so the driver passes call-args raw.
 
     Args:
@@ -66,5 +70,10 @@ class CallNode(Node):
         if self.child is None:
             raise RuntimeError(f"CALL node {self.id!r}: child flow {self.flow_id!r} not baked")
         # Pass the call-args RAW: the spliced child START_ID owns omitted-input defaulting now (its
-        # params carry default/required), so the driver no longer pre-defaults.
-        return Enqueue(self.child, dict(inputs))
+        # params carry default/required), so the driver no longer pre-defaults. `run` is
+        # self-describing — it builds the child subgraph and returns a `Grow` for the engine to
+        # splice generically; `seed=record` is the durable builder input (a resumed run rebuilds
+        # the same subgraph via `call_subgraph(child, self.id, record)`).
+        record = dict(inputs)
+        sg = call_subgraph(self.child, callsite=self.id, record=record)
+        return Grow(sg, seed=record)

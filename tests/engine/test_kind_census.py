@@ -42,8 +42,13 @@ CORE_MODULES = {
 # Ratchet ceiling: the number of kind-dispatch lines allowed in the engine core.
 # LOWER this as each refactor phase removes dispatch; the final phase drives it to 0.
 # (Measured at P0 baseline 20; dropped to 19 when the `eval_node` grow guard moved from a
-# `node.kind not in _SPAWNER_KINDS` membership test to the kind-blind `not node.is_spawner`.)
-BASELINE = 19
+# `node.kind not in _SPAWNER_KINDS` membership test to the kind-blind `not node.is_spawner`.
+# Rose to 21 during the CALL->Grow migration: the live CALL path now grows via the labelled
+# `_grow_residual` CALL arm — a census-counted kind-shaped residual (its `NodeKind.CALL` check
+# + the cloned spawner-eligible `_SPAWNER_KINDS` stamp) that COEXISTS with the still-live legacy
+# `_apply_enqueue`/`_grow_call` replay path. The residual + the legacy arms are all deleted in the
+# final sub-phase, which drops the ceiling below 20.)
+BASELINE = 21
 
 
 def _import_lines(tree: ast.Module) -> set[int]:

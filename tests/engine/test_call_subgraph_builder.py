@@ -1,0 +1,28 @@
+"""The pure CALL builder `call_subgraph` — pins its output to `_grow_call`'s clone shape.
+
+`call_subgraph(child, callsite, record)` wraps `clone_child`, bakes `commit_as=callsite` on the
+cloned child END filler, and returns a `Subgraph` (the self-describing fragment a CALL spawner grows
+into). This test pins: the root is the namespaced child START; the terminal is the namespaced child
+END carrying `commit_as == callsite`; and every node id is `ns`-prefixed under the callsite.
+"""
+
+from agent_composer.compile.expand import call_subgraph, ns
+from agent_composer.compile.model import END_ID
+from agent_composer.nodes.base import Subgraph
+
+from tests.engine.test_expand import _child_flow
+
+
+def test_call_subgraph_matches_grow_call_shape():
+    child = _child_flow()
+    sg = call_subgraph(child, callsite="c0", record={"x": 1})
+
+    assert isinstance(sg, Subgraph)
+    # Root == the namespaced child START (the sole seed point).
+    assert sg.roots == [ns("c0", child.start_id)]
+    # Terminal == the namespaced child END; its Output commits under the callsite.
+    terminal = sg.nodes[ns("c0", END_ID)]
+    assert terminal.commit_as == "c0"
+    # Every cloned node id is namespaced under the callsite.
+    assert all(nid.startswith("c0/") for nid in sg.nodes)
+    assert set(sg.nodes) == {ns("c0", nid) for nid in child.nodes}
