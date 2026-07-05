@@ -36,6 +36,14 @@ inputs, **caps) -> NodeResult` to recover (default re-raises).
 inputs); a node never writes the pool (it *describes* `Output(value)`, the engine
 performs the write). Keeps nodes pure and the state immutable (`let`-bindings).
 
+**Capabilities (`caps`)** are the narrow, engine-owned effect providers passed as keyword
+args to `run` — the node never imports them itself. Each is gated by a node trait so a node
+receives only what it declares: a mapped `call` gets `caps['bind_item']` (per-element bind,
+gated on `binds_per_item`); an LLM-backed node (`agent`) gets `caps['llm']` — the
+`model_from_config`-shaped model factory the engine owns (`FlowEngine.llm`, defaulting to a
+lazy package-lookup thunk), gated on `needs_llm`. The node builds its chat model from that
+provider instead of importing the factory.
+
 ## Node-owned traits/hooks (how the core stays kind-blind)
 
 The engine core reads these node members instead of branching on `node.kind`. Defaults sit on the
@@ -49,6 +57,7 @@ base `Node`; a kind overrides only what it needs.
 | `grow_depth_delta: int\|None` | growth core: REF-depth increment stamped on the spliced spawners + terminal (positive bounded by `MAX_REF_DEPTH`) | `None` (loop/non-REF, no depth work) → `1` call/map, `0` agent |
 | `grow_restamps_self: bool` | growth core: also stamp `_spawner_expansion` at the spawner's OWN bare id (re-pause nesting) | `False` → `True` on `agent` |
 | `is_loop: bool` | growth core: gate the loop-only per-iteration bookkeeping (live index + single-live-record invariant) | `False` → `True` on `loop` |
+| `needs_llm: bool` | read boundary (`eval_node`): build the `caps['llm']` cap (the engine-owned model factory) and pass it to `run` | `False` → `True` on `agent` |
 
 The rest of the splice (add subgraph, enforce `MAX_TOTAL_NODES`, mint one uniform `GrowRecord`,
 finish/mark the spawner, apply the origin `commit_as` to the derived terminal, schedule roots) is

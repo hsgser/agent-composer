@@ -96,6 +96,20 @@ This backlog is split four ways:
   -- 066cfcf..660322b (branch `dev/engine/run-node-generic`)
 
 
+- [x] ~~**Kind-agnostic refactor — Phase P7: inject the LLM client via `caps`, not baked on the
+  node.** The AGENT node stopped importing `model_from_config`; the engine now owns the LLM-client
+  provider (`FlowEngine.llm`, a `model_from_config`-shaped callable defaulting to a lazy
+  package-lookup thunk so a monkeypatched factory is still honored) and hands it to LLM-backed
+  nodes as `caps["llm"]` — the same capability-provider seam as `bind_item`, gated on a new
+  `needs_llm` node trait (True on AgentNode only). `eval_node` gained an `llm=` param threaded from
+  both engine call sites; `AgentNode.run(inputs, **caps)` builds its model from the cap
+  (`_build_model(llm)`/`_ctx(prompt, llm)`) with a lazy `_default_llm` fallback for direct-driver
+  calls. `llm_config` stays on the node (the native-structured gate reads it). Behavior-preserving
+  (1421 engine tests green, +7 new in `test_caps_llm.py`; full suite 1462); adversarial plan review
+  (APPROVED). Docs updated: the `engine` skill (`SKILL.md`, `reference.md`).~~
+  -- be4ee8e..61fef2f (branch `dev/engine/caps-llm`)
+
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and

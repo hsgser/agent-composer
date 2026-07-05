@@ -182,15 +182,11 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
       reclaimed on the terminate arm too. STILL OPEN in this checkbox: the `depth` REF-budget rider is
       still stamped kind-shaped in the residuals (`engine.py` ~847/906) — a later phase moves it here.
 
-- [ ] **Inject the LLM client via `caps`, not baked on the node** — today `AgentNode.run` builds its
-  own client from a baked `llm_config` (`nodes/agent/node.py:217`), so the node holds live I/O and
-  isn't cleanly serializable. Target: the node keeps only `llm_config` (WHICH model — pure config);
-  the engine's capability layer materializes the live client from it and passes it as `caps["llm"]`
-  (`caps` is a `**kwargs` bag, so helpers are reached by name — the same shape as `bind_item`).
-  Needs a **config → client factory** (a capability-provider seam alongside `bind_item`;
-  `model_from_config` at `factory.py:113` already exists). Wins: serializable/durable nodes, a
-  fake-`caps["llm"]` test seam, one place for rate-limit/cache/retry/creds/observability policy.
-  Cost: the node no longer runs standalone without the engine's cap.
+- [x] ~~**Inject the LLM client via `caps`, not baked on the node**~~ — the node keeps only
+  `llm_config` (WHICH model — pure config); the engine owns the `model_from_config`-shaped provider
+  (`FlowEngine.llm`, default = a lazy package-lookup thunk) and hands it to LLM-backed nodes as
+  `caps["llm"]`, gated on the new `needs_llm` trait (mirrors `bind_item`/`binds_per_item`).
+  `AgentNode.run` builds its model from the cap, no longer importing the factory. -- be4ee8e..61fef2f
 
 
 ## Structured AGENT output — follow-ups
