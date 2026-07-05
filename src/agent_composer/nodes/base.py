@@ -180,6 +180,12 @@ class Node(ABC):
     # other spawner grows at a FRESH namespaced id per instance, so it needs no self-stamp.
     # Overridden True by AgentNode.
     grow_restamps_self: ClassVar[bool] = False
+    # Declares "I am the fixpoint-iteration driver" (LOOP). The growth core runs the loop-only
+    # per-iteration bookkeeping (live iteration index + the single live-iteration GrowRecord + its
+    # single-record ledger invariant) under this trait, since a self-committing terminal
+    # (`commit_as == spawner_id`) cannot distinguish a loop from a call/map. Overridden True by
+    # LoopNode; False for every other kind.
+    is_loop: ClassVar[bool] = False
 
     def __init__(
         self,

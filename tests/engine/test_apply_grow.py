@@ -1,9 +1,11 @@
-"""P3 0c: the generic `_apply_grow` core splices a self-describing Subgraph.
+"""The generic `_apply_grow` core splices a self-describing Subgraph.
 
 Drives `FlowEngine._apply_grow` directly with a tiny one-node child Subgraph (a leaf carrying a
-baked `commit_as`) and a no-op residual, asserting the generic core's contract: the node is spliced
-into `flow.nodes`, registered in the state manager, and its root scheduled. `_grow_residual` is a
-no-op stub this phase, so no per-kind policy runs — the core is exercised in isolation."""
+baked `commit_as`), asserting the generic core's contract: the node is spliced into `flow.nodes`,
+registered in the state manager, and its root scheduled. The spawner stand-in is a plain
+`FuncNode` carrying the default node traits (`grow_depth_delta=None`, `is_loop=False`,
+`grow_restamps_self=False`), so the trait-driven growth bookkeeping is a no-op — the core's
+splice/register/schedule/prune contract is exercised in isolation."""
 
 from agent_composer.compile.model import Edge, END_ID, START_ID
 from agent_composer.nodes.base import Grow, Subgraph
@@ -30,12 +32,10 @@ def _one_node_grow(spawner_id: str) -> Grow:
     return Grow(sg)
 
 
-def test_apply_grow_splices_registers_and_schedules(monkeypatch):
+def test_apply_grow_splices_registers_and_schedules():
     eng = _parent_engine()
     grow = _one_node_grow("s")
     child_id = "s/leaf"
-    # Keep the residual a no-op (its per-kind body is filled by the spawner-migration phases).
-    monkeypatch.setattr(eng, "_grow_residual", lambda spawner_id, g, rec, schedule=True: None)
 
     eng._apply_grow("s", grow)
 
@@ -47,11 +47,10 @@ def test_apply_grow_splices_registers_and_schedules(monkeypatch):
     assert child_id in list(eng.ready)
 
 
-def test_apply_grow_schedule_false_suppresses_scheduling(monkeypatch):
+def test_apply_grow_schedule_false_suppresses_scheduling():
     eng = _parent_engine()
     grow = _one_node_grow("s")
     child_id = "s/leaf"
-    monkeypatch.setattr(eng, "_grow_residual", lambda spawner_id, g, rec, schedule=True: None)
 
     eng._apply_grow("s", grow, schedule=False)
 
@@ -75,9 +74,8 @@ def _two_node_grow(a_id: str, b_id: str) -> Grow:
     return Grow(sg)
 
 
-def test_apply_grow_applies_prune_removing_named_ids(monkeypatch):
+def test_apply_grow_applies_prune_removing_named_ids():
     eng = _parent_engine()
-    monkeypatch.setattr(eng, "_grow_residual", lambda spawner_id, g, rec, schedule=True: None)
 
     # Splice S1 (nodes a, b) and give them some overlay bookkeeping to verify it is all reclaimed.
     eng._apply_grow("s", _two_node_grow("a", "b"))

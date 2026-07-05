@@ -28,6 +28,7 @@ class LoopNode(Node):
 
     kind = NodeKind.LOOP
     is_spawner: ClassVar[bool] = True  # grows the graph: each iteration splices a Grow(Subgraph)
+    is_loop: ClassVar[bool] = True  # the fixpoint-iteration driver: the core runs loop bookkeeping
 
     def __init__(
         self,

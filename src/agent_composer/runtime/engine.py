@@ -54,7 +54,7 @@ from agent_composer.compile.expand import (
 )
 from agent_composer.compile.model import END_ID, START_ID, CompiledFlow, Edge, NodeState
 from agent_composer.nodes.end import EndNode
-from agent_composer.nodes.base import Grow, NodeKind
+from agent_composer.nodes.base import Grow
 from agent_composer.runtime.eval_node import eval_node
 from agent_composer.runtime.state_manager import StateManager
 from agent_composer.state import SegmentError
@@ -724,7 +724,8 @@ class FlowEngine:
         bookkeeping a paused run had, with all live effects suppressed (`schedule=False` — no
         boundary assert, no budget raise, no scheduling). Kind-BLIND: each record names its
         spawner, `spawner.replay_grow(seed)` rebuilds that spawner's OWN subgraph (the pure inverse
-        of the live grow), and `_apply_grow` re-splices it and runs the per-kind residual. The pure
+        of the live grow), and `_apply_grow` re-splices it and re-applies the generic growth
+        bookkeeping (trait-driven depth/stamps/loop retention). The pure
         clone (`ns(callsite, child_id)`) re-keys every cloned node identically, so the rebuilt
         overlay matches the live engine's byte-for-byte.
 
@@ -745,13 +746,15 @@ class FlowEngine:
 
     def _apply_grow(self, spawner_id, grow, *, schedule=True, record=None):
         """Generic growth core (kind-BLIND): splice the node-built Subgraph, register it, enforce
-        MAX_TOTAL_NODES, record ONE uniform `GrowRecord` in the durable ledger, run the per-kind
-        residual, and schedule its roots. `schedule=False` suppresses scheduling+budget on replay;
-        `record` reuses a deserialized ledger entry on replay (so no new record is minted).
+        MAX_TOTAL_NODES, record ONE uniform `GrowRecord` in the durable ledger, apply the trait-driven
+        growth bookkeeping (boundary asserts, REF depth, `_spawner_expansion` stamps, origin
+        `commit_as`, loop retention), finish/mark the spawner, and schedule its roots.
+        `schedule=False` suppresses scheduling+budget on replay; `record` reuses a deserialized
+        ledger entry on replay (so no new record is minted).
 
         Ledger attach is kind-blind: mint a `GrowRecord(spawner_id, seed, [])`, then nest it under
         the enclosing spawner's record if this spawner is INSIDE one (`_spawner_expansion` names it),
-        else append it top-level. The residual then stamps `_spawner_expansion` so a nested grow
+        else append it top-level. The stamping step then stamps `_spawner_expansion` so a nested grow
         finds THIS record."""
         sg = grow.subgraph
         with self.sm.lock:
@@ -800,8 +803,11 @@ class FlowEngine:
         # `commit_as`, so `origin == spawner_id`, which the terminal's `commit_as` already equals.
         # Runs AFTER the stamps above, which rely on the terminal's PROVISIONAL `commit_as`.
         self._apply_origin_commit_as(spawner_id, grow)
-        # per-kind residual: loop retention.
-        self._grow_residual(spawner_id, grow, rec, schedule=schedule)
+        # Loop-only per-iteration bookkeeping (kind-blind gate on the `is_loop` trait): the live
+        # iteration index + the single live-iteration GrowRecord + its single-record ledger
+        # invariant. Gated on the trait — NOT a self-committing terminal, which CALL/MAP/LOOP share.
+        if self.flow.nodes[spawner_id].is_loop:
+            self._apply_loop_bookkeeping(spawner_id, grow, rec)
         # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
         # has run and expanded, so it finishes executing and enters EXPANDED. Idempotent for a loop
         # whose repeated iteration grows re-mark the same spawner; runs on replay too (all four
@@ -907,39 +913,23 @@ class FlowEngine:
             if bad is not None:
                 raise RuntimeError(f"{label} boundary assert failed: {bad}")
 
-    def _grow_residual(self, spawner_id, grow, rec, *, schedule):
-        """RESIDUAL, NOT the generic core: the per-kind depth/refdepth stamping + boundary asserts +
-        finish/mark + loop retention the kind-blind growth core cannot yet subsume without a
-        behavior change. Kind-shaped ON PURPOSE — counted by the census, removed by the later
-        prune/run_node phases. `rec` is the GrowRecord `_apply_grow` minted/reused for this grow (the
-        residual stamps `_spawner_expansion` at it for nested-grow lookup); `schedule=False` (replay)
-        suppresses the eager boundary-assert + MAX_REF_DEPTH budget."""
-        spawner = self.flow.nodes[spawner_id]
-        if spawner.kind == NodeKind.LOOP:
-            self._grow_loop_residual(spawner_id, grow, rec, schedule=schedule)
-
-    def _grow_loop_residual(self, spawner_id, grow, rec, *, schedule):
-        """LOOP residual — the per-iteration bookkeeping beyond the generic splice/schedule (the
-        generic `_apply_grow` already spliced+registered+budget-checked+scheduled the body roots and
-        wrote `rec`). Sets `loop_iter` (the live iteration index `_loop_step` reads) and `loop_desc`
-        (the loop's live-iteration GrowRecord, keyed by the bare spawner id — the ledger
-        `_loop_step`'s continue-branch and `_on_success`'s loop route both read).
+    def _apply_loop_bookkeeping(self, spawner_id, grow, rec) -> None:
+        """LOOP per-iteration bookkeeping (gated on the `is_loop` trait by the growth core). Sets
+        `loop_iter` (the live iteration index `_loop_step` reads) and `loop_desc` (the loop's
+        live-iteration GrowRecord, keyed by the bare spawner id — the ledger `_loop_step`'s
+        continue-branch and `_on_success`'s loop route both read).
 
         Maintains the SINGLE-record invariant: only the LIVE iteration's GrowRecord stays in the
         ledger, so when a new iteration supersedes the prior one, the prior record is removed from
-        its container (the parent's `children` if nested, else `self.expansions`).
-
-        NO depth stamp, NO MAX_REF_DEPTH (a loop is not REF recursion — it is bounded by `max_iters`
-        + MAX_TOTAL_NODES), nothing gated on `schedule`. finish/mark is idempotent (the spawner
-        stays EXPANDED across iterations). The `commit_as=spawner_id` bake lives in the builder
-        (`loop_iteration_subgraph`), so the residual does NOT re-bake it."""
-        record, iteration = grow.seed
+        its container (the parent's `children` if nested, else `self.expansions`). `grow.seed` is the
+        loop's `(record, iteration)` pair."""
+        _record, iteration = grow.seed
         self.loop_iter[spawner_id] = iteration
         # SINGLE-record invariant: drop the superseded iteration's GrowRecord. The prior record
         # `prev` lives in the SAME container as `rec` (the parent's `children` if this loop is nested
         # inside another spawner, else `self.expansions`) — it was appended by its OWN earlier
         # `_apply_grow`. The current `rec` is not attached yet (the caller appends it AFTER this
-        # residual returns, per attach-after-grow), so we only ever remove `prev`.
+        # returns, per attach-after-grow), so we only ever remove `prev`.
         prev = self.loop_desc.get(spawner_id)
         if prev is not None and prev is not rec:
             parent = self._spawner_expansion.get(spawner_id)

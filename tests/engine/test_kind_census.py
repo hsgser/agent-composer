@@ -61,9 +61,11 @@ CORE_MODULES = {
 # P5.4 dismantles the `_grow_residual` 4-arm switch concern by concern (finish/mark, boundary
 # asserts, depth, `_spawner_expansion` stamping, agent commit_as, loop bookkeeping all lifted into
 # the kind-blind growth core behind node traits/hooks). CALL + MAP fell first (-> 2), then AGENT
-# once its origin `commit_as` override became a generic derived-terminal rule (-> 1); only the LOOP
-# bookkeeping arm remains, deleted in the final P5.4 commit (-> 0).
-BASELINE = 1
+# once its origin `commit_as` override became a generic derived-terminal rule (-> 1); the final
+# P5.4 commit gated the LOOP bookkeeping on the `is_loop` trait and deleted the switch entirely.
+# The census is now EMPTY: the engine core dispatches only on node traits/hooks + the closed
+# Outcome sum, never on `NodeKind` / `_SPAWNER_KINDS` / a concrete `*Expansion` type.
+BASELINE = 0
 
 
 def _import_lines(tree: ast.Module) -> set[int]:
