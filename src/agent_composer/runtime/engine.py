@@ -775,8 +775,15 @@ class FlowEngine:
         # `self.expansions` root. On replay (`record is not None`) the record is already attached
         # (top-level by `_replay_expansions`, nested by deserialization), so this is skipped.
         parent = self._spawner_expansion.get(spawner_id) if record is None else None
-        # per-kind residual: depth/refdepth stamping, boundary asserts, finish/mark, loop retention.
+        # per-kind residual: depth/refdepth stamping, boundary asserts, loop retention.
         self._grow_residual(spawner_id, grow, rec, schedule=schedule)
+        # Finish/mark is UNIFORM across every spawner (kind-blind): a spawner that returned a Grow
+        # has run and expanded, so it finishes executing and enters EXPANDED. Idempotent for a loop
+        # whose repeated iteration grows re-mark the same spawner; runs on replay too (all four
+        # legacy arms did it unconditionally). Placed AFTER the residual so a boundary-assert /
+        # budget raise in the residual leaves the spawner un-finished for the located failure.
+        self.sm.finish_executing(spawner_id)
+        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
         # Attach AFTER the residual (attach-after-grow): a residual boundary-assert/budget raise on
         # the live path leaves NO orphan record in the ledger.
         if record is None:
@@ -860,9 +867,6 @@ class FlowEngine:
         self.depth[filler_id] = d                    # the filler carries the depth
         self._spawner_expansion[filler_id] = rec
 
-        self.sm.finish_executing(spawner_id)
-        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-
     def _grow_map_residual(self, spawner_id, grow, rec, *, schedule):
         """MAP residual — the per-kind policy on the live `Grow` path (the generic core already
         spliced+registered+scheduled the whole fan-in incl. the list-END and wrote `rec`).
@@ -917,9 +921,6 @@ class FlowEngine:
                 self._spawner_expansion[nid] = rec
         self.depth[map_end_id] = d                   # the list-END filler carries the depth
 
-        self.sm.finish_executing(spawner_id)
-        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
-
     def _grow_agent_residual(self, spawner_id, grow, rec, *, schedule):
         """AGENT residual — the per-kind policy on the live `Grow` path (the generic core already
         spliced+registered+scheduled the human_input leaf root and wrote `rec`). Preserves, exactly:
@@ -953,8 +954,6 @@ class FlowEngine:
         origin = spawner.commit_as or spawner_id
         self.flow.nodes[out_id].commit_as = origin
 
-        self.sm.finish_executing(spawner_id)
-        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
         # INVARIANT: the resume filler carries the PARENT depth UNCHANGED (no `+1`).
         self.depth[out_id] = self.depth.get(spawner_id, 0)
 
@@ -987,8 +986,6 @@ class FlowEngine:
             if prev in container:
                 container.remove(prev)
         self.loop_desc[spawner_id] = rec
-        self.sm.finish_executing(spawner_id)
-        self.sm.mark_node(spawner_id, NodeState.EXPANDED)
 
     def _on_success(self, node_id: str, event: NodeSucceeded) -> None:
         # The commit target: `commit_as` redirects a subflow terminal's value under its spawner
