@@ -16,7 +16,11 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from agent_composer.cli.chat import tools as chat_tools
-from agent_composer.cli.run import _ensure_provider_keys, _last_segment  # reused helpers
+from agent_composer.cli.run import (  # reused helpers
+    _ensure_cwd_importable,
+    _ensure_provider_keys,
+    _last_segment,
+)
 from agent_composer.compose.loader import load_flow
 from agent_composer.compose.run import resume_command, resume_flow, run_flow
 from agent_composer.events import NodeSucceeded
@@ -44,6 +48,7 @@ def chat(
     ),
 ) -> None:
     """Start an interactive chat session over a chat flow."""
+    _ensure_cwd_importable()  # so a chat flow's `code: pkg.mod:fn` fold ref resolves (mirrors `ac run`)
     chat_tools.set_workspace(workspace)
     path = flow or _BUNDLED
     loaded = load_flow(path.read_text(), search_paths=[path.parent, workspace])
