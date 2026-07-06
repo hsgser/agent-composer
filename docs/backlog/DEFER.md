@@ -53,6 +53,18 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 ## Engine design forks (undecided)
 
+- [ ] **Durable CROSS-PROCESS resume of a tool-agent-in-loop is unverified.** The `ac chat` composer
+  chat runs a `tool_calling` agent inside a `loop` body; in-process run/resume across turns is proven
+  (`tests/engine/test_agent_in_loop.py`), but a mid-loop checkpoint resumed in a FRESH process (the
+  durable path) for the agent-in-loop shape has not been verified end-to-end. Confirm (or fix) before
+  relying on cross-process durability for the agentic REPL. (Surfaced 2026-07-06, `ac chat`.)
+
+- [ ] **Flow-side `/exit` for `ac chat`.** Today the CLI intercepts `/exit`/`/quit`/EOF and breaks the
+  resume loop; the carried `{transcript, exited}` record already leaves `exited` open as a clean seam
+  for a flow-side end — a real command (or a tool the agent can call) that SETS the carried `exited`
+  field, so the loop's `while: not ${exited}` terminates from inside the flow rather than the host
+  intercepting the line. Decide whether to move end-of-session into the flow. (Surfaced 2026-07-06.)
+
 - [x] ~~**`:-` / `:?` RHS: expression vs. legacy bare-literal text.**~~ **DECIDED (2026-07-03): Option A —
   the RHS of `:-` (default) and `:?` (required message) is a **full expression** under the unified
   grammar, uniform with everything else inside `${}`. A bare word is a **reference**; a literal must be

@@ -291,6 +291,16 @@ driver: `while:` (pre-check, 0+ runs), `until:` (post-check / do-while, 1+ runs,
 stop when the predicate becomes true), or `times: N` (fixed count). `max:` is
 required for `while:`/`until:` but **redundant and rejected** with `times:`.
 
+#### Conversational REPL — a chat as a `loop` (what `ac chat` runs)
+A chat is a `loop` whose body pauses each turn: `ask` (`human_input`) → `reply`
+(`agent`) → `fold` (`code`), carrying `{transcript: str, exited: bool}`. The
+transcript grows **deterministically in the Python fold**, not by re-prompting the
+model. **Gotcha:** the body's `output:` must EQUAL the carried record — so fold into
+a node whose declared `output:` **is** that record and re-export it whole
+(`output: ${fold.output}`). A bare multi-ref concat as the body output (e.g.
+`"${transcript}\n${reply}"`) types as **None** and the loop's record contract
+**rejects** it. See [`templates/chat.yaml`](templates/chat.yaml).
+
 ## Run-ordering without data (`depends_on` / `runs_after`)
 Both gate a node on another **settling** even when no value flows. `depends_on:
 [x]` also **co-skips** the dependent if `x` skipped; `runs_after: [x]` orders only

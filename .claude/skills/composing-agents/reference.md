@@ -26,6 +26,7 @@ Copy, rename, and edit.
 | [`expr-and-call.yaml`](templates/expr-and-call.yaml) | `${a + b}` arithmetic in a binding + inline `call(...)` over an in-file `defs:` callee |
 | [`map-fanout.yaml`](templates/map-fanout.yaml) | `map` a child over a list, in parallel |
 | [`loop.yaml`](templates/loop.yaml) | `loop` a body until a predicate goes false — chat-shaped pause-per-turn |
+| [`chat.yaml`](templates/chat.yaml) | a conversational REPL — `loop` per turn (`human_input` → `agent` → code-fold), the shape `ac chat` runs |
 | [`llm-config-cascade.yaml`](templates/llm-config-cascade.yaml) | flow-level `llm_config:`, per-node override, `inherit: false` |
 
 `call-child.yaml` and `map-fanout.yaml` depend on `child-summarize.yaml` being on
@@ -141,6 +142,18 @@ for `while:`/`until:` — but REDUNDANT and REJECTED with `times:`. A body that 
 and the pause is DURABLE (a mid-loop checkpoint resumes in a fresh process). A long
 loop stays cheap: each committed iteration is PRUNED from the live graph, so only one
 is resident at a time. See `loop.yaml`.
+
+**Conversational REPL (LOOP + human_input + code-fold).** A chat is a `loop` whose
+body pauses each turn: `ask` (`human_input`) → `reply` (`agent`) → `fold` (`code`),
+carrying the 2-field record `{transcript: str, exited: bool}` (`'a -> 'a`). The
+transcript grows DETERMINISTICALLY in the Python fold, not by re-prompting the model.
+The one gotcha: the loop body's `output:` must EQUAL the carried record, so fold into a
+node whose declared `output:` **is** the carried record and re-export it whole
+(`output: ${fold.output}`). A bare multi-ref concat as the body output (e.g.
+`"${transcript}\n${reply}"`) types as NONE and the loop's record contract REJECTS it —
+always route the turn through a fold node with the typed record `output:`. This is the
+shape `ac chat` runs; see `chat.yaml` (and `examples/chat.yaml` + `examples/chat_fns.py`
+for a runnable pair).
 
 ## Gotchas
 
