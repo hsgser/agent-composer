@@ -157,6 +157,23 @@ This backlog is split four ways:
   -- 946bc77 (branch `dev/engine/flow-unification`)
 
 
+- [x] ~~**Kind-agnostic refactor — Phase P11: kind-agnostic compile/compose layer.** Extended the
+  kind-blind treatment from the runtime into the compile layer: `compose/build.py`,
+  `compose/validate.py` and `compile/llm_cascade.py` now dispatch on node TRAITS instead of
+  `node.kind == NodeKind.X`. Added a load-time hook `reserved_wiring_keys()` (the pool-free NAMES
+  counterpart of the runtime `bind_reserved` — timed `wait` → `{"until"}`, `map` → `{"over"}`);
+  `check_wiring_parity` and the validate ref-scan read it. Converted the rest to existing traits:
+  `check_ref_map_types` gates on `is_loop`/`child_inputs`, `check_loop_shape_contract` on `is_loop`,
+  the MAP-assert rejection + ref-scan on `binds_per_item`, llm_cascade recursion on static-child
+  presence. `NodeKind` import removed from all three files; the only kind-string read left is the
+  node factory (`build_call_node`, reading raw `desc.kind`), documented as the construction boundary
+  where kind identity is born. Also FIXED a latent llm_cascade gap — LOOP body agents now inherit the
+  parent flow/CLI llm_config (cascade recurses into any node with a static `.child`, not just
+  CALL/MAP) — and restored base `Node.iter_boundary_records` clobbered mid-branch. Full engine suite
+  green (1441); census still 0; `grep NodeKind src/ | grep -v /nodes/` clean.~~
+  -- 40d898d (branch `dev/engine/kind-agnostic-compile`)
+
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and

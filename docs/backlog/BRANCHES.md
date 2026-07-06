@@ -22,4 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/engine/kind-agnostic-compile` | `main` | P11: remove `NodeKind` dispatch from the compile/validate layer (`build.py`/`validate.py`/`llm_cascade.py`) via node traits (`reserved_wiring_keys`, `is_loop`, `binds_per_item`, child-flow presence); fix loop-body llm cascade | 2026-07-06 |
