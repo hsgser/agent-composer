@@ -193,6 +193,22 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
       reclaimed on the terminate arm too. STILL OPEN in this checkbox: the `depth` REF-budget rider is
       still stamped kind-shaped in the residuals (`engine.py` ~847/906) — a later phase moves it here.
 
+- [ ] **Loop `max:` reached should be an author-choosable outcome, not a hard fail.** Today a
+  `while`/`until` loop that hits `max:` raises `LoopMaxExceeded` from the driver clone (`LoopNode.run`)
+  → `NodeFailed` → the whole run fails. That is one reasonable policy, but the author should be able to
+  choose: **fail loudly** (today's default) OR **end gracefully**, committing the last carried record
+  as the loop's output (`Output(carried, commit_as=origin_id)`, exactly the `times`/predicate-satisfied
+  STOP arm). Design the surface (a loop field? part of the error-strategy seam below?) — do NOT just
+  silently swap the default. Ties into the budget/GC item above (the `on_failure`-routed variant of the
+  runaway guard) and the `on_failure` seam below.
+- [ ] **Design `on_failure:` as an authorable node field (error strategy).** The no-op `on_failure`
+  hook already exists on `NodeBase` (landed `bd20557`, default re-raise, behavior deferred). Promote it
+  to an **authorable** field so an author can choose, per node, what a failure does: **raise** (fail the
+  run, today's behavior) vs **catch gracefully** (a default value / a fail-branch route / a retry). This
+  is the general seam the loop-`max:` item above is a special case of. Needs real design — the type of
+  the recovery value, how a fail-branch names its route, interaction with `commit_as` and the typed
+  boundary — before any code.
+
 - [x] ~~**Inject the LLM client via `caps`, not baked on the node**~~ — the node keeps only
   `llm_config` (WHICH model — pure config); the engine owns the `model_from_config`-shaped provider
   (`FlowEngine.llm`, default = a lazy package-lookup thunk) and hands it to LLM-backed nodes as

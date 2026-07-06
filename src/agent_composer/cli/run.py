@@ -152,12 +152,20 @@ def _node_line(text: str, node_id: str) -> Optional[int]:
     return node_lines(text).get(node_id)
 
 
+def _strip_clone_suffix(seg: str) -> str:
+    """Drop a runtime clone suffix from one id segment, mapping it back to its authored name:
+    a map element's `#<n>` (`gate#0` -> `gate`) or a loop driver clone's `~<k>` (`polish~5` ->
+    `polish`). Both are runtime-only decorations the parser never indexes."""
+    return seg.split("#", 1)[0].split("~", 1)[0]
+
+
 def _last_segment(node_id: Optional[str]) -> Optional[str]:
-    """The final `/`-segment of a (possibly namespaced) id, with any `#<n>` map suffix
-    stripped (`gate#0/approve` -> `approve`). `None` for a `None` id."""
+    """The final `/`-segment of a (possibly namespaced) id, with any runtime `#<n>`/`~<k>`
+    suffix stripped (`gate#0/approve` -> `approve`, `polish~5` -> `polish`). `None` for a
+    `None` id."""
     if node_id is None:
         return None
-    return node_id.split("/")[-1].split("#", 1)[0]
+    return _strip_clone_suffix(node_id.split("/")[-1])
 
 
 def _walk_call_frames(loaded, node_id: str, top_text: str, top_label: str,
@@ -180,7 +188,7 @@ def _walk_call_frames(loaded, node_id: str, top_text: str, top_label: str,
     `kind=field` locator (e.g. an `output:` coercion) is preferred, else the node's kind
     fallback field (e.g. a code node's `code:`), else its header. Never raises — the caller
     treats any failure as "no multi-frame stack" and falls back to the single-frame path."""
-    segments = [seg.split("#", 1)[0] for seg in node_id.split("/")]
+    segments = [_strip_clone_suffix(seg) for seg in node_id.split("/")]
     nodes = loaded.compiled.nodes
     n_lines = node_lines(top_text)
     f_lines = node_field_lines(top_text)
@@ -304,9 +312,11 @@ def _render_run_error(
     line = _locate(span, text)
     if line is None and node_id:
         line = _node_line(text, node_id)
-        if line is None and "/" in node_id:
-            # a namespaced runtime id -> fall back to the owning top-level (call) node.
-            line = _node_line(text, node_id.split("/", 1)[0])
+        if line is None:
+            # A runtime id (a namespaced child `gate/approve`, or a loop driver clone
+            # `polish~5` that raised the runaway guard) isn't authored -> resolve to the
+            # owning top-level node: the first path segment with its `#<n>`/`~<k>` suffix stripped.
+            line = _node_line(text, _strip_clone_suffix(node_id.split("/", 1)[0]))
 
     if line is None:
         err_console.print(f"[red]run {result.status}: {message}[/red]")
@@ -382,7 +392,10 @@ class _ProgressReporter:
     def handle(self, event: Any) -> None:
         """Fold one engine event into the display. Boundary nodes are ignored."""
         node_id = getattr(event, "node_id", None)
-        if node_id in (START_ID, END_ID):
+        # Skip synthesized boundary nodes at any depth: the top-level `__start__`/`__end__`
+        # AND the per-iteration/per-element namespaced ones (`polish#0/__start__`), which carry
+        # no authored meaning and only clutter the progress stream.
+        if _last_segment(node_id) in (START_ID, END_ID):
             return
         name = type(event).__name__
         if name == "NodeStarted":
@@ -398,6 +411,14 @@ class _ProgressReporter:
             # A router (CASE) produces no value — it selected an out-edge handle.
             self._running.pop(node_id, None)
             self._emit(Text(f"✓ {node_id} → {event.handle}", style="green"))
+            self._refresh()
+        elif name == "NodeExpanded":
+            # A spawner (CALL/MAP/AGENT/LOOP) grew the graph instead of returning a value: a
+            # loop driver continuing to the next iteration, a call/map splicing its child. It has
+            # no terminal of its own (its value is committed by the spliced subgraph's terminal),
+            # so just clear its spinner — no ✓ line. Without this the driver clones (`polish`,
+            # `polish~1`, …) would spin forever, never leaving `_running`.
+            self._running.pop(node_id, None)
             self._refresh()
         elif name == "NodeFailed":
             self._running.pop(node_id, None)

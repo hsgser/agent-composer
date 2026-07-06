@@ -252,6 +252,27 @@ def test_run_error_boxes_namespaced_failure_at_owning_call(monkeypatch):
     assert "╭" in out                               # boxed, not a plain `run failed:` line
 
 
+def test_run_error_boxes_loop_max_exceeded_at_loop_node(monkeypatch):
+    # The loop runaway guard raises `LoopMaxExceeded` from a driver CLONE whose id carries a
+    # `~<k>` suffix (`polish~5`) — a line the parser never indexes and which has no locator. The
+    # renderer must strip the clone suffix, resolve to the authored `polish:` loop node, and box a
+    # real source frame instead of degrading to a bare `run failed:` line.
+    from agent_composer.events import NodeFailed
+
+    flow = _SEEDS / "28-refine-loop.yaml"
+    text = flow.read_text()
+    nf = NodeFailed("polish~5", error="loop 'polish' exceeded max (5)",
+                    error_type="LoopMaxExceeded", locator=None)
+    result = RunResult(input={}, status="failed",
+                       error="loop 'polish' exceeded max (5)", locator=None, events=[nf])
+    buf = _sink(monkeypatch)
+    _render_run_error(result, flow, text)
+    out = buf.getvalue()
+    assert "╭" in out                                # boxed, not a plain `run failed:` line
+    assert "28-refine-loop.yaml:45" in out           # resolved to the authored `polish:` loop node
+    assert "exceeded max (5)" in out
+
+
 def test_run_error_traceback_only_under_engine_trace(monkeypatch):
     # The captured Python traceback (a code/tool/agent raise) is surfaced ONLY when
     # `engine_trace=True`; the default terse display omits it.

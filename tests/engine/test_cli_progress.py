@@ -81,6 +81,39 @@ def test_boundary_nodes_are_ignored():
     assert buf.getvalue().strip() == ""
 
 
+def test_namespaced_boundary_nodes_are_ignored():
+    """A loop/map iteration's synthesized boundary nodes are namespaced
+    (`polish#0/__start__`); they carry no authored meaning and must be skipped too,
+    while a real body node in the same namespace (`polish#0/critic`) still renders."""
+    reporter, buf = _sink_reporter()
+    for nid in ("polish#0/__start__", "polish#0/__end__"):
+        reporter.handle(NodeStarted(nid))
+        reporter.handle(NodeSucceeded(nid, output="x"))
+    reporter.handle(NodeStarted("polish#0/critic"))
+    reporter.handle(NodeSucceeded("polish#0/critic", output="x"))
+    out = buf.getvalue()
+    assert "__start__" not in out
+    assert "__end__" not in out
+    assert "✓ polish#0/critic" in out
+
+
+def test_expanded_clears_spinner_without_check():
+    """A spawner (loop driver continue, call/map splice) emits NodeExpanded, not
+    NodeSucceeded — it has no terminal of its own. The reporter must clear its spinner
+    (remove it from `_running`) and NOT print a ✓/✗ line, else the driver clones would
+    spin forever in the live region."""
+    from agent_composer.events import NodeExpanded
+
+    reporter, buf = _sink_reporter()
+    reporter.handle(NodeStarted("polish~1"))
+    assert "polish~1" in reporter._running
+    reporter.handle(NodeExpanded("polish~1"))
+    assert "polish~1" not in reporter._running
+    out = buf.getvalue()
+    assert "✓" not in out
+    assert "✗" not in out
+
+
 _FLOW = "id: f\nname: f\nnodes:\n  a: {kind: agent, prompt: hi}\noutput: ${a.output}\n"
 
 
