@@ -917,7 +917,11 @@ def check_ref_map_types(
     node's `.yaml` line. Iterates the WIRING (not the params) so a mis-named binding still
     surfaces here when its child decl is absent rather than being silently skipped."""
     for nid, node in nodes.items():
-        if node.kind not in (NodeKind.CALL, NodeKind.MAP):
+        # CALL/MAP carry `child_inputs` to type-check against; a LOOP also carries a child but
+        # its `'a -> 'a` contract is checked by check_loop_shape_contract/carried_types instead.
+        # A leaf has no `child_inputs` attr, and a zero-input child gives [] (falsy) -> skip
+        # (behavior-identical to the old empty-child_decls loop, which ran zero checks).
+        if node.is_loop or not getattr(node, "child_inputs", None):
             continue
         child_decls = {d.name: d for d in node.child_inputs}
         for param, src in flow_wiring.get(nid, {}).items():
