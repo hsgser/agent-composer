@@ -81,9 +81,10 @@ address one by one (no scope/sequence decided yet).
   is spliced (not per-kind).
 - [ ] **AGENT is a hybrid** — a leaf that can also enqueue a continuation (mid-loop control-pause);
   make sure it still fits once growth is generic.
-- [ ] **F1 — AGENT/spawner inside a loop body** can't durably resume (DEFER:75). Deferred behind this
+- [x] ~~**F1 — AGENT/spawner inside a loop body** can't durably resume (DEFER:75). Deferred behind this
   rewrite; should fall out for free (a body grown via the generic splice gets the same nested-spawner
-  stamping as any subflow).
+  stamping as any subflow).~~ Proven: a CALL/MAP spawner nested in a loop body durably resumes both
+  in-process and across a checkpoint hop, with NO engine change — it fell out for free. -- 9cf72d9
 - [ ] **F2 — loop body partial-update / passthrough** — body must emit the entire carried record
   (`==`); want `output ⊆ carried` with unchanged fields merged through (DEFER:68). Deferred behind
   this rewrite; becomes pure code (`{**prior, **body_output}`) in `LoopNode.run`. The old plan

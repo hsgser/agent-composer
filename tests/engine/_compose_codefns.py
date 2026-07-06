@@ -101,6 +101,14 @@ def chat_fold(inputs: dict) -> dict:
     return {"messages": messages, "exited": inputs["msg"] == "bye"}
 
 
+def chat_fold_list(inputs: dict) -> dict:
+    # like chat_fold but folds a LIST of this turn's messages (a MAP over the turn's elements
+    # feeds `msgs`): extend the carried list and exit once any message is "bye". Drives the
+    # MAP-spawner-inside-a-loop-body pause/resume e2e.
+    messages = inputs["messages"] + list(inputs["msgs"])
+    return {"messages": messages, "exited": "bye" in inputs["msgs"]}
+
+
 def loop_countdown(inputs: dict) -> dict:
     # decrements the carried n. Drives a loop whose `while:` predicate divides by n
     # (`10 / ${n} > 0`), so the predicate RAISES (division by zero) once n reaches 0 on
