@@ -30,7 +30,7 @@ NOT a binding (it reads already-bound declared inputs, mints no edge), but it is
 
 Knows about: `expr.expressions` (peer — `_parse_literal`, `ExpressionError`) and
 `expr.builtins` (the prompt `TEMPLATE_FNS` registry).
-Never imports: `nodes`, `compile`, `runtime`, `state` (pool-agnostic via `resolve`).
+Never imports: `nodes`, `compile`, `runtime`, `typesys` (pool-agnostic via `resolve`).
 """
 
 from __future__ import annotations

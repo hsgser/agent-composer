@@ -30,7 +30,7 @@ present `else:`. A missing tag with no `else:` is a `LoadError`.
 
 Imports flow down/peer only: `expr` (ref scan), `nodes` (Case/CaseNode/ParamDecl),
 `compile.model` (Edge) + `compile.validation._walk_record_fields` (the dotted-field walk,
-a representation-neutral leaf checker), `state` (Type), and the compose peers
+a representation-neutral leaf checker), `typesys` (Type), and the compose peers
 `compose.calls` (the shared binding-walk, for `expand_case_outputs`), `compose.errors`,
 `compose.parser`. The `compose.calls` edge is acyclic (calls.py never imports cases.py; the
 loader imports both). Nothing in the engine imports this back.

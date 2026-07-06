@@ -63,7 +63,7 @@ class VariablePool(BaseModel):
     # The enclosing flow's START_ID node id: `${input.X}` ≡ `store[start_id].X`. The
     # engine sets this per-flow (and seeds store[start_id] with the bound input record); the
     # default below is the top-level convention used by standalone/no-engine pools. The literal
-    # MIRRORS `StartNode.ID` but is NOT imported from it: `state` is a leaf below `nodes`, so it
+    # MIRRORS `StartNode.ID` but is NOT imported from it: `typesys` is a leaf below `nodes`, so it
     # cannot import the node class. A consistency test pins `VariablePool().start_id ==
     # StartNode.ID` so the two can never silently diverge.
     start_id: str = "__start__"

@@ -61,7 +61,7 @@ from agent_composer.compose.parser import (
 from agent_composer.compose.types import InputDecl, read_type
 
 # A list-type helper: the LIST_OBJECT/LIST_* seg for an element Type (mirrors
-# `state.types._LIST_SEG_FOR_ELEMENT` + the list-of-record / list-of-variant rule in
+# `typesys.types._LIST_SEG_FOR_ELEMENT` + the list-of-record / list-of-variant rule in
 # `resolve_type`, applied to a precomputed element Type rather than a Type).
 _LIST_SEG_FOR_ELEMENT: dict[ValueKind, ValueKind] = {
     ValueKind.STRING: ValueKind.LIST_STRING,

@@ -16,7 +16,7 @@ This module does NOT run the asserts — `run_flow` evaluates each split against
 appropriate pool via `expr.evaluate_when`. Here we just parse, validate, and split.
 
 Imports flow DOWN only: `compile.validation` (the leaf `_classify_path`), `expr`
-(the grammar parse-check), `state.segments` (Type, for typing). Nothing imports this back.
+(the grammar parse-check), `typesys.values` (Type, for typing). Nothing imports this back.
 """
 
 from __future__ import annotations

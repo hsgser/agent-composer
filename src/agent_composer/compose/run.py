@@ -12,14 +12,14 @@ concerns the pure graph engine doesn't:
 
 `RunResult` (the surface-agnostic run outcome) lives here, beside `run_flow`. The
 seeding fns (`coerce_inputs`/`apply_defaults`/`seed_system_clock`) come from
-`state.seeding`; the run's clock is the `${system.today}`/`${system.now}` ambients
+`typesys.seeding`; the run's clock is the `${system.today}`/`${system.now}` ambients
 (a flow reads "as of" via `Optional[date]` + `:-`/`${system.today}`).
 
 Never raises on a flow failure — a failed/aborted run, or a false assert, comes back as
 a `RunResult` with `status != "succeeded"` (RunFailed is an engine EVENT, not an
 exception). Compile-time errors (a bad flow) are surfaced by `load_flow`, not here.
 
-Imports flow DOWN only: `runtime` (FlowEngine), `state` (the pool + seeding),
+Imports flow DOWN only: `runtime` (FlowEngine), `typesys` (the pool + seeding),
 `expr` (evaluate_when), `events`, and the sibling `loader` (LoadedFlow). Nothing
 imports back.
 """

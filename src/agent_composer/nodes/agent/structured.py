@@ -13,7 +13,7 @@ in a single-field model (`{"value": <scalar>}` / `{"items": [<element>]}`); `_un
 the wrapper back to the bare value after generation. A record maps one model field per
 declared field and passes through as the dumped dict.
 
-Layer: nodes — imports `state` (Type/ValueKind) + `pydantic`; no engine/runtime imports.
+Layer: nodes — imports `typesys` (Type/ValueKind) + `pydantic`; no engine/runtime imports.
 """
 
 from __future__ import annotations

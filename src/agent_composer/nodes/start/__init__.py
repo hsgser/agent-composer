@@ -5,7 +5,7 @@ section as its single root. The loader synthesizes ONE StartNode per flow from i
 `run(record)` = coerce + e08 type-check + apply_defaults, returning the bound input record as one
 object keyed by input name (store[<start id>], the `inputs`-namespace replacement).
 
-Imports flow one way: `nodes.base`/`nodes.binding` (peer/lower) + `state` (lower). The loader
+Imports flow one way: `nodes.base`/`nodes.binding` (peer/lower) + `typesys` (lower). The loader
 synthesizes and seeds it.
 """
 

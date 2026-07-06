@@ -26,7 +26,7 @@ bare whole-string binding (`${note.output}`) is one output named `result` (so
 `len(outputs) == 1` -> `terminal_output` returns the bare resolved value).
 
 Imports flow DOWN only: this module composes the compose package's own slices plus
-`state`/`compile.model`; nothing in the engine imports it back.
+`typesys`/`compile.model`; nothing in the engine imports it back.
 """
 
 from __future__ import annotations
@@ -352,7 +352,7 @@ def _load_flow(text, child_resolver, search_paths, ctx: "_LoadCtx") -> LoadedFlo
     try:
         registry = read_typedefs(f.typedefs)
     except TypeCheckError as exc:
-        # coarse: the state layer doesn't track source lines, so anchor at the
+        # coarse: the typesys layer doesn't track source lines, so anchor at the
         # `typedefs:` section line (the box's context still shows the offending name).
         raise LoadError(
             f"bad typedefs: {exc}", line=section_lines(text).get("typedefs")

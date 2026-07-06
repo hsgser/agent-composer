@@ -17,7 +17,7 @@ serialized (what *is* serialized is the checkpoint, which captures pause
 *reasons*, not events).
 
 `PauseReason` is typed in `suspension.pause`; referenced here as `Any` to keep
-`events` a dependency-free leaf alongside `state`.
+`events` a dependency-free leaf alongside `typesys`.
 """
 
 from dataclasses import dataclass, field
