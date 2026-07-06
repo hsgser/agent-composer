@@ -201,7 +201,7 @@ class LoopNode(NodeBase):              # SUBFLOW — repeat until done (self-res
         return Grow(Flow(                               # entry = body's __start__; no committing
             nodes = [body, next],                       # __end__ — the commit happens later, when a
             edges = [edge(body.end, next)],             # body __end__ → next's `carried` (normal
-            start_id = body.start_id, end_id = next.id, # wiring); terminating iter commits via commit_as
+            start_id = body.start_id, end_id = body.end_id, # wiring); terminating iter commits via commit_as
         ),
         prune = self.own_ids)                           # retire THIS iteration's scratch (the inverse
 ```

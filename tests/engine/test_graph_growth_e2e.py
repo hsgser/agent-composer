@@ -14,8 +14,8 @@ contract, this locks the engine results end-to-end:
 - **nested suspension resumes to terminal**: a HUMAN_INPUT inside a called child loads,
   parks on its namespaced leaf id, and resumes via deliver-as-Output.
 - the goldens still hold (graph-growth must not perturb the static edge ids).
-- `CHECKPOINT_VERSION == "7.0"` round-trips on a NON-paused run (bumped 6.0 -> 7.0 for
-  the unified GrowRecord expansion ledger).
+- `CHECKPOINT_VERSION == "8.0"` round-trips on a NON-paused run (bumped 7.0 -> 8.0 for
+  the MAP synthetic `map#/__start__` fan-out topology).
 - the ONE remaining engine xfail is the commandless durable re-pause, nothing else.
 
 LLM-terminating seeds (00/04/05/14/18) are asserted LOAD+structure only; run assertions use
@@ -106,7 +106,7 @@ def _run_map(topics):
 
 
 def test_checkpoint_version_is_current():
-    assert CHECKPOINT_VERSION == "7.0"  # bumped 6.0 -> 7.0 (unified GrowRecord expansion ledger)
+    assert CHECKPOINT_VERSION == "8.0"  # bumped 7.0 -> 8.0 (MAP synthetic map#/__start__ fan-out)
 
 
 # --- scratch eliminated structurally ------------------------ #
@@ -251,9 +251,9 @@ def test_checkpoint_roundtrip_non_paused():
     events = list(eng.run())
     assert isinstance(events[-1], RunSucceeded) and events[-1].output == 10
     snap = eng.snapshot()
-    assert snap.version == "7.0"
+    assert snap.version == "8.0"
     ck = RunCheckpoint.loads(snap.dumps())  # cross-process round-trip
-    assert ck.version == "7.0"
+    assert ck.version == "8.0"
     eng2 = FlowEngine.restore(loaded.compiled, ck)
     evs2 = list(eng2.resume([]))
     assert isinstance(evs2[-1], RunSucceeded) and evs2[-1].output == 10

@@ -200,7 +200,7 @@ def test_map_n_zero_synthesizes_end_list_emitting_empty(num_workers):
     pool = TypedVariablePool()
     pool.set(START_ID, {"topics": []})
     eng = FlowEngine(flow.compiled, pool, num_workers=num_workers)
-    assert list(eng.run())[-1].output == []     # N=0 -> the END_ID-list aggregator is a root -> []
+    assert list(eng.run())[-1].output == []     # N=0 -> synthetic map#/__start__ -> list END -> []
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])
