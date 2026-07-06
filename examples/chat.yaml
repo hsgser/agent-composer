@@ -1,0 +1,60 @@
+# chat — a turn-by-turn conversational REPL (plain agent; deterministic transcript).
+#
+# The turn boundary is STRUCTURAL: a LOOP body [human_input -> agent -> code-fold]
+# fixes "get the next message, reply, fold it in" as authored edges. The LLM only
+# fills the reply; the transcript grows in the fold (Python), not the model.
+# Run it with:  ac chat examples/chat.yaml    (or: ac run, answering each pause)
+id: chat
+name: chat
+description: A turn-by-turn conversational assistant (plain agent, no tools).
+
+input:
+  opening: str            # seed transcript; the CLI passes "" (empty)
+
+defs:
+  turn:                   # body: 'a -> 'a over {transcript, exited}
+    input:
+      transcript: str
+      exited: bool
+    nodes:
+      ask:
+        kind: human_input       # suspends each turn; resumed with the user's message
+        prompt: "You:"
+        output: str
+      reply:
+        kind: agent
+        mode: plain
+        input:
+          transcript: ${input.transcript}
+          message:    ${ask.output}
+        output: str
+        prompt: |-
+          You are a helpful conversational assistant.
+
+          Conversation so far:
+          ${transcript}
+
+          User: ${message}
+      fold:
+        kind: code
+        code: examples.chat_fns:fold_turn   # grows the transcript deterministically
+        input:
+          transcript: ${input.transcript}
+          message:    ${ask.output}
+          reply:      ${reply.output}
+          exited:     ${input.exited}
+        output:
+          transcript: str
+          exited: bool
+    output: ${fold.output}
+
+nodes:
+  chat:
+    kind: loop
+    call: turn
+    input:
+      transcript: ${input.opening}
+      exited: false                 # threaded through; the CLI ends the session via /exit
+    while: "not ${exited}"          # a carried-field predicate (verified to parse)
+    max: 1000                       # required runaway safety cap
+output: ${chat.output.transcript}
