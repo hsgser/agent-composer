@@ -2,7 +2,7 @@
 
 Bind the node's tools, then loop: ask the model; if it requests ordinary tools,
 run them via `TOOL_REGISTRY` and feed results back; if it requests a *control tool*
-(e.g. `ask_user`), lower the pause to a self-describing continuation `Grow(Subgraph)`
+(e.g. `ask_user`), lower the pause to a self-describing continuation `Grow(Flow)`
 (a human_input leaf + a resume_agent node, built by `agent_segment_subgraph`) and let
 the engine splice it into the live graph.
 

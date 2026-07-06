@@ -88,24 +88,6 @@ class Pause:
 
 
 @dataclass(frozen=True)
-class Subgraph:
-    """A self-describing graph fragment a spawner returns for the engine to splice in.
-    A Flow fragment (nodes/edges/wiring) plus `roots` (the entry nodes to schedule). By
-    convention its terminal carries a baked `commit_as=<spawner id>` (see Node.commit_as),
-    so the terminal's Output commits under the spawner on the ordinary success path.
-
-    # TRANSITIONAL: a later phase removes `roots` once map/loop synthesize a single real `__start__`
-    # (docs/engine.md:124). Today MAP fans out to N element roots + a 0-incoming list-END, and
-    # the agent continuation's root is the `human_input` leaf — neither is a `__start__` — so the
-    # entry cannot yet be *derived* and must be carried explicitly."""
-
-    nodes: "dict[str, Node]"
-    edges: "list"                     # list[Edge]
-    wiring: "dict[str, dict[str, Any]]"
-    roots: "list[str]"
-
-
-@dataclass(frozen=True)
 class Grow:
     """A spawner expands into a subgraph. The engine splices `subgraph` generically and
     applies `prune`. Fields:

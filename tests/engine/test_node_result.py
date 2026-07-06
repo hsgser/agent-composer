@@ -5,7 +5,8 @@ defined in `nodes.base` but produced by spawner nodes and interpreted by the dis
 `_apply_grow`. Routing rides `Route` (tested in `test_route.py`).
 """
 
-from agent_composer.nodes.base import Grow, Output, Pause, Subgraph
+from agent_composer.compile.model import Flow
+from agent_composer.nodes.base import Grow, Output, Pause
 
 
 def test_output_carries_value():
@@ -17,7 +18,7 @@ def test_pause_carries_reason():
 
 
 def test_grow_is_defined():
-    sg = Subgraph(nodes={}, edges=[], wiring={}, roots=[])
+    sg = Flow(nodes={}, edges=[], wiring={}, start_id="", end_id="")
     g = Grow(subgraph=sg, seed={"x": 1})
     assert g.subgraph is sg
     assert g.seed == {"x": 1}

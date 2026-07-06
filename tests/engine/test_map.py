@@ -144,7 +144,7 @@ def test_map_over_with_coalesce_resolves_at_run():
     assert result2.output == ["A"]
 
 
-# --- MapNode.run -> Grow(Subgraph); the END_ID(list-mode) aggregator joins in over order - #
+# --- MapNode.run -> Grow(Flow); the END_ID(list-mode) aggregator joins in over order - #
 def test_map_run_returns_grow():
     from agent_composer.compile.expand import map_callsite, ns
     from agent_composer.nodes.base import Grow

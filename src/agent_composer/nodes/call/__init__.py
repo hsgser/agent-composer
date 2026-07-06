@@ -2,7 +2,7 @@
 
 Charter: this package owns the `CallNode` that applies a callable ONCE (REF). It is the REF half
 of the REF/MAP pair; the MAP half is `nodes.map.MapNode` (`kind: map` + `over:`). The two are
-distinct typed drivers. `CallNode` carries no `over`/`parallel`; `run` returns one `Grow(Subgraph)`
+distinct typed drivers. `CallNode` carries no `over`/`parallel`; `run` returns one `Grow(Flow)`
 *description* for the engine's generic `_apply_grow` to splice into the live graph.
 
 Imports flow one way: `nodes.base` (peer) + a deferred `state.seeding` import inside `run`

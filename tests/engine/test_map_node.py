@@ -2,7 +2,7 @@
 
 `MapNode` discriminates by KIND (`NodeKind.MAP`), not an `over` flag — it carries NO `over`
 attribute and no `${...}` source on the node; the `over` SOURCE rides `flow.wiring[id]["over"]`
-(the engine pre-resolves it into `inputs["over"]` before `run`). `run` returns one `Grow(Subgraph)`
+(the engine pre-resolves it into `inputs["over"]` before `run`). `run` returns one `Grow(Flow)`
 — it builds the whole MAP fan-in (N child clones + a synthesized list END); an empty `over` -> a
 subgraph whose sole node is the list END.
 """

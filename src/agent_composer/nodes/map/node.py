@@ -7,7 +7,7 @@ NO `over` attribute and no `${...}` source on the node. The `over` SOURCE bindin
 `flow.wiring[id]["over"]` (mirroring WaitNode's timed `until`), pre-resolved into `inputs["over"]`
 by the engine's `eval_node` before `run`.
 
-`run` returns one `Grow(Subgraph)` — self-describing expansion: it builds the whole MAP fan-in
+`run` returns one `Grow(Flow)` — self-describing expansion: it builds the whole MAP fan-in
 subgraph (`map_subgraph` — N per-element child clones PLUS a synthesized `EndNode.list_` fan-in over
 the child ENDs) and the engine's generic `_apply_grow` splices it into the live graph, with a
 per-kind MAP residual (depth/refdepth/finish-mark + the transitional per-element
@@ -34,7 +34,7 @@ class MapNode(Node):
 
     The MAP half of the REF/MAP pair (the REF half is
     [`CallNode`][agent_composer.nodes.call.node.CallNode]). The `over` source is pre-resolved into
-    `inputs["over"]` by the engine bind seam; `run` returns one `Grow(Subgraph)` — it builds the
+    `inputs["over"]` by the engine bind seam; `run` returns one `Grow(Flow)` — it builds the
     whole MAP fan-in (N per-element child clones + a synthesized list END) via `map_subgraph`, and
     the engine's generic `_apply_grow` splices it and grows the live graph. The spliced child START
     owns omitted-input defaulting, so per-element call-args go raw.
@@ -62,7 +62,7 @@ class MapNode(Node):
     """
 
     kind = NodeKind.MAP
-    is_spawner: ClassVar[bool] = True  # grows the graph: run() returns a Grow(Subgraph)
+    is_spawner: ClassVar[bool] = True  # grows the graph: run() returns a Grow(Flow)
     binds_per_item: ClassVar[bool] = True  # binds call-args PER ELEMENT via `bind_item`, not up front
     grow_depth_delta: ClassVar[int] = 1  # each child is one REF level deeper (bounded by MAX_REF_DEPTH)
 

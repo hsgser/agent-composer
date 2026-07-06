@@ -122,28 +122,33 @@ these into the engine, such a node returns a **self-describing subgraph** and th
 it in:
 
 ```
-Subgraph(
+Flow(
   nodes,       # the new boxes to add
   edges,       # the new arrows between them
   wiring,      # where each new box reads its inputs from
+  start_id,    # the subgraph's single entry node
+  end_id,      # the subgraph's single result (terminal) node
 )
 ```
 
-A `Subgraph` is not a new type — it is just a **`Flow`**: the same `nodes`/`edges`/`wiring` core the
-top-level flow is built from. Splicing therefore reuses the flow's own construction, and a subflow
-node builds its expansion with the same primitives that authored the flow (clone a child flow, or
-synthesize one from `__start__` + children + `__end__`).
+A spliced subgraph is not a new type — it **is a `Flow`**: the exact same
+`nodes`/`edges`/`wiring`/`start_id`/`end_id` core the top-level flow is built from (`CompiledFlow`
+subclasses `Flow`). Splicing therefore reuses the flow's own construction, and a subflow node builds
+its expansion with the same primitives that authored the flow (clone a child flow, or synthesize one
+from `__start__` + children + `__end__`).
 
-That is the whole description — no `roots` — because every subgraph obeys one
-**convention: it is a well-formed sub-flow with a single `__start__` and a single `__end__`.** From
-that, the engine derives the entry, and the terminal carries the reconvergence:
+Every subgraph obeys one **convention: it is a well-formed sub-flow whose `start_id`/`end_id` name a
+single `__start__` and a single `__end__`** (deep-namespaced under the callsite). From those two ids
+the engine drives entry and reconvergence:
 
-- **entry** is always the subgraph's `__start__` (so `roots` is redundant);
+- **entry** is the subgraph's `start_id` — the one node the engine schedules; `_advance` fans out
+  downstream from there. (MAP's synthesized `map#/__start__` is that single entry: it fans out to the
+  N element clones, and a list-mode `__end__` collects them back into a list.)
 - **reconvergence**: the spawner *bakes* `commit_as=<its own id>` onto the subgraph's terminal node
-  (`__end__`). When that terminal runs, its `Output(value, commit_as=<spawner>)` commits under the
+  (`end_id`). When that terminal runs, its `Output(value, commit_as=<spawner>)` commits under the
   spawner's id via the normal output path — so downstream nodes see one clean output no matter how
   many inner nodes ran. `commit_as` is a field on `Output` (data the engine reads), not a field on
-  `Subgraph`, and it replaces the older alias map (one baked redirect, no engine-side alias table).
+  the `Flow`, and it replaces the older alias map (one baked redirect, no engine-side alias table).
 
 This one convention unifies **call** (clone a child flow — it already has `__start__`/`__end__`) and
 **map** (synthesize a `__start__` that fans out to N children and an `__end__` that collects them
@@ -198,8 +203,8 @@ on `spawner.kind` (one `_grow_*_residual` method per CALL/MAP/AGENT/LOOP). That 
 
 Everything else in the splice (add the subgraph, enforce `MAX_TOTAL_NODES`, mint one uniform
 `GrowRecord`, finish/mark the spawner, apply the origin `commit_as` to the derived terminal, schedule
-the roots) is uniform across every spawner. Adding a new spawner kind means setting these traits on
-its node — the growth core never gains a branch.
+the subgraph's `start_id`) is uniform across every spawner. Adding a new spawner kind means setting
+these traits on its node — the growth core never gains a branch.
 
 ## The run loop (pseudocode)
 
@@ -208,7 +213,7 @@ def run(flow, inputs):
     state = StateManager(flow.types)      # the typed memory (a.k.a. the pool)
     state.seed(inputs)                    # write the flow's inputs
     queue = ReadyQueue(flow.graph)        # tracks which nodes' inputs are satisfied
-    queue.add(flow.roots)                 # the entry nodes
+    queue.add(flow.start_id)              # the entry node
 
     while (node := queue.pop_ready(state)) is not None: 
         emit(NodeStarted(node.id))

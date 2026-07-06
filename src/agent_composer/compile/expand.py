@@ -1,7 +1,7 @@
 """Runtime graph-expansion machinery — the pure half.
 
 When a spawner (REF / MAP / agent-pause) runs, it does not run a child engine; it
-returns a *description* (`Grow(Subgraph)`) and the engine GROWS the live graph by cloning the
+returns a *description* (`Grow(Flow)`) and the engine GROWS the live graph by cloning the
 target child(ren) deep-namespaced into the running `CompiledFlow`. This module holds the
 **pure** machinery that growth keys off:
 
@@ -22,7 +22,6 @@ Layer: compile — imports `nodes`/`model`/`expr` (ladder-legal); never `runtime
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from agent_composer.compile.model import Edge, END_ID, Flow, START_ID
@@ -51,24 +50,6 @@ def ask_resume_edge_id(callsite: str) -> str:
 # --------------------------------------------------------------------------- #
 # clone_child — the pure deep-flatten + partial-eval + arity cloner
 # --------------------------------------------------------------------------- #
-
-
-@dataclass(frozen=True)
-class ClonedSubgraph:
-    """DEAD — no builder returns this anymore (they return `Flow`); deleted in a later step.
-
-    Historically the pure result of cloning a child flow at one callsite: `nodes`/`edges`/`wiring`
-    deep-namespaced under the callsite, `roots` the namespaced child `START_ID`, `out_node_id` the
-    namespaced child `END_ID`, and `boundary_asserts` the child's raw BOUNDARY asserts. The `Flow`
-    core now carries `start_id`/`end_id` in place of `roots`/`out_node_id`, and boundary asserts are
-    read engine-side off the spawner, so this type and its fields are retired."""
-
-    nodes: dict[str, Node]
-    edges: list[Edge]
-    wiring: dict[str, dict[str, Any]]
-    roots: list[str]
-    out_node_id: str
-    boundary_asserts: list[str] = field(default_factory=list)
 
 
 def _whole_span(src: str) -> Optional[str]:

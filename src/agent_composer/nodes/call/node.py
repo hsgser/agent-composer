@@ -4,7 +4,7 @@
 the MAP half is `nodes.map.MapNode` (`kind: map` + `over:`, `list['a] -> list['b]`) — the two are
 distinct typed drivers. `CallNode` carries NO `over`/`parallel`.
 
-`run` returns one `Grow(Subgraph)` — self-describing expansion: it builds the child subgraph
+`run` returns one `Grow(Flow)` — self-describing expansion: it builds the child subgraph
 (`call_subgraph`) and the engine's generic `_apply_grow` splices it into the live graph, with a
 per-kind CALL residual (depth/refdepth/finish-mark + the transitional boundary-assert/ledger). The
 `Grow.seed` is the raw call-arg record (the durable builder input). The spliced child
@@ -26,7 +26,7 @@ class CallNode(Node):
     The REF driver (`kind: call`) — apply a callable flow once (`'a flow -> 'b`).
 
     The REF half of the REF/MAP pair (the MAP half is
-    [`MapNode`][agent_composer.nodes.map.node.MapNode]). `run` returns one `Grow(Subgraph)`
+    [`MapNode`][agent_composer.nodes.map.node.MapNode]). `run` returns one `Grow(Flow)`
     description; the engine's generic `_apply_grow` splices the built child subgraph and grows the
     live graph. The spliced
     child START owns omitted-input defaulting, so the driver passes call-args raw.
@@ -52,7 +52,7 @@ class CallNode(Node):
     """
 
     kind = NodeKind.CALL
-    is_spawner: ClassVar[bool] = True  # grows the graph: run() returns a Grow(Subgraph)
+    is_spawner: ClassVar[bool] = True  # grows the graph: run() returns a Grow(Flow)
     grow_depth_delta: ClassVar[int] = 1  # each child is one REF level deeper (bounded by MAX_REF_DEPTH)
 
     def __init__(self, node_id: str, *, flow_id: str, flow_version: Optional[int] = None,

@@ -25,7 +25,7 @@ A node is a **pure function of its bound input record**. It implements
 | `Output(value)` | the one produced value; the engine writes it under the node id. Optional `Output(value, commit_as=<id>)` redirects the write to another id (and fires *that* id's out-edges) — the node-chosen commit target; `None` (the default) commits under the node's own id. |
 | `Route(handle)` | a routing-only outcome (a CASE picks an out-edge `handle`); carries no value, writes no pool entry. The engine emits `NodeRouted` and takes the chosen edge, skip-flooding the siblings. |
 | `Pause(reason)` | a leaf wait (HUMAN_INPUT / WAIT / agent control-pause). The engine emits `PauseRequested` and suspends; the answer is delivered as this node's `Output` (the node never re-runs). |
-| `Grow(subgraph, prune, seed)` | grow the live graph — a self-describing `Subgraph` the engine splices in generically via `_apply_grow` (the CALL/MAP drivers, agent control-pause, loop iterations). `seed` is the pure builder input persisted for durable replay; `prune` names ids to retire in the same step. Only spawner kinds (`is_spawner`) may return it. |
+| `Grow(subgraph, prune, seed)` | grow the live graph — `subgraph` is a self-describing **`Flow`** (`nodes`/`edges`/`wiring`/`start_id`/`end_id`) the engine splices in generically via `_apply_grow` (the CALL/MAP drivers, agent control-pause, loop iterations). The engine schedules the subgraph's `start_id` and fans out from there. `seed` is the pure builder input persisted for durable replay; `prune` names ids to retire in the same step. Only spawner kinds (`is_spawner`) may return it. |
 
 A streaming kind is a generator that yields `StreamChunk` and *returns* a
 `NodeResult`. **Failure is not a variant** — a node `raise`s and the engine
@@ -60,7 +60,8 @@ base `Node`; a kind overrides only what it needs.
 | `needs_llm: bool` | read boundary (`eval_node`): build the `caps['llm']` cap (the engine-owned model factory) and pass it to `run` | `False` → `True` on `agent` |
 
 The rest of the splice (add subgraph, enforce `MAX_TOTAL_NODES`, mint one uniform `GrowRecord`,
-finish/mark the spawner, apply the origin `commit_as` to the derived terminal, schedule roots) is
+finish/mark the spawner, apply the origin `commit_as` to the derived terminal, schedule the
+subgraph's `start_id`) is
 uniform. The old per-kind `_grow_*_residual` switch is gone. Success-path routing (CASE branch/skip,
 subflow commit-under-spawner) rides `Outcome` data (`Route.handle`, `Output.commit_as`); a spawner's
 `post_asserts` are re-checked at the **commit site** when a terminal commits under a different id —
