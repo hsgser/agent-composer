@@ -78,6 +78,9 @@ nav:
   - The ac CLI: cli.md
   - Flow syntax: syntax.md
   - Examples: examples.md
+  - Internals:
+    - The engine: engine.md
+    - Nodes: nodes.md
   - Python API: api.md
   - API Reference: reference.md
   - Roadmap:

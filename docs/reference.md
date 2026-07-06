@@ -17,7 +17,7 @@ These are exported from `agent_composer`.
 
 ::: agent_composer.FlowEngine
 
-::: agent_composer.TypedVariablePool
+::: agent_composer.VariablePool
 
 ::: agent_composer.evaluate_when
 
@@ -53,8 +53,6 @@ vocabulary. A node returns one of the closed sum
 ::: agent_composer.nodes.base.Route
 
 ::: agent_composer.nodes.base.Pause
-
-::: agent_composer.nodes.base.Subgraph
 
 ::: agent_composer.nodes.base.Grow
 
