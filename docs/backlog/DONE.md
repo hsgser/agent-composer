@@ -246,6 +246,19 @@ This backlog is split four ways:
   the behavior fell out for free after the kind-agnostic refactor — NO engine change was needed;
   `tests/engine/test_loop_body_spawner_resume.py` is the proof.~~
   -- 9cf72d9 (branch `dev/engine/loop-body-spawner-resume-test`)
+- [x] ~~**Unify the typed-value vocabulary (Type/Value family, `typesys/` package).** Pure mechanical
+  rename, zero behavior change, across 30 source + 55 test files. Collapsed the overlapping
+  `Segment`/`SegmentType`/`Shape`/parse-`Type` names into one coherent family: value wrapper
+  `Segment`→`TypedValue`, tag enum `SegmentType`→`ValueKind`, resolved type `Shape`→`Type`, parse AST
+  `Type`→`TypeExpr` (demoted internal to `types.py`), `SegmentError`→`TypeCheckError`,
+  `TypedVariablePool`→`VariablePool`. All 15 `*Segment`→`*Value`, one field spelling `.kind` everywhere
+  (was `value_type`/`seg_type`/`element_type`), `build_segment*`→`build_value*`,
+  `resolve_shape`/`shape_for`→`resolve_type`/`type_for`, and the whole lowercase `shape` family
+  →`type`. Package `state/`→`typesys/`, `segments.py`→`values.py`, `compose/shapes.py`→`compose/types.py`.
+  Checkpoint wire format changed (`value_type`→`kind`) — old checkpoints won't load (acceptable
+  no-compat). Carve-outs: English "shape" prose, `test_surface_vocab_golden` names, the
+  `_validate_body_shape` comment.~~
+  -- f59f215 (branch `dev/typesys/unify-vocabulary`)
 
 ## LLM config — cascade + per-node opt-out + CLI override
 

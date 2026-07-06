@@ -22,4 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| dev/typesys/unify-vocabulary | main | Unify typed-value vocabulary (Type/Value family, typesys/ package) | 2026-07-06 |
+| _(none)_ | | | |
