@@ -8,7 +8,7 @@ the engine's authoring constraints (1..4 questions, unique headers).
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 
 
 class OptionSpec(BaseModel):

@@ -6,7 +6,7 @@ a monkeypatch of the gate.
 """
 
 from agent_composer.nodes.agent.structured import generate_structured
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 
 
 def test_no_native_support_uses_prompt_injection():

@@ -17,8 +17,8 @@ from typing import Optional
 from agent_composer.events import SourceSpan
 from agent_composer.nodes.base import Node, NodeKind, Output
 from agent_composer.nodes.binding import ParamDecl
-from agent_composer.state import TypeCheckError, build_value_as
-from agent_composer.state.seeding import apply_defaults, coerce_inputs
+from agent_composer.typesys import TypeCheckError, build_value_as
+from agent_composer.typesys.seeding import apply_defaults, coerce_inputs
 
 
 class StartNode(Node):

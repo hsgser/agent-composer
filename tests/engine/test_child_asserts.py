@@ -114,7 +114,7 @@ def test_map_child_assert_one_violating_element_fails():
 from agent_composer.compile.model import START_ID
 from agent_composer.events import RunFailed
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])

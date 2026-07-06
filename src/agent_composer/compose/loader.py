@@ -37,8 +37,8 @@ from typing import Any, Optional
 
 from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput
 from agent_composer.nodes.base import Node
-from agent_composer.state.segments import TypeCheckError, Type
-from agent_composer.state.types import read_typedefs
+from agent_composer.typesys.values import TypeCheckError, Type
+from agent_composer.typesys.types import read_typedefs
 from agent_composer.compose.asserts import AssertSet, classify_asserts
 from agent_composer.compose.build import (
     ChildResolver,
@@ -75,7 +75,7 @@ from agent_composer.compose.parser import (
     parse_file,
     section_lines,
 )
-from agent_composer.compose.shapes import InputDecl, read_flow_inputs
+from agent_composer.compose.types import InputDecl, read_flow_inputs
 from agent_composer.compose.validate import (
     check_case_handles,
     reject_cycles,

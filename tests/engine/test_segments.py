@@ -8,7 +8,7 @@ Feature -> contract:
 
 import pytest
 
-from agent_composer.state.segments import (
+from agent_composer.typesys.values import (
     ANY_VALUE_ADAPTER,
     BooleanValue,
     FileRef,
@@ -126,7 +126,7 @@ def test_file_segment_round_trip():
 
 
 def test_date_segment_build_and_roundtrip():
-    from agent_composer.state.segments import DateValue
+    from agent_composer.typesys.values import DateValue
 
     seg = build_value_as(ValueKind.DATE, "2026-06-08")
     assert isinstance(seg, DateValue)
@@ -151,7 +151,7 @@ def test_plain_string_not_inferred_as_date():
 
 
 def test_datetime_segment_build_and_roundtrip():
-    from agent_composer.state.segments import DateTimeValue
+    from agent_composer.typesys.values import DateTimeValue
 
     seg = build_value_as(ValueKind.DATETIME, "2026-06-12T14:30:00+00:00")
     assert isinstance(seg, DateTimeValue)
@@ -186,7 +186,7 @@ def test_plain_string_not_inferred_as_datetime():
 
 
 def test_type_back_compat_kind_accepted():
-    from agent_composer.state.segments import Type
+    from agent_composer.typesys.values import Type
 
     assert isinstance(build_value_as(Type.scalar(ValueKind.STRING), "x"), StringValue)
     # passing a bare ValueKind still works (back-compat)
@@ -194,7 +194,7 @@ def test_type_back_compat_kind_accepted():
 
 
 def test_type_variant_membership():
-    from agent_composer.state.segments import Type
+    from agent_composer.typesys.values import Type
 
     action = Type(kind=ValueKind.STRING, tags=frozenset({"Approve", "Reject", "Defer"}))
     assert build_value_as(action, "Approve").value == "Approve"
@@ -203,7 +203,7 @@ def test_type_variant_membership():
 
 
 def test_type_record_fields():
-    from agent_composer.state.segments import Type
+    from agent_composer.typesys.values import Type
 
     rating = Type(
         kind=ValueKind.OBJECT,
@@ -223,7 +223,7 @@ def test_type_record_fields():
 
 
 def test_type_nullable_field_accepts_none_and_absent():
-    from agent_composer.state.segments import Type
+    from agent_composer.typesys.values import Type
 
     sig = Type(
         kind=ValueKind.OBJECT,
@@ -245,7 +245,7 @@ def test_type_nullable_field_accepts_none_and_absent():
 
 
 def test_type_list_of_record():
-    from agent_composer.state.segments import ListObjectValue, Type
+    from agent_composer.typesys.values import ListObjectValue, Type
 
     rating = Type(
         kind=ValueKind.OBJECT,

@@ -14,7 +14,7 @@ import pytest
 
 from agent_composer.compile.model import START_ID
 from agent_composer.nodes.binding import BindingError, ParamDecl, bind_params
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 # Test-local sink: a legacy InputBinding-shaped (name, type, source, required, default) spec.
 _Sink = namedtuple("_Sink", "name type source required default", defaults=(None, None, False, None))

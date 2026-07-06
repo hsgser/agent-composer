@@ -15,7 +15,7 @@ from agent_composer.nodes.base import Node, NodeKind, Output
 from agent_composer.nodes.human_input import HumanInputNode
 from agent_composer.nodes.wait import WaitNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from agent_composer.suspension.checkpoint import RunCheckpoint
 from agent_composer.suspension.commands import DeliverAnswerCommand
 from agent_composer.suspension.pause import HumanInputRequired, EventAwaited
@@ -317,7 +317,7 @@ def test_event_awaited_type_literal_round_trip():
 
 def test_wait_timed_until_pauses():
     from agent_composer.nodes.wait import WaitNode
-    from agent_composer.state.pool import VariablePool
+    from agent_composer.typesys.pool import VariablePool
     from agent_composer.events import PauseRequested
     from agent_composer.suspension.pause import ScheduledPause
     pool = VariablePool()
@@ -333,7 +333,7 @@ def test_wait_timed_until_pauses():
 
 def test_human_input_renders_prompt_from_inputs():
     from agent_composer.nodes.human_input import HumanInputNode
-    from agent_composer.state.pool import VariablePool
+    from agent_composer.typesys.pool import VariablePool
     from agent_composer.events import PauseRequested
     pool = VariablePool()
     pool.set("propose", "order ACME")            # producer value

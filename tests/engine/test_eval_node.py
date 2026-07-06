@@ -16,7 +16,7 @@ from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.map import MapNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from tests.engine._fakes import BranchNode, FailNode, FuncNode, PauseOnceNode, drive, stamp_reads
 from tests.engine._graph_builder import _graph
 from tests.engine.test_golden_baseline import MAP_OVER_NOT_LIST_FMT

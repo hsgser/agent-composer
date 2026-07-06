@@ -1,5 +1,5 @@
 from agent_composer.nodes.human_input.questions import question_list_type
-from agent_composer.state.segments import ValueKind
+from agent_composer.typesys.values import ValueKind
 from agent_composer.nodes.agent.structured import type_to_schema
 
 

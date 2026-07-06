@@ -13,7 +13,7 @@ from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.case import Case, CaseNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from tests.engine._fakes import FuncNode, RecordNode, derive_wiring, stamp_reads
 
 

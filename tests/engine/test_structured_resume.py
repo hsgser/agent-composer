@@ -19,7 +19,7 @@ from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 from agent_composer.suspension.pause import HumanInputRequired
 
 

@@ -20,7 +20,7 @@ from agent_composer.nodes.start import StartNode
 from agent_composer.events import NodeFailed, RunSucceeded
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from agent_composer.llm_clients import LLMConfig
 
 

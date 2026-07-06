@@ -1,7 +1,7 @@
 """Typed runtime state: the segment value system + the variable pool."""
 
-from agent_composer.state.pool import VariablePool
-from agent_composer.state.segments import (
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import (
     AnyValue,
     DateValue,
     DateTimeValue,
@@ -13,7 +13,7 @@ from agent_composer.state.segments import (
     build_value,
     build_value_as,
 )
-from agent_composer.state.types import (
+from agent_composer.typesys.types import (
     RecordDef,
     TypeRegistry,
     VariantDef,

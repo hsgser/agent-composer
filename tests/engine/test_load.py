@@ -22,7 +22,7 @@ from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.code import CodeNode
 from agent_composer.nodes.case import CaseNode
 from agent_composer.nodes.model import ModelNode
-from agent_composer.state.segments import ValueKind
+from agent_composer.typesys.values import ValueKind
 from agent_composer.compose import LoadedFlow, LoadError, load_flow
 
 _SEEDS = Path(__file__).resolve().parents[2] / "tests" / "seeds"

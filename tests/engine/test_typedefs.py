@@ -2,8 +2,8 @@
 
 import pytest
 
-from agent_composer.state.segments import TypeCheckError, ValueKind
-from agent_composer.state.types import (
+from agent_composer.typesys.values import TypeCheckError, ValueKind
+from agent_composer.typesys.types import (
     AliasDef,
     RecordDef,
     RefExpr,

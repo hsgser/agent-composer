@@ -40,7 +40,7 @@ from agent_composer.compose.parser import (
 )
 from agent_composer.compose.run import RunResult, resume_command, resume_flow, run_flow
 from agent_composer.events import NodeFailed, SourceSpan
-from agent_composer.state.segments import ValueKind
+from agent_composer.typesys.values import ValueKind
 
 console = Console()
 err_console = Console(stderr=True)

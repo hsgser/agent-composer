@@ -12,9 +12,9 @@ from typing import Any, Optional
 
 import yaml
 
-from agent_composer.state import TypeCheckError, Type, type_for
-from agent_composer.state.segments import ValueKind
-from agent_composer.state.types import ScalarExpr, TypeRegistry, parse_type
+from agent_composer.typesys import TypeCheckError, Type, type_for
+from agent_composer.typesys.values import ValueKind
+from agent_composer.typesys.types import ScalarExpr, TypeRegistry, parse_type
 
 from agent_composer.compose.errors import LoadError
 

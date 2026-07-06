@@ -29,8 +29,8 @@ from agent_composer.expr import (
     eval_binding,
     resolve_reference,
 )
-from agent_composer.state import TypeCheckError, Type, build_value_as, type_for
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys import TypeCheckError, Type, build_value_as, type_for
+from agent_composer.typesys.pool import VariablePool
 
 
 class BindingError(ValueError):

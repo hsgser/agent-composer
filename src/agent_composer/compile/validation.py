@@ -14,7 +14,7 @@ and re-raises as a located `LoadError`.
 
 
 from agent_composer.compile.model import END_ID, START_ID
-from agent_composer.state.segments import ValueKind, Type
+from agent_composer.typesys.values import ValueKind, Type
 
 _CLOSED_HEADS = ()              # `outputs` is no longer a head; node-first head dispatch
 _SYSTEM_AMBIENTS = ("today", "now", "run_id")  # the ONLY valid ${system.X} ambients

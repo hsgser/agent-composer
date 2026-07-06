@@ -9,7 +9,7 @@ import pytest
 
 from agent_composer.compile.model import START_ID
 from agent_composer.nodes.wait.node import resolve_until
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 def test_literal_iso_passthrough():

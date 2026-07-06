@@ -20,7 +20,7 @@ its single run; the engine delivers the answer — no re-run.
 from typing import Any, Optional
 
 from agent_composer.nodes.base import Node, NodeKind, Pause
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from agent_composer.suspension.pause import EventAwaited, ScheduledPause
 
 

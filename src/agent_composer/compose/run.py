@@ -33,8 +33,8 @@ from agent_composer.compile.llm_cascade import resolve_llm_cascade
 from agent_composer.events import RunAborted, RunFailed, RunPaused, RunSucceeded, SourceSpan
 from agent_composer.expr import first_failing_assert
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
-from agent_composer.state.seeding import (
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.seeding import (
     apply_defaults,
     coerce_inputs,
     default_run_id,

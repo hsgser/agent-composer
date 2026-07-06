@@ -44,7 +44,7 @@ from agent_composer.expr import resolve_reference
 from agent_composer.expr.expressions import ExpressionError, _evaluate, _resolve_in_record
 from agent_composer.nodes.base import Grow, Output, Pause, Route
 from agent_composer.nodes.binding import bind_params
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 def _first_failing_assert(asserts, record: dict, pool: VariablePool):

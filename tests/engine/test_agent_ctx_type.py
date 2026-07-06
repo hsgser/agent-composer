@@ -3,7 +3,7 @@
 import agent_composer.llm_clients as llm_clients_mod
 from agent_composer.nodes.agent.node import AgentNode
 from agent_composer.runtime.eval_node import _default_llm
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 
 
 def test_ctx_carries_output_type(monkeypatch):

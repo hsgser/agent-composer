@@ -22,7 +22,7 @@ import pytest
 
 from agent_composer.nodes.call import CallNode   # nodes/call/__init__.py
 from agent_composer.nodes.map import MapNode
-from agent_composer.state.segments import ValueKind
+from agent_composer.typesys.values import ValueKind
 from agent_composer.compose import LoadedFlow, LoadError, load_flow
 from agent_composer.compose.build import ChildSignature, child_signature
 

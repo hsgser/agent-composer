@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agent_composer.compose.errors import LoadError
 from agent_composer.compile.model import END_ID, START_ID
-from agent_composer.state.segments import Type
+from agent_composer.typesys.values import Type
 
 _STRICT = ConfigDict(extra="forbid")
 

@@ -22,7 +22,7 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_composer.state.segments import (
+from agent_composer.typesys.values import (
     AnyValue,
     TypedValue,
     ValueKind,

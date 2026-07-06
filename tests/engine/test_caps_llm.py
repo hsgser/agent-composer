@@ -12,7 +12,7 @@ def test_agent_node_needs_llm():
 
 
 from agent_composer.nodes.base import NodeKind, Output
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from agent_composer.runtime.eval_node import eval_node, _default_llm
 
 

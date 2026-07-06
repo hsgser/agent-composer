@@ -1,13 +1,13 @@
 import pytest
 
 from agent_composer.compile.model import START_ID
-from agent_composer.compose.shapes import InputDecl
+from agent_composer.compose.types import InputDecl
 from agent_composer.nodes.base import NodeKind, Output
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.eval_node import eval_node
-from agent_composer.state.pool import VariablePool
-from agent_composer.state.segments import ValueKind, Type
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import ValueKind, Type
 
 
 def _decl(name, type_, default=None, required=False, typ=None):

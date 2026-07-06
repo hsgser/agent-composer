@@ -45,7 +45,7 @@ def test_rens_internal_computed_whole_span_renamespaces_all_leaves():
 import pytest
 from agent_composer.events import RunSucceeded
 from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput, NodeState, START_ID, END_ID
-from agent_composer.compose.shapes import InputDecl, read_type
+from agent_composer.compose.types import InputDecl, read_type
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
@@ -134,7 +134,7 @@ def test_call_grow_clones_namespaced_and_substitutes_spawner(num_workers):
 # --- runtime bounds (MAX_TOTAL_NODES + MAX_REF_DEPTH) + REF-inside-MAP nesting proof ------- #
 
 from agent_composer.compose import load_flow
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 # A REF-inside-MAP: parent MAP "each" over the elements; the child "mid" is itself a REF

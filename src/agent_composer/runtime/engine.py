@@ -52,9 +52,9 @@ from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.base import Grow
 from agent_composer.runtime.eval_node import eval_node
 from agent_composer.runtime.state_manager import StateManager
-from agent_composer.state import TypeCheckError
+from agent_composer.typesys import TypeCheckError
 from agent_composer.suspension.expansions import GrowRecord
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 DEFAULT_HANDLE = "default"
 
@@ -827,7 +827,7 @@ class FlowEngine:
         the eval seam turns it into a located NodeFailed). A node with no boundary records (AGENT,
         LOOP) or no boundary asserts is a no-op."""
         from agent_composer.expr import first_failing_assert
-        from agent_composer.state.seeding import apply_defaults, coerce_inputs
+        from agent_composer.typesys.seeding import apply_defaults, coerce_inputs
 
         spawner = self.flow.nodes[spawner_id]
         records = spawner.iter_boundary_records(seed)

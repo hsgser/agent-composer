@@ -24,7 +24,7 @@ from typing import Any, List, Literal, Optional
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, create_model
 
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 
 # ValueKind -> python type for a scalar slot. DATE/DATETIME persist as ISO strings.
 _SCALAR_PY: dict[ValueKind, type] = {

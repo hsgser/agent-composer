@@ -26,7 +26,7 @@ from agent_composer.compile.model import CompiledFlow
 from agent_composer.compile.validation import FlowValidationError
 from agent_composer.compose import LoadError, LoadedFlow, load_flow, run_flow
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 __all__ = [
     "ExpressionError",

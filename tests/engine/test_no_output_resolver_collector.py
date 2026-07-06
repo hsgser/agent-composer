@@ -14,7 +14,7 @@ import pytest
 from agent_composer.events import NodeFailed, NodeSucceeded
 from agent_composer.nodes.base import NodeKind
 from agent_composer.nodes.end import EndNode
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from tests.engine._fakes import drive, stamp_reads
 
 

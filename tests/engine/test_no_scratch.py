@@ -10,7 +10,7 @@ import importlib
 import inspect
 import pkgutil
 
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 def test_pool_has_no_scratch():

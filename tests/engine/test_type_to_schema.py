@@ -1,6 +1,6 @@
 """`type_to_schema` — derive a pydantic model from a declared output `Type`."""
 
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 from agent_composer.nodes.agent.structured import type_to_schema
 
 

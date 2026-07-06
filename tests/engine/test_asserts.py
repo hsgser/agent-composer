@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_composer.state.segments import ValueKind, Type
+from agent_composer.typesys.values import ValueKind, Type
 from agent_composer.compose.asserts import AssertSet, classify_asserts
 from agent_composer.compose.errors import LoadError
 

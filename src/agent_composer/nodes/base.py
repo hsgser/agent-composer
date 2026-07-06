@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Optional, Union
 from agent_composer.expr import ExpressionError
 from agent_composer.expr.expressions import evaluate_when_record
 from agent_composer.nodes.binding import ParamDecl
-from agent_composer.state.segments import Type
+from agent_composer.typesys.values import Type
 
 if TYPE_CHECKING:
     # Import-cycle guard: `compile.model` imports `nodes.base`, so `Flow` is only pulled in for

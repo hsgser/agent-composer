@@ -10,8 +10,8 @@ Feature -> contract:
 import pytest
 
 from agent_composer.compile.model import START_ID
-from agent_composer.state.pool import VariablePool
-from agent_composer.state.segments import TypeCheckError, ValueKind
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import TypeCheckError, ValueKind
 
 
 def test_set_and_get():
@@ -87,7 +87,7 @@ def test_declared_type_drift_raises():
 
 
 def test_pool_set_accepts_type_and_enforces():
-    from agent_composer.state.segments import Type
+    from agent_composer.typesys.values import Type
 
     pool = VariablePool()
     action = Type(kind=ValueKind.STRING, tags=frozenset({"Approve", "Reject"}))

@@ -2,7 +2,7 @@
 
 Parses an `IOField.type` / `types:` reference string into a `TypeExpr` AST, and
 resolves a `TypeExpr` against the per-flow type registry into a leaf `Type`
-(`agent_composer.state.segments`). This is the bridge from the authoring contract
+(`agent_composer.typesys.values`). This is the bridge from the authoring contract
 to the typed value system.
 
 Imports `segments` (peer leaf); imported by compile/validation + the runtime
@@ -15,7 +15,7 @@ import ast
 from dataclasses import dataclass, replace
 from typing import Union
 
-from agent_composer.state.segments import (
+from agent_composer.typesys.values import (
     TypeCheckError,
     ValueKind,
     Type,

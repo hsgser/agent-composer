@@ -3,7 +3,7 @@
 import pytest
 
 from agent_composer.nodes.agent.structured import generate_structured
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 
 
 def test_retry_on_invalid_then_succeeds():

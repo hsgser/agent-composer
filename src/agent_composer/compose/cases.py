@@ -52,7 +52,7 @@ from agent_composer.expr import (
 )
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.case import DEFAULT_HANDLE, Case, CaseNode
-from agent_composer.state.segments import Type
+from agent_composer.typesys.values import Type
 from agent_composer.compose.calls import (
     _to_call_descriptor,
     desugar_call_directives,

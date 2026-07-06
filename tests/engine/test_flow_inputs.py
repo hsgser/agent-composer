@@ -2,10 +2,10 @@
 
 import pytest
 
-from agent_composer.state.segments import ValueKind
-from agent_composer.state.seeding import apply_defaults, coerce_inputs
+from agent_composer.typesys.values import ValueKind
+from agent_composer.typesys.seeding import apply_defaults, coerce_inputs
 from agent_composer.compose import LoadError
-from agent_composer.compose.shapes import InputDecl, read_flow_inputs
+from agent_composer.compose.types import InputDecl, read_flow_inputs
 
 
 def _by_name(decls):

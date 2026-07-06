@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:  # pragma: no cover - typing only (keeps state import-clean)
-    from agent_composer.state.pool import VariablePool
+    from agent_composer.typesys.pool import VariablePool
 
 
 def coerce_param(field: Any, value: Any) -> Any:
@@ -99,7 +99,7 @@ def seed_system_clock(pool: "VariablePool") -> None:
     and MAP element observes one consistent clock. The clock is the only seam through
     which a flow may read "now" (the engine never resolves date words).
     """
-    from agent_composer.state.segments import DateValue, DateTimeValue
+    from agent_composer.typesys.values import DateValue, DateTimeValue
 
     pool.system["today"] = DateValue(value=today_utc())
     pool.system["now"] = DateTimeValue(value=now_utc())

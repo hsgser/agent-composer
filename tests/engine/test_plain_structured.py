@@ -2,7 +2,7 @@
 
 from agent_composer.nodes.agent.modes.common import AgentRunContext
 from agent_composer.nodes.agent.modes.plain import plain
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.values import Type, ValueKind
 
 
 class _StructuredModel:

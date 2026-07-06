@@ -43,8 +43,8 @@ from agent_composer.nodes.start import StartNode
 from agent_composer.nodes.tool import ToolNode
 from agent_composer.nodes.wait import WaitNode
 from agent_composer.llm_clients import LLMConfig
-from agent_composer.state.segments import ValueKind, Type
-from agent_composer.state.types import TypeRegistry
+from agent_composer.typesys.values import ValueKind, Type
+from agent_composer.typesys.types import TypeRegistry
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.parser import (
     AgentDescriptor,
@@ -58,7 +58,7 @@ from agent_composer.compose.parser import (
     ToolDescriptor,
     WaitDescriptor,
 )
-from agent_composer.compose.shapes import InputDecl, read_type
+from agent_composer.compose.types import InputDecl, read_type
 
 # A list-type helper: the LIST_OBJECT/LIST_* seg for an element Type (mirrors
 # `state.types._LIST_SEG_FOR_ELEMENT` + the list-of-record / list-of-variant rule in

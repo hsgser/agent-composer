@@ -8,8 +8,8 @@ from agent_composer.events import (
     PauseRequested,
     StreamChunk,
 )
-from agent_composer.state.pool import VariablePool
-from agent_composer.state.segments import ValueKind, Type
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import ValueKind, Type
 from tests.engine._fakes import (
     BranchNode,
     FailNode,

@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from lark import Token, Tree
 
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 class ExpressionError(ValueError):

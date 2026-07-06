@@ -21,7 +21,7 @@ import json
 from pydantic import BaseModel, Field
 
 from agent_composer.compile.model import NodeState
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 from agent_composer.suspension.expansions import GrowRecord
 from agent_composer.suspension.pause import PauseReason
 

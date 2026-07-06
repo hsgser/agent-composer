@@ -1,7 +1,7 @@
 from agent_composer.compile.model import END_ID, START_ID
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 def test_start_end_ids_are_owned_by_the_node_classes():

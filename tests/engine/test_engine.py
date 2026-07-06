@@ -15,8 +15,8 @@ from agent_composer.compile.model import END_ID, START_ID, Edge, CompiledFlow, F
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import VariablePool
-from agent_composer.state.segments import ValueKind, Type
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import ValueKind, Type
 from tests.engine._fakes import (
     BranchNode,
     FailNode,

@@ -4,8 +4,8 @@ import agent_composer.llm_clients as llm_clients_mod
 import agent_composer.tools as tools_mod
 from agent_composer.llm_clients import LLMConfig
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.state.pool import VariablePool
-from agent_composer.state.segments import Type, ValueKind
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import Type, ValueKind
 
 from langchain_core.messages import AIMessage
 

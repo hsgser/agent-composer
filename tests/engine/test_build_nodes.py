@@ -19,8 +19,8 @@ from agent_composer.nodes.code import CodeNode
 from agent_composer.nodes.model import ModelNode
 from agent_composer.nodes.tool import ToolNode
 from agent_composer.llm_clients import LLMConfig
-from agent_composer.state.segments import ValueKind
-from agent_composer.state.types import read_typedefs
+from agent_composer.typesys.values import ValueKind
+from agent_composer.typesys.types import read_typedefs
 from agent_composer.compose import LoadError
 from agent_composer.compose.build import build_leaf_node
 from agent_composer.compose.parser import parse_nodes, parse_file

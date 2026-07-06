@@ -44,7 +44,7 @@ from agent_composer.compose.parser import (
     parse_file,
     section_lines,
 )
-from agent_composer.compose.shapes import InputDecl, read_flow_inputs, read_type
+from agent_composer.compose.types import InputDecl, read_flow_inputs, read_type
 from agent_composer.compose.validate import (
     check_case_handles,
     reject_cycles,

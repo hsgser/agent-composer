@@ -9,7 +9,7 @@ an ordinary node reserves nothing and binds up front.
 from agent_composer.nodes.base import Node, NodeKind
 from agent_composer.nodes.map import MapNode
 from agent_composer.nodes.wait.node import WaitNode
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 class _PlainNode(Node):

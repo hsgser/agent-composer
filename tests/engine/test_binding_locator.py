@@ -7,7 +7,7 @@
 import pytest
 
 from agent_composer.nodes.binding import BindingError, ParamDecl, bind_params
-from agent_composer.state.pool import VariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 def test_required_unbound_attaches_input_locator():
