@@ -22,4 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/engine/loop-body-spawner-resume-test` | `main` | F1 proof: CALL/MAP spawner nested in a loop body durably resumes | 2026-07-06 |

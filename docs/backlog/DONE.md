@@ -240,6 +240,12 @@ This backlog is split four ways:
   mutation — correctness is worker-count-independent. **Persist `num_workers` in `RunCheckpoint`**
   (snapshot captures `engine.num_workers`); `restore()` defaults to the checkpointed count, but
   `restore(flow, ckpt, num_workers=N)` **overrides** it.~~ -- 6a2fe36
+- [x] ~~**F1 — AGENT/spawner inside a loop body durably resumes.** Proven (not fixed): a CALL/MAP
+  spawner nested inside a dynamically-grown loop iteration, paused mid-body, resumes both in-process
+  and across a durable checkpoint hop. The generic growth splice stamps nested spawners uniformly, so
+  the behavior fell out for free after the kind-agnostic refactor — NO engine change was needed;
+  `tests/engine/test_loop_body_spawner_resume.py` is the proof.~~
+  -- 9cf72d9 (branch `dev/engine/loop-body-spawner-resume-test`)
 
 ## LLM config — cascade + per-node opt-out + CLI override
 
