@@ -704,6 +704,9 @@ def build_call_node(desc: CallDescriptor, resolver: ChildResolver) -> tuple[Node
     `output_shape` (REF re-exports the codomain; MAP wraps it in `list[U]`), name/arity-checks the
     params, and BAKES the child's compiled flow onto the node. The REF/MAP discriminator is
     `desc.kind` (`"map"` -> `MapNode`, else `CallNode`)."""
+    # The construction boundary: this reads the RAW authored `desc.kind` STRING (not the
+    # compiled kind enum) to pick the runtime class. Kind identity is BORN here — downstream
+    # compile passes then dispatch on the node's traits, never on `node.kind`.
     is_map = desc.kind == "map"
     if is_map and "over" in (desc.inputs or {}):
         # Reserved-name guard: a MAP's `over` is the iteration source, carried under
