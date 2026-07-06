@@ -12,7 +12,7 @@ def test_agent_node_needs_llm():
 
 
 from agent_composer.nodes.base import NodeKind, Output
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.runtime.eval_node import eval_node, _default_llm
 
 
@@ -26,7 +26,7 @@ def test_eval_node_passes_llm_cap_to_needs_llm_node():
 
     node = Fake("a", prompt="hi")
     sentinel = lambda cfg: object()
-    list(eval_node(node, None, TypedVariablePool(), llm=sentinel))
+    list(eval_node(node, None, VariablePool(), llm=sentinel))
     assert seen["llm"] is sentinel
 
 
@@ -42,7 +42,7 @@ def test_eval_node_omits_llm_cap_for_plain_node():
             return Output(value="ok")
 
     node = Plain("p")
-    list(eval_node(node, None, TypedVariablePool(), llm=lambda cfg: object()))
+    list(eval_node(node, None, VariablePool(), llm=lambda cfg: object()))
     assert "llm" not in seen["caps"]
 
 
@@ -98,7 +98,7 @@ def test_agent_run_uses_injected_llm_over_default(monkeypatch):
     cap = lambda cfg: built.setdefault("chat", chat)
 
     node = AgentNode("a", prompt="hi", llm_config=LLMConfig(), mode="plain")
-    term = list(eval_node(node, None, TypedVariablePool(), llm=cap))[-1]
+    term = list(eval_node(node, None, VariablePool(), llm=cap))[-1]
     assert term.output == "cap answer"
     assert built["chat"] is chat
     assert chat.calls == 1

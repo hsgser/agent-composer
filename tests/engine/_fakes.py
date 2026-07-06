@@ -32,12 +32,12 @@ def drive(node, pool=None, flow=None):
     `flow.wiring`) and return its event generator. With no `flow`, derive a stub `flow.wiring`
     from the node's declared `_wiring_src`."""
     from agent_composer.runtime.eval_node import eval_node
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
     from types import SimpleNamespace
 
     if flow is None:
         flow = SimpleNamespace(wiring=derive_wiring({node.id: node}))
-    return eval_node(node, flow, pool if pool is not None else TypedVariablePool())
+    return eval_node(node, flow, pool if pool is not None else VariablePool())
 
 
 class FuncNode(Node):

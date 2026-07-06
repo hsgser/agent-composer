@@ -54,7 +54,7 @@ from agent_composer.runtime.eval_node import eval_node
 from agent_composer.runtime.state_manager import StateManager
 from agent_composer.state import TypeCheckError
 from agent_composer.suspension.expansions import GrowRecord
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 DEFAULT_HANDLE = "default"
 
@@ -115,7 +115,7 @@ class FlowEngine:
         flow (`CompiledFlow`):
             The compiled graph to execute. The engine mutates it in place when a spawner
             node (CALL/MAP) grows the graph at run time.
-        pool (`TypedVariablePool`, *optional*, defaults to `None`):
+        pool (`VariablePool`, *optional*, defaults to `None`):
             The variable pool to read/write. A fresh empty pool is created when `None`.
         num_workers (`int`, *optional*, defaults to `0`):
             `0` runs the deterministic inline drain on the caller's thread; `>=1` spawns
@@ -131,7 +131,7 @@ class FlowEngine:
     def __init__(
         self,
         flow: CompiledFlow,
-        pool: Optional[TypedVariablePool] = None,
+        pool: Optional[VariablePool] = None,
         *,
         num_workers: int = 0,
         run_inputs: Optional[dict] = None,
@@ -139,7 +139,7 @@ class FlowEngine:
         llm=None,
     ) -> None:
         self.flow = flow
-        self.pool = pool if pool is not None else TypedVariablePool()
+        self.pool = pool if pool is not None else VariablePool()
         self.sm = StateManager(flow)
         self.num_workers = max(0, num_workers)
         # The top-level START_ID is seeded at run init by invoking StartNode.run(run_inputs)
@@ -839,7 +839,7 @@ class FlowEngine:
             return
         decls = spawner.child_inputs
         for record, label in records:
-            temp = TypedVariablePool()
+            temp = VariablePool()
             temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
             temp.system = dict(self.pool.system)
             bad = first_failing_assert(boundary_asserts, temp)

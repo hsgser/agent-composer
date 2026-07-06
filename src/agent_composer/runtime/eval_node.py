@@ -44,10 +44,10 @@ from agent_composer.expr import resolve_reference
 from agent_composer.expr.expressions import ExpressionError, _evaluate, _resolve_in_record
 from agent_composer.nodes.base import Grow, Output, Pause, Route
 from agent_composer.nodes.binding import bind_params
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 
-def _first_failing_assert(asserts, record: dict, pool: TypedVariablePool):
+def _first_failing_assert(asserts, record: dict, pool: VariablePool):
     """The first assert in `asserts` that does not hold against a bound scope, else None.
 
     ONE generic assert-check for both pre- and post-asserts, kind-blind. Per assert, each
@@ -66,7 +66,7 @@ def _first_failing_assert(asserts, record: dict, pool: TypedVariablePool):
     Args:
         asserts (`list[str]`): the assert expressions (any `when:`/`asserts:` spelling).
         record (`dict`): the bound scope — input params (+ synthetic `output` for post).
-        pool (`TypedVariablePool`): the live pool for cross-node/namespaced ref fallback.
+        pool (`VariablePool`): the live pool for cross-node/namespaced ref fallback.
 
     Returns:
         `str | None`: the first assert that does not hold, or None if all hold.
@@ -99,7 +99,7 @@ def _default_llm(config):
     return model_from_config(config)
 
 
-def eval_node(node, flow, pool: TypedVariablePool, llm=_default_llm):
+def eval_node(node, flow, pool: VariablePool, llm=_default_llm):
     """Evaluate one node through the engine read/dispatch seam; yield its event stream.
 
     `llm` is the engine-owned LLM-client provider (a `model_from_config`-shaped callable)

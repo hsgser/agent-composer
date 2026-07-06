@@ -21,7 +21,7 @@ import json
 from pydantic import BaseModel, Field
 
 from agent_composer.compile.model import NodeState
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.suspension.expansions import GrowRecord
 from agent_composer.suspension.pause import PauseReason
 
@@ -59,7 +59,7 @@ class RunCheckpoint(BaseModel):
     Attributes:
         version (`str`, *optional*, defaults to `CHECKPOINT_VERSION`):
             The blob schema version. `loads()` rejects any other version up front.
-        pool (`TypedVariablePool`):
+        pool (`VariablePool`):
             The typed variable pool (lossless via the `AnyValue` tags).
         ready (`list[str]`, *optional*, defaults to `[]`):
             Node ids that were ready to run at suspend time; re-enqueued on resume.
@@ -86,7 +86,7 @@ class RunCheckpoint(BaseModel):
 
     version: str = CHECKPOINT_VERSION
 
-    pool: TypedVariablePool
+    pool: VariablePool
     ready: list[str] = Field(default_factory=list)
     node_state: dict[str, NodeState] = Field(default_factory=dict)
     edge_state: dict[str, NodeState] = Field(default_factory=dict)

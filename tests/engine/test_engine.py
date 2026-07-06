@@ -15,7 +15,7 @@ from agent_composer.compile.model import END_ID, START_ID, Edge, CompiledFlow, F
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.state.segments import ValueKind, Type
 from tests.engine._fakes import (
     BranchNode,
@@ -385,14 +385,14 @@ def test_output_enforced_rejects_type_mismatch():
 
 
 def test_output_enforced_coerces_and_types_storage():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     g = _graph(
         [FuncNode("a", lambda p: 3, output_type=Type.scalar(ValueKind.NUMBER))],
         [(START_ID, "a"), ("a", END_ID)],
     )
     events = _run(FlowEngine(g, pool))
     assert isinstance(events[-1], RunSucceeded)
-    seg = pool.get_segment("a")
+    seg = pool.get_value("a")
     assert seg.kind.value == "float" and seg.value == 3.0  # int coerced to float, typed NUMBER
 
 
@@ -411,7 +411,7 @@ def test_multi_output_record_is_a_closed_type():
         [FuncNode("n", lambda p: {"a": "x", "b": "y", "c": "z"}, output_type=rec)], [(START_ID, "n"), ("n", END_ID)]
     )
     assert isinstance(_run(FlowEngine(g_extra))[-1], RunFailed)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     g_ok = _graph([FuncNode("n", lambda p: {"a": "x", "b": "y"}, output_type=rec)], [(START_ID, "n"), ("n", END_ID)])
     assert isinstance(_run(FlowEngine(g_ok, pool))[-1], RunSucceeded)
     assert pool.get("n") == {"a": "x", "b": "y"}
@@ -420,7 +420,7 @@ def test_multi_output_record_is_a_closed_type():
 def test_unresolvable_declared_type_is_not_enforced():
     # 'Policy' is unresolvable against the empty registry -> the compiler stamps
     # output_type=None (unenforced); the node's value is stored raw.
-    pool = TypedVariablePool()
+    pool = VariablePool()
     g = _graph(
         [FuncNode("a", lambda p: {"k": 1}, output_type=None)],
         [(START_ID, "a"), ("a", END_ID)],
@@ -433,7 +433,7 @@ def test_unresolvable_declared_type_is_not_enforced():
 def test_undeclared_output_is_not_enforced():
     # No declared output_type -> the node's value is stored whole, unenforced;
     # any object key is reachable via object-walk.
-    pool = TypedVariablePool()
+    pool = VariablePool()
     g = _graph(
         [FuncNode("a", lambda p: {"other": "x"}, output_type=None)],
         [(START_ID, "a"), ("a", END_ID)],

@@ -7,13 +7,13 @@
 import pytest
 
 from agent_composer.nodes.binding import BindingError, ParamDecl, bind_params
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 
 def test_required_unbound_attaches_input_locator():
     p = ParamDecl(name="as_of", required=True)
     with pytest.raises(BindingError) as ei:
-        bind_params([p], {}, TypedVariablePool())
+        bind_params([p], {}, VariablePool())
     loc = getattr(ei.value, "locator", None)
     assert loc is not None and loc.kind == "input" and loc.key == "as_of"
 
@@ -22,6 +22,6 @@ def test_missing_required_ref_attaches_input_locator():
     p = ParamDecl(name="as_of")
     wiring = {"as_of": "${nope.missing:?as_of is required}"}
     with pytest.raises(BindingError) as ei:
-        bind_params([p], wiring, TypedVariablePool())
+        bind_params([p], wiring, VariablePool())
     loc = getattr(ei.value, "locator", None)
     assert loc is not None and loc.kind == "input" and loc.key == "as_of"

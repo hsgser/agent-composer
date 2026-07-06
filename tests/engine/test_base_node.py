@@ -8,7 +8,7 @@ from agent_composer.events import (
     PauseRequested,
     StreamChunk,
 )
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.state.segments import ValueKind, Type
 from tests.engine._fakes import (
     BranchNode,
@@ -71,7 +71,7 @@ def test_pause_stops_without_terminal_event():
 
 
 def test_node_does_not_write_pool():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     list(drive(FuncNode("n", lambda p: {"output": "x"}), pool))
     # the node described an output but must NOT have written it; that's the engine's job
     assert pool.get("n") is None

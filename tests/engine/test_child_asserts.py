@@ -114,13 +114,13 @@ def test_map_child_assert_one_violating_element_fails():
 from agent_composer.compile.model import START_ID
 from agent_composer.events import RunFailed
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])
 def test_ref_boundary_failure_leaves_no_orphan_descriptor(num_workers):
     loaded = load_flow(_REF_FLOW)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"v": -1})                       # violates ${input.n} >= 0 -> _grow_call raises
     eng = FlowEngine(loaded.compiled, pool, num_workers=num_workers)
     events = list(eng.run())
@@ -131,7 +131,7 @@ def test_ref_boundary_failure_leaves_no_orphan_descriptor(num_workers):
 @pytest.mark.parametrize("num_workers", [0, 4])
 def test_map_boundary_failure_leaves_no_orphan_descriptor(num_workers):
     loaded = load_flow(_MAP_FLOW)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"vs": [1, -1]})                 # element 1 violates -> _grow_map raises
     eng = FlowEngine(loaded.compiled, pool, num_workers=num_workers)
     events = list(eng.run())

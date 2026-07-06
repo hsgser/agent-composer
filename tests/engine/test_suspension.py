@@ -15,7 +15,7 @@ from agent_composer.nodes.base import Node, NodeKind, Output
 from agent_composer.nodes.human_input import HumanInputNode
 from agent_composer.nodes.wait import WaitNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.suspension.checkpoint import RunCheckpoint
 from agent_composer.suspension.commands import DeliverAnswerCommand
 from agent_composer.suspension.pause import HumanInputRequired, EventAwaited
@@ -153,7 +153,7 @@ def test_checkpoint_v1_blob_rejected_by_loads():
     # breaking blob migration: a 1.0 checkpoint (the old node_id->key->TypedValue store)
     # is not loadable. loads() reads the raw-JSON version BEFORE model_validate, so the
     # error is the clear "incompatible version", not an opaque pydantic failure.
-    blob = RunCheckpoint(pool=TypedVariablePool()).dumps()
+    blob = RunCheckpoint(pool=VariablePool()).dumps()
     tampered = json.dumps({**json.loads(blob), "version": "1.0"})
     with pytest.raises(ValueError, match="incompatible checkpoint version"):
         RunCheckpoint.loads(tampered)
@@ -163,7 +163,7 @@ def test_checkpoint_v1_object_rejected_by_restore():
     # Defense-in-depth: restore() ALSO gates — a RunCheckpoint object can reach it
     # without passing through loads().
     g = _ask_flow()
-    ckpt = RunCheckpoint(pool=TypedVariablePool()).model_copy(update={"version": "1.0"})
+    ckpt = RunCheckpoint(pool=VariablePool()).model_copy(update={"version": "1.0"})
     with pytest.raises(ValueError, match="incompatible checkpoint version"):
         FlowEngine.restore(g, ckpt)
 
@@ -172,7 +172,7 @@ def test_checkpoint_current_version_round_trip_carries_store():
     # The single-value store survives dumps/loads transitively through the pool, at the "8.0"
     # checkpoint version (bumped when MAP grew a synthetic map#/__start__ fan-out node).
     # The version label here tracks the CURRENT default.
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("n", "v")
     back = RunCheckpoint.loads(RunCheckpoint(pool=pool).dumps())
     assert back.version == "8.0"
@@ -181,7 +181,7 @@ def test_checkpoint_current_version_round_trip_carries_store():
 
 def test_checkpoint_v2_blob_rejected_by_loads():
     # A pre-4.0 (e.g. 2.0) blob is NOT loadable after the type-surface rename.
-    blob = RunCheckpoint(pool=TypedVariablePool()).dumps()
+    blob = RunCheckpoint(pool=VariablePool()).dumps()
     tampered = json.dumps({**json.loads(blob), "version": "2.0"})
     with pytest.raises(ValueError, match="incompatible checkpoint version"):
         RunCheckpoint.loads(tampered)
@@ -317,10 +317,10 @@ def test_event_awaited_type_literal_round_trip():
 
 def test_wait_timed_until_pauses():
     from agent_composer.nodes.wait import WaitNode
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
     from agent_composer.events import PauseRequested
     from agent_composer.suspension.pause import ScheduledPause
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"settle_at": "2026-07-01"})     # a date input (stored as ISO string)
     node = WaitNode("settle", is_timed=True)
     node._wiring_src = {"until": "${input.settle_at}"}  # the until source lives on flow.wiring
@@ -333,9 +333,9 @@ def test_wait_timed_until_pauses():
 
 def test_human_input_renders_prompt_from_inputs():
     from agent_composer.nodes.human_input import HumanInputNode
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
     from agent_composer.events import PauseRequested
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("propose", "order ACME")            # producer value
     node = HumanInputNode("approve", prompt="Approve? ${action}")
     stamp_reads(node, {"action": "${propose.output}"})
@@ -362,7 +362,7 @@ def test_checkpoint_v4_blob_rejected_by_loads():
     # breaking blob migration: a 4.0 checkpoint predates the `expansions` field (5.0),
     # the `num_workers` drive-mode field (6.0), and the unified GrowRecord ledger (7.0),
     # so it is not loadable.
-    blob = RunCheckpoint(pool=TypedVariablePool()).dumps()
+    blob = RunCheckpoint(pool=VariablePool()).dumps()
     tampered = json.dumps({**json.loads(blob), "version": "4.0"})
     with pytest.raises(ValueError, match=r"incompatible checkpoint version '4\.0'.*unified GrowRecord expansion ledger"):
         RunCheckpoint.loads(tampered)
@@ -374,7 +374,7 @@ def test_checkpoint_carries_expansions_field():
     # restored top-down on resume.
     from agent_composer.suspension import GrowRecord
     cp = RunCheckpoint(
-        pool=TypedVariablePool(),
+        pool=VariablePool(),
         expansions=[GrowRecord(spawner_id="x", seed={}, children=[])],
     )
     back = RunCheckpoint.loads(cp.dumps())
@@ -385,7 +385,7 @@ def test_checkpoint_expansions_default_empty():
     # the field defaults to []. A pure-static flow that never expanded
     # serializes/deserializes with an empty descriptor tree — no API change at the
     # call sites that don't pass `expansions=`.
-    cp = RunCheckpoint(pool=TypedVariablePool())
+    cp = RunCheckpoint(pool=VariablePool())
     back = RunCheckpoint.loads(cp.dumps())
     assert back.expansions == []
 

@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:  # pragma: no cover - typing only (keeps state import-clean)
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
 
 
 def coerce_param(field: Any, value: Any) -> Any:
@@ -91,7 +91,7 @@ def default_run_id() -> str:
     return uuid.uuid4().hex
 
 
-def seed_system_clock(pool: "TypedVariablePool") -> None:
+def seed_system_clock(pool: "VariablePool") -> None:
     """Seed the host-ambient clock into the pool's `system` namespace, once per run.
 
     `${system.today}` is a `date`; `${system.now}` a `datetime`. Computed once here and

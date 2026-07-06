@@ -102,17 +102,17 @@ def test_terminal_coskip_fails_via_end_disposition():
 
 # --- START_ID seeded at engine init + ${input.X} -> store[START_ID]; inputs namespace retired -- #
 def test_inputs_resolve_to_start_node():
-    from agent_composer.state.pool import TypedVariablePool
-    pool = TypedVariablePool()
+    from agent_composer.state.pool import VariablePool
+    pool = VariablePool()
     pool.set(START_ID, {"x": "ACME"})                 # START_ID commits the bound input record
     assert pool.resolve("input", ["x"]) == "ACME"    # ${input.x} == store[START_ID].x
 
 
 def test_pool_inputs_namespace_retired():
-    from agent_composer.state.pool import TypedVariablePool
-    pool = TypedVariablePool()
+    from agent_composer.state.pool import VariablePool
+    pool = VariablePool()
     assert not hasattr(pool, "add_inputs")
-    assert "inputs" not in TypedVariablePool.model_fields   # the `inputs` field is gone
+    assert "inputs" not in VariablePool.model_fields   # the `inputs` field is gone
 
 
 def test_inputs_read_mints_producer_edge_from_start():
@@ -134,10 +134,10 @@ def test_engine_seeds_store_start_without_scheduling_start_or_emitting_succeeded
     # came from the seed, not from START_ID being scheduled.
     from agent_composer.events import NodeSucceeded
     from agent_composer.runtime.engine import FlowEngine
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
 
     loaded = load_flow(_FLOW)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     eng = FlowEngine(loaded.compiled, pool, run_inputs={"x": "ACME"},
                      boundary_asserts=loaded.asserts.boundary)
     events = list(eng.run())

@@ -13,7 +13,7 @@ from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.case import Case, CaseNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from tests.engine._fakes import FuncNode, RecordNode, derive_wiring, stamp_reads
 
 
@@ -29,7 +29,7 @@ def _with_boundary(node_map: dict) -> dict:
 
 
 def _pool_with(**outputs):
-    pool = TypedVariablePool()
+    pool = VariablePool()
     for node_id, value in outputs.items():
         # `.output` is a SYNTACTIC discriminator the resolver SKIPS; store the
         # node's value directly. A `${<id>.output}` ref evaluates to `value` here.
@@ -38,7 +38,7 @@ def _pool_with(**outputs):
 
 
 def test_resolve_reference_structured():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     # `.output` is a syntactic discriminator the resolver skips, NOT a stored key.
     # Store the node value directly; `resolve("a", ["output", "pe"])` traverses store["a"]["pe"].
     pool.set("a", {"pe": 21.0})
@@ -61,7 +61,7 @@ def test_when_string_and_in():
 
 
 def test_when_missing_reference_is_falsy_not_error():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     assert evaluate_when("${ghost.output} > 5", pool) is False
 
 
@@ -70,7 +70,7 @@ def test_when_bare_reference_is_truthiness():
     # bool at the boundary), NOT a parse error — the legacy bool-only path rejected it.
     assert evaluate_when("${x.output}", _pool_with(x=1)) is True
     assert evaluate_when("${x.output}", _pool_with(x=0)) is False
-    assert evaluate_when("${missing.output}", TypedVariablePool()) is False
+    assert evaluate_when("${missing.output}", VariablePool()) is False
 
 
 # --- the three when: spellings evaluate identically (unified entry rule) ----- #
@@ -179,7 +179,7 @@ def test_when_list_literal_membership_and_equality():
 
 
 def test_render_template_substitutes_present_ref():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.add_system("topic", "ZETA")
     # store the node's value directly (no `{"output": ...}` wrap).
     pool.set("a", {"pe": 21.0})
@@ -190,7 +190,7 @@ def test_render_template_substitutes_present_ref():
 
 
 def test_render_template_raises_on_unresolved_ref():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     with pytest.raises(ExpressionError):
         render_template("Assess ${system.topic} today.", pool)
     with pytest.raises(ExpressionError):
@@ -198,12 +198,12 @@ def test_render_template_raises_on_unresolved_ref():
 
 
 def test_render_template_no_refs_is_identity():
-    assert render_template("plain text, no refs", TypedVariablePool()) == "plain text, no refs"
+    assert render_template("plain text, no refs", VariablePool()) == "plain text, no refs"
 
 
 def test_when_missing_reference_still_falsy_after_render_change():
     # The `when:` path must KEEP missing -> falsy (locked); only render_template changed.
-    pool = TypedVariablePool()
+    pool = VariablePool()
     assert evaluate_when("${ghost.output} > 5", pool) is False
 
 

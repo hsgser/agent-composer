@@ -33,7 +33,7 @@ from agent_composer.compile.llm_cascade import resolve_llm_cascade
 from agent_composer.events import RunAborted, RunFailed, RunPaused, RunSucceeded, SourceSpan
 from agent_composer.expr import first_failing_assert
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.state.seeding import (
     apply_defaults,
     coerce_inputs,
@@ -176,7 +176,7 @@ def run_flow(
     # layer (llm_config) is the outermost gap-fill layer of the cascade. See resolve_llm_cascade.
     resolve_llm_cascade(loaded.compiled, llm_config or {})
 
-    pool = TypedVariablePool()
+    pool = VariablePool()
     seed_system_clock(pool)  # ${system.today}/${system.now} — once per run
     # ${system.run_id} — host-injected, else a freshly minted id; child-inherited like the clock.
     pool.add_system("run_id", run_id if run_id is not None else default_run_id())

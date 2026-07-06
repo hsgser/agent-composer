@@ -180,11 +180,11 @@ def test_map_empty_over_returns_grow_with_lone_list_end():
 @pytest.mark.parametrize("num_workers", [0, 4])
 def test_map_parallel_via_num_workers_preserves_order(num_workers):
     from agent_composer.runtime.engine import FlowEngine
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
 
     flow = load_flow(_map_flow("echo-one", parallel=False),
                      child_resolver=_resolver(**{"echo-one": _ECHO_CHILD}))
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topics": ["A", "B", "C", "D"]})
     eng = FlowEngine(flow.compiled, pool, num_workers=num_workers)
     assert list(eng.run())[-1].output == ["A", "B", "C", "D"]   # over-order join (the END_ID-list invariant)
@@ -193,11 +193,11 @@ def test_map_parallel_via_num_workers_preserves_order(num_workers):
 @pytest.mark.parametrize("num_workers", [0, 4])
 def test_map_n_zero_synthesizes_end_list_emitting_empty(num_workers):
     from agent_composer.runtime.engine import FlowEngine
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
 
     flow = load_flow(_map_flow("echo-one", parallel=False),
                      child_resolver=_resolver(**{"echo-one": _ECHO_CHILD}))
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topics": []})
     eng = FlowEngine(flow.compiled, pool, num_workers=num_workers)
     assert list(eng.run())[-1].output == []     # N=0 -> synthetic map#/__start__ -> list END -> []
@@ -209,11 +209,11 @@ def test_map_synthesizes_one_end_list_node(num_workers):
     # wired to each element's child END_ID, aliased to the spawner.
     from agent_composer.nodes.base import NodeKind
     from agent_composer.runtime.engine import FlowEngine
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
 
     flow = load_flow(_map_flow("echo-one", parallel=False),
                      child_resolver=_resolver(**{"echo-one": _ECHO_CHILD}))
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topics": ["A", "B"]})
     eng = FlowEngine(flow.compiled, pool, num_workers=num_workers)
     assert list(eng.run())[-1].output == ["A", "B"]

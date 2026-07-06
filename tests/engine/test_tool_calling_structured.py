@@ -4,7 +4,7 @@ import agent_composer.llm_clients as llm_clients_mod
 import agent_composer.tools as tools_mod
 from agent_composer.llm_clients import LLMConfig
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.state.segments import Type, ValueKind
 
 from langchain_core.messages import AIMessage
@@ -56,7 +56,7 @@ class _StructuredFinalChat:
 def _run_node(node, pool=None):
     from agent_composer.runtime.eval_node import eval_node
 
-    return list(eval_node(node, None, pool or TypedVariablePool()))[-1]
+    return list(eval_node(node, None, pool or VariablePool()))[-1]
 
 
 def test_tool_calling_final_answer_is_structured(monkeypatch):

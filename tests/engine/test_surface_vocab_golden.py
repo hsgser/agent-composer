@@ -46,9 +46,9 @@ output:
 # pool.resolve node-id arm + singular input arm
 def test_resolver_node_first_ref() -> None:
     """`${<node>.output.k}` resolves to `store[<node>][k]` — the new node-first head."""
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
 
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("score", {"rating": 0.7, "rationale": "ok"})
     assert pool.resolve("score", ["output", "rating"]) == 0.7
     assert pool.resolve("score", ["output", "rationale"]) == "ok"
@@ -58,9 +58,9 @@ def test_resolver_node_first_ref() -> None:
 
 def test_resolver_singular_input() -> None:
     """`${input.k}` resolves to `store[start_id][k]` — singular spelling, alias of `inputs`."""
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
 
-    pool = TypedVariablePool(start_id="__start__")
+    pool = VariablePool(start_id="__start__")
     pool.set("__start__", {"topic": "META", "window": 30})
     assert pool.resolve("input", ["topic"]) == "META"
     assert pool.resolve("input", ["window"]) == 30
@@ -236,7 +236,7 @@ def test_end_post_assert_reads_output() -> None:
     from agent_composer.nodes.end import EndNode
     from agent_composer.nodes.start import StartNode
     from agent_composer.runtime.engine import FlowEngine
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.state.pool import VariablePool
     from tests.engine._fakes import FuncNode, derive_wiring
 
     def _make_flow(post_assert: str) -> CompiledFlow:

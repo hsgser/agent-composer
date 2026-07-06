@@ -6,7 +6,7 @@ from agent_composer.nodes.base import NodeKind, Output
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.eval_node import eval_node
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.state.segments import ValueKind, Type
 
 
@@ -53,7 +53,7 @@ def test_start_through_eval_node_binds_from_wiring():
 
     from agent_composer.events import NodeSucceeded
     node = StartNode("__start__", input_decls=[_decl("topic", "str")])
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topic": "ACME"})  # the seed-stand-in source the wiring points at
     flow = SimpleNamespace(wiring={"__start__": {"topic": "${input.topic}"}})
     events = list(eval_node(node, flow, pool))
@@ -73,7 +73,7 @@ def test_start_through_eval_node_fills_omitted_default():
         _decl("topic", "str"),
         _decl("window", "int", default="30", typ=Type.scalar(ValueKind.INTEGER)),
     ])
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topic": "ACME"})
     # wiring binds ONLY topic — `window` has NO edge (the parent omitted it).
     flow = SimpleNamespace(wiring={"__start__": {"topic": "${input.topic}"}})
@@ -91,7 +91,7 @@ def test_start_through_eval_node_required_unbound_fails():
     node = StartNode("__start__", input_decls=[
         _decl("n", "int", required=True, typ=Type.scalar(ValueKind.INTEGER)),
     ])
-    pool = TypedVariablePool()
+    pool = VariablePool()
     flow = SimpleNamespace(wiring={"__start__": {}})  # nothing bound
     events = list(eval_node(node, flow, pool))
     assert any(isinstance(e, NodeFailed) for e in events)

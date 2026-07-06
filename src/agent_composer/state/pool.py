@@ -1,4 +1,4 @@
-"""TypedVariablePool — the runtime state primitive for a flow run.
+"""VariablePool — the runtime state primitive for a flow run.
 
 A node produces exactly ONE value: `store[node_id]` is a single typed `TypedValue`
 (scalar, object, or list) — "multiple outputs" are fields of one object. `${input.X}`
@@ -32,7 +32,7 @@ from agent_composer.state.segments import (
 )
 
 
-class TypedVariablePool(BaseModel):
+class VariablePool(BaseModel):
     """
     The runtime variable store for one flow run.
 
@@ -64,7 +64,7 @@ class TypedVariablePool(BaseModel):
     # engine sets this per-flow (and seeds store[start_id] with the bound input record); the
     # default below is the top-level convention used by standalone/no-engine pools. The literal
     # MIRRORS `StartNode.ID` but is NOT imported from it: `state` is a leaf below `nodes`, so it
-    # cannot import the node class. A consistency test pins `TypedVariablePool().start_id ==
+    # cannot import the node class. A consistency test pins `VariablePool().start_id ==
     # StartNode.ID` so the two can never silently diverge.
     start_id: str = "__start__"
 
@@ -89,7 +89,7 @@ class TypedVariablePool(BaseModel):
 
     # --- reads -------------------------------------------------------------- #
 
-    def get_segment(self, node_id: str) -> Optional[TypedValue]:
+    def get_value(self, node_id: str) -> Optional[TypedValue]:
         return self.store.get(node_id)
 
     def get(self, node_id: str, default: Any = None) -> Any:
@@ -151,5 +151,5 @@ class TypedVariablePool(BaseModel):
         return self.model_dump_json()
 
     @classmethod
-    def loads(cls, blob: str) -> "TypedVariablePool":
+    def loads(cls, blob: str) -> "VariablePool":
         return cls.model_validate_json(blob)

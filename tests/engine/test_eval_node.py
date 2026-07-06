@@ -16,7 +16,7 @@ from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.map import MapNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from tests.engine._fakes import BranchNode, FailNode, FuncNode, PauseOnceNode, drive, stamp_reads
 from tests.engine._graph_builder import _graph
 from tests.engine.test_golden_baseline import MAP_OVER_NOT_LIST_FMT
@@ -167,7 +167,7 @@ def test_bad_return_type_is_clear_node_failed():
 
 
 def test_post_assert_isolated_from_node_input_mutation():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"x": 1})
     node = _MutatingNode("n")
     node.post_asserts = ["${x} == 1"]  # reads the input; the node sets it to 999 in place
@@ -178,7 +178,7 @@ def test_post_assert_isolated_from_node_input_mutation():
 def test_map_over_not_a_list_message_byte_identical():
     # The over-resolution + not-a-list guard live in eval_node now; the message must stay
     # byte-identical to the golden constant. (child=None is never reached — over fails first.)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"bad": "notalist"})
     node = MapNode("m", flow_id="f")
     node._wiring_src = {"over": "${input.bad}"}  # the over source lives on flow.wiring

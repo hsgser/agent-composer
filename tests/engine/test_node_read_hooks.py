@@ -9,7 +9,7 @@ an ordinary node reserves nothing and binds up front.
 from agent_composer.nodes.base import Node, NodeKind
 from agent_composer.nodes.map import MapNode
 from agent_composer.nodes.wait.node import WaitNode
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 
 class _PlainNode(Node):
@@ -23,7 +23,7 @@ class _PlainNode(Node):
 
 def test_timed_wait_bind_reserved_resolves_until():
     # A timed WAIT pre-resolves its `until` source (from node_wiring) into a concrete ISO ts.
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("deadline", "2026-01-01T00:00:00")
     node = WaitNode("w", is_timed=True)
     got = node.bind_reserved({"until": "${deadline.output}"}, pool)
@@ -32,13 +32,13 @@ def test_timed_wait_bind_reserved_resolves_until():
 
 def test_event_wait_bind_reserved_is_empty():
     # An event-mode WAIT reserves nothing.
-    assert WaitNode("w", is_timed=False).bind_reserved({}, TypedVariablePool()) == {}
+    assert WaitNode("w", is_timed=False).bind_reserved({}, VariablePool()) == {}
 
 
 def test_map_binds_per_item_and_resolves_over():
     # MAP declares per-element binding and resolves `over` to the list run() maps over.
     assert MapNode.binds_per_item is True
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("items", [1, 2, 3])
     node = MapNode("m", flow_id="child")
     assert node.bind_reserved({"over": "${items.output}"}, pool) == {"over": [1, 2, 3]}
@@ -46,7 +46,7 @@ def test_map_binds_per_item_and_resolves_over():
 
 def test_map_over_not_a_list_raises():
     # A non-list `over` source is a loud RuntimeError (surfaced as NodeFailed by the read seam).
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("scalar", 7)
     node = MapNode("m", flow_id="child")
     try:
@@ -61,4 +61,4 @@ def test_plain_node_defaults():
     # An ordinary node reserves no keys and binds up front (not per item).
     node = _PlainNode("n")
     assert node.binds_per_item is False
-    assert node.bind_reserved({}, TypedVariablePool()) == {}
+    assert node.bind_reserved({}, VariablePool()) == {}

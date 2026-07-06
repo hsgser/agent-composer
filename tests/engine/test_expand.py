@@ -134,7 +134,7 @@ def test_call_grow_clones_namespaced_and_substitutes_spawner(num_workers):
 # --- runtime bounds (MAX_TOTAL_NODES + MAX_REF_DEPTH) + REF-inside-MAP nesting proof ------- #
 
 from agent_composer.compose import load_flow
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 
 # A REF-inside-MAP: parent MAP "each" over the elements; the child "mid" is itself a REF
@@ -185,7 +185,7 @@ def test_ref_inside_map_expands_and_runs_uniformly(num_workers):
     # recursion composes the namespacing as each#0/inner/..., each#1/inner/... (the MAP
     # layer adds `#i`; the nested REF callsite is the spawner id `each#i/inner`).
     loaded = load_flow(_REF_INSIDE_MAP)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"xs": ["a", "b"]})
     eng = FlowEngine(loaded.compiled, pool, num_workers=num_workers)
     events = list(eng.run())
@@ -254,7 +254,7 @@ def test_deep_ref_chain_trips_max_ref_depth(num_workers):
     # funnels to RunFailed via the dispatcher-thread wrap (NOT an uncaught raise out of run());
     # the pooled path funnels identically.
     parent = _ref_chain_flow(depth=MAX_REF_DEPTH + 2)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"v": "go"})
     events = list(FlowEngine(parent, pool, num_workers=num_workers).run())
     assert isinstance(events[-1], RunFailed)            # status=="failed", not pytest.raises

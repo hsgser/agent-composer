@@ -30,7 +30,7 @@ from agent_composer.expr import (
     resolve_reference,
 )
 from agent_composer.state import TypeCheckError, Type, build_value_as, type_for
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 
 class BindingError(ValueError):
@@ -71,7 +71,7 @@ class ParamDecl:
     type: Optional[Type] = None
 
 
-def _resolve_source(source: Any, pool: TypedVariablePool, item: Any = None) -> Any:
+def _resolve_source(source: Any, pool: VariablePool, item: Any = None) -> Any:
     """Resolve a binding's `source` to a value via the `expr.template` language.
 
     A value that is exactly one `${...}` yields the **typed** value of that reference
@@ -95,7 +95,7 @@ def _resolve_source(source: Any, pool: TypedVariablePool, item: Any = None) -> A
 def bind_params(
     params: list[ParamDecl],
     wiring: dict[str, Any],
-    pool: TypedVariablePool,
+    pool: VariablePool,
     *,
     item: Any = None,
 ) -> dict[str, Any]:
@@ -111,7 +111,7 @@ def bind_params(
             The node-side declared signature to bind.
         wiring (`dict`):
             The flow-owned `name -> source` map for this node.
-        pool (`TypedVariablePool`):
+        pool (`VariablePool`):
             The pool each `${...}` source resolves against.
         item (`Any`, *optional*, defaults to `None`):
             The current element for a MAP body's `${item}` scope; `None` is the non-MAP path.

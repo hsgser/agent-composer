@@ -1,6 +1,6 @@
 """Typed runtime state: the segment value system + the variable pool."""
 
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.state.segments import (
     AnyValue,
     DateValue,
@@ -33,7 +33,7 @@ __all__ = [
     "ValueKind",
     "Type",
     "TypeRegistry",
-    "TypedVariablePool",
+    "VariablePool",
     "VariantDef",
     "build_value",
     "build_value_as",

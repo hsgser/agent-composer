@@ -14,7 +14,7 @@ import pytest
 
 from agent_composer.compile.model import START_ID
 from agent_composer.nodes.binding import BindingError, ParamDecl, bind_params
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 
 # Test-local sink: a legacy InputBinding-shaped (name, type, source, required, default) spec.
 _Sink = namedtuple("_Sink", "name type source required default", defaults=(None, None, False, None))
@@ -39,7 +39,7 @@ def bind_inputs(bindings, pool, *, item=None):
 
 
 def _pool(**system):
-    p = TypedVariablePool()
+    p = VariablePool()
     for k, v in system.items():
         p.add_system(k, v)
     return p
@@ -154,14 +154,14 @@ def test_bind_untyped_resolves_and_isolates():
 
 def test_coalesce_first_non_none():
     # ${a | b} branch-join: first non-None among peers (refs).
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("pro", "pro-text")
     # a present -> a wins
     assert bind_inputs(
         [InputBinding(name="t", source="${pro.output | con.output}")], pool
     ) == {"t": "pro-text"}
     # a absent -> falls through to b
-    pool2 = TypedVariablePool()
+    pool2 = VariablePool()
     pool2.set("con", "con-text")
     assert bind_inputs(
         [InputBinding(name="t", source="${pro.output | con.output}")], pool2
@@ -169,7 +169,7 @@ def test_coalesce_first_non_none():
 
 
 def test_coalesce_nary_and_literal_last_segment():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("c", "c-text")
     # 3-way, first two absent -> third ref wins
     assert bind_inputs(
@@ -177,7 +177,7 @@ def test_coalesce_nary_and_literal_last_segment():
         pool,
     ) == {"t": "c-text"}
     # all refs absent, a quoted/number literal last segment survives
-    empty = TypedVariablePool()
+    empty = VariablePool()
     assert bind_inputs(
         [InputBinding(name="t", source='${a.output | "fallback"}')], empty
     ) == {"t": "fallback"}
@@ -190,29 +190,29 @@ def test_default_operator_quoted_rhs_is_literal():
     # `:-` RHS under the unified grammar is a full expression: a QUOTED string is a
     # literal, a number/null is its literal, and a BARE word is a REFERENCE (not a bare
     # string as the legacy binding grammar treated it) — so quote a literal default.
-    empty = TypedVariablePool()
+    empty = VariablePool()
     assert bind_inputs([InputBinding(name="d", source='${input.as_of:-"today"}')], empty) == {"d": "today"}
     assert bind_inputs([InputBinding(name="n", source="${input.n:-30}")], empty) == {"n": 30}
     assert bind_inputs([InputBinding(name="z", source="${input.z:-null}")], empty) == {"z": None}
     # a bare word RHS is a ref: unbound -> None (miss), no literal string fallback.
     assert bind_inputs([InputBinding(name="d", source="${input.as_of:-today}")], empty) == {"d": None}
     # present value wins over the default
-    pool = TypedVariablePool(); pool.set(START_ID, {"as_of": "2026-06-12"})
+    pool = VariablePool(); pool.set(START_ID, {"as_of": "2026-06-12"})
     assert bind_inputs([InputBinding(name="d", source='${input.as_of:-"today"}')], pool) == {"d": "2026-06-12"}
 
 
 def test_required_operator_fails_loud_when_unbound():
-    empty = TypedVariablePool()
+    empty = VariablePool()
     with pytest.raises(BindingError, match="a topic is required"):
         bind_inputs([InputBinding(name="t", source="${input.topic:?a topic is required}")], empty)
     # present -> returns the value, no raise
-    pool = TypedVariablePool(); pool.set(START_ID, {"topic": "ACME"})
+    pool = VariablePool(); pool.set(START_ID, {"topic": "ACME"})
     assert bind_inputs([InputBinding(name="t", source="${input.topic:?required}")], pool) == {"t": "ACME"}
 
 
 def test_plain_ref_and_literal_unchanged_by_coalesce_parser():
     # backward-compat: a plain single ref and a non-${} literal still resolve as before.
-    pool = TypedVariablePool(); pool.set("up", {"pe": 21.0})
+    pool = VariablePool(); pool.set("up", {"pe": 21.0})
     assert bind_inputs([InputBinding(name="pe", source="${up.output.pe}")], pool) == {"pe": 21.0}
     assert bind_inputs([InputBinding(name="k", source=90)], pool) == {"k": 90}
 
@@ -221,7 +221,7 @@ def test_falsy_but_present_value_wins_coalesce():
     # only None is "no value". A present 0 / False / "" / [] must WIN a coalesce,
     # not fall through. (Pins the `is not None` boundary against a `if not value` refactor.)
     for falsy in (0, False, "", []):
-        pool = TypedVariablePool()
+        pool = VariablePool()
         pool.set("a", falsy)
         pool.set("b", "b-text")
         rec = bind_inputs(
@@ -233,19 +233,19 @@ def test_falsy_but_present_value_wins_coalesce():
 def test_required_does_not_raise_on_present_falsy():
     # :? fires only on None — a present False / 0 / "" is a VALUE, returned, no raise.
     for falsy in (False, 0, ""):
-        pool = TypedVariablePool(); pool.set(START_ID, {"flag": falsy})
+        pool = VariablePool(); pool.set(START_ID, {"flag": falsy})
         assert bind_inputs([InputBinding(name="f", source="${input.flag:?req}")], pool) == {"f": falsy}
 
 
 def test_default_suppressed_by_present_falsy():
     # :- present-value-wins must hold for a falsy present value (0 must not become 99).
-    pool = TypedVariablePool(); pool.set(START_ID, {"n": 0})
+    pool = VariablePool(); pool.set(START_ID, {"n": 0})
     assert bind_inputs([InputBinding(name="n", source="${input.n:-99}")], pool) == {"n": 0}
 
 
 def test_quote_aware_literal_with_pipe_preserved():
     # a quoted literal operand containing `|` is NOT split mid-token (no silent corruption).
-    empty = TypedVariablePool()
+    empty = VariablePool()
     assert bind_inputs(
         [InputBinding(name="t", source='${a.output | "x|y"}')], empty
     ) == {"t": "x|y"}
@@ -258,7 +258,7 @@ def test_quote_aware_literal_with_pipe_preserved():
 def test_one_level_nested_default_resolves_two_level_raises():
     # a `${x:-${y}}` default resolves ONE nested level; two levels is a loud error
     # (use `|` for multi-way chains).
-    pool = TypedVariablePool(); pool.add_system("today", "2026-06-12")
+    pool = VariablePool(); pool.add_system("today", "2026-06-12")
     # as_of unbound -> falls through to the nested ${system.today}
     assert bind_inputs(
         [InputBinding(name="d", source="${input.as_of:-${system.today}}")], pool
@@ -277,7 +277,7 @@ def test_one_level_nested_default_resolves_two_level_raises():
 
 def test_item_scope_combined_with_coalesce_and_default():
     # ${item.x | b.output}: item miss -> ref peer; item present -> wins.
-    pool = TypedVariablePool(); pool.set("b", "b-text")
+    pool = VariablePool(); pool.set("b", "b-text")
     assert bind_inputs([InputBinding(name="v", source="${item.x | b.output}")],
                        pool, item={"y": 1}) == {"v": "b-text"}
     assert bind_inputs([InputBinding(name="v", source="${item.x | b.output}")],
@@ -289,7 +289,7 @@ def test_whole_ref_typed_embedded_stringified_dollar_escape():
     # ${...} embedded in text -> stringified; $$ -> a literal $. (The binding parser
     # is shared with validation — the old runtime-vs-validation literal parity test is
     # obsolete now that there is a single parser, not two duplicated copies.)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("a", 0.7)
     pool.set("b", ["ACME", "BETA"])
     # whole ${...} -> the float (not the string "0.7")
@@ -317,7 +317,7 @@ def test_bind_inputs_typed_record_from_declared_inputs():
 
 
 def test_bind_inputs_resolves_item_from_local_scope():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     rec = bind_inputs([InputBinding(name="topic", type="str", source="${item}")],
                       pool, item="ACME")
     assert rec == {"topic": "ACME"}
@@ -325,18 +325,18 @@ def test_bind_inputs_resolves_item_from_local_scope():
 
 def test_bind_inputs_item_dotted_walk():
     rec = bind_inputs([InputBinding(name="v", source="${item.value}")],
-                      TypedVariablePool(), item={"value": 7})
+                      VariablePool(), item={"value": 7})
     assert rec == {"v": 7}
 
 
 def test_bind_inputs_item_unset_outside_map_is_none():
     # ${item} with no item provided resolves to None (the compile-time scan forbids
     # ${item} outside a MAP body, so this only guards a defensive path).
-    rec = bind_inputs([InputBinding(name="x", source="${item}")], TypedVariablePool())
+    rec = bind_inputs([InputBinding(name="x", source="${item}")], VariablePool())
     assert rec == {"x": None}
 
 
 def test_bind_inputs_non_item_ref_still_uses_pool_with_item_present():
-    pool = TypedVariablePool(); pool.set(START_ID, {"as_of": "2026-01-01"})
+    pool = VariablePool(); pool.set(START_ID, {"as_of": "2026-01-01"})
     rec = bind_inputs([InputBinding(name="d", source="${input.as_of}")], pool, item="X")
     assert rec == {"d": "2026-01-01"}

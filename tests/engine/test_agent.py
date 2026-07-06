@@ -20,7 +20,7 @@ from agent_composer.nodes.start import StartNode
 from agent_composer.events import NodeFailed, RunSucceeded
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.state.pool import VariablePool
 from agent_composer.llm_clients import LLMConfig
 
 
@@ -72,7 +72,7 @@ def _run_node(node, pool=None):
     node raised (e.g. the iteration cap, converted at the boundary)."""
     from agent_composer.runtime.eval_node import eval_node
 
-    return list(eval_node(node, None, pool or TypedVariablePool()))[-1]
+    return list(eval_node(node, None, pool or VariablePool()))[-1]
 
 
 def test_plain_mode_single_call_ignores_tools(monkeypatch):

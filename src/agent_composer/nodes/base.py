@@ -242,7 +242,7 @@ class Node(ABC):
         Possible keys (per kind): a timed WAIT returns `{"until": <ISO ts>}`; a MAP returns
         `{"over": <list>}`. Default: `{}` (an ordinary node reserves no keys). `node_wiring`
         is the flow-owned wiring for this node (`flow.wiring[id]`); `pool` is the live
-        `TypedVariablePool` the seam reads sources from."""
+        `VariablePool` the seam reads sources from."""
         return {}
 
     def reserved_wiring_keys(self) -> set[str]:
