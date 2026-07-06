@@ -253,6 +253,8 @@ class Node(ABC):
         WAIT: `until`; a MAP: `over`), but returned with NO pool — load-time only. Default:
         the empty set (an ordinary node reserves no keys)."""
         return set()
+
+    def iter_boundary_records(self, seed: Any) -> "list[tuple[dict, str]]":
         """The `(record, label)` pairs the engine's growth core boundary-checks EAGERLY, before it
         attaches the grow to the ledger (so a boundary failure leaves no orphan expansion).
 
