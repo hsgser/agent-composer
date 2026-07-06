@@ -30,7 +30,7 @@ from agent_composer.expr import (
 )
 from agent_composer.expr.template import prompt_refs
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.nodes.base import Node, NodeKind
+from agent_composer.nodes.base import Node
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.code import CodeNode
@@ -971,7 +971,7 @@ def check_loop_shape_contract(
     or an opaque body output field, stays lenient (skipped). Loud + located at the loop
     node's `.yaml` line on a same-names/different-TYPES mismatch."""
     for nid, node in nodes.items():
-        if node.kind != NodeKind.LOOP:
+        if not node.is_loop:
             continue
         body_out = node.output_shape
         # A non-record / absent body output was already caught by the field-name half in
