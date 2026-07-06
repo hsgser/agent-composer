@@ -25,7 +25,7 @@ from typing import Any, Callable, ClassVar, Optional
 
 from agent_composer.compile.expand import map_subgraph
 from agent_composer.expr import eval_binding, resolve_reference
-from agent_composer.nodes.base import Grow, Node, NodeKind, Subgraph
+from agent_composer.nodes.base import Grow, Node, NodeKind
 
 
 class MapNode(Node):
@@ -103,15 +103,13 @@ class MapNode(Node):
         # `seed=records` is the durable builder input (a resumed run rebuilds the same subgraph via
         # `map_subgraph(child, self.id, records)`).
         records = [dict(bind_item(el)) for el in inputs["over"]]
-        sg = Subgraph.from_flow(map_subgraph(self.child, spawner_id=self.id, records=records))
-        return Grow(sg, seed=records)
+        return Grow(map_subgraph(self.child, spawner_id=self.id, records=records), seed=records)
 
     def replay_grow(self, seed: Any):
         """Durable-replay inverse of `run`: rebuild the whole MAP fan-in subgraph from the persisted
         per-element records (`seed`) via the SAME `map_subgraph` builder — no body re-run. The
         resolved `over:` list is captured on the seed, so replay needs no re-binding."""
-        return Subgraph.from_flow(
-            map_subgraph(self.child, spawner_id=self.id, records=[dict(r) for r in seed]))
+        return map_subgraph(self.child, spawner_id=self.id, records=[dict(r) for r in seed])
 
     def iter_boundary_records(self, seed: Any) -> list:
         """One boundary record PER ELEMENT: each per-element record from `seed`, labelled

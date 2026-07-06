@@ -37,10 +37,10 @@ def test_map_node_run_builds_grow_fan_in_per_element():
     grow = n.run({"over": [1, 2, 3]}, bind_item=lambda el: {"x": el})
     assert isinstance(grow, Grow)
     assert grow.seed == [{"x": 1}, {"x": 2}, {"x": 3}]
-    # The single root is the synthetic map#/__start__; each element START is present in nodes and
+    # The single entry is the synthetic map#/__start__; each element START is present in nodes and
     # reached from the synthetic start by an ordering edge.
     from agent_composer.compile.model import START_ID
-    assert grow.subgraph.roots == [ns("m", START_ID)]
+    assert grow.subgraph.start_id == ns("m", START_ID)
     for i in range(3):
         assert ns(map_callsite("m", i), child.start_id) in grow.subgraph.nodes
 

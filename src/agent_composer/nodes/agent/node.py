@@ -239,13 +239,12 @@ class AgentNode(Node):
         chain each segment's resume terminal becomes the next segment's spawner, so `callsite`/
         `output_shape` come off THIS node (the previous segment's terminal on segment 2+)."""
         from agent_composer.compile.expand import agent_segment_subgraph
-        from agent_composer.nodes.base import Subgraph
         from agent_composer.suspension.expansions import AgentSegment
 
         seg = AgentSegment.model_validate(seed)
-        return Subgraph.from_flow(agent_segment_subgraph(
+        return agent_segment_subgraph(
             [seg.hi_desc, seg.resume_desc],
             callsite=self.id,
             output_shape=self.output_shape,
             retries=self.retries,
-        ))
+        )

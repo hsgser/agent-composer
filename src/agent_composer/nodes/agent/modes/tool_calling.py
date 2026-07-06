@@ -37,7 +37,7 @@ from agent_composer.nodes.agent.modes.common import (
 )
 from agent_composer.compile.expand import agent_segment_subgraph
 from agent_composer.nodes.agent.modes.utils import text_of
-from agent_composer.nodes.base import Grow, Output, Subgraph
+from agent_composer.nodes.base import Grow, Output
 
 MAX_TOOL_ITERATIONS = 8
 
@@ -157,9 +157,8 @@ def agent_step(
                 "mode": "tool_calling",
             }
             return Grow(
-                Subgraph.from_flow(
-                    agent_segment_subgraph([human_input, resume], callsite=ctx.node_id,
-                                           output_shape=ctx.output_shape, retries=ctx.retries)),
+                agent_segment_subgraph([human_input, resume], callsite=ctx.node_id,
+                                       output_shape=ctx.output_shape, retries=ctx.retries),
                 seed={"hi_desc": human_input, "resume_desc": resume},
             )
 

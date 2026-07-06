@@ -21,12 +21,17 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, ClassVar, Optional, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, Union
 
 from agent_composer.expr import ExpressionError
 from agent_composer.expr.expressions import evaluate_when_record
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.state.segments import Shape
+
+if TYPE_CHECKING:
+    # Import-cycle guard: `compile.model` imports `nodes.base`, so `Flow` is only pulled in for
+    # type checking. `Grow.subgraph`/`replay_grow` annotate it as a forward-ref string at runtime.
+    from agent_composer.compile.model import Flow
 
 
 class NodeKind(str, Enum):
@@ -99,23 +104,14 @@ class Subgraph:
     wiring: "dict[str, dict[str, Any]]"
     roots: "list[str]"
 
-    @classmethod
-    def from_flow(cls, flow) -> "Subgraph":
-        """TRANSITIONAL bridge: wrap a builder's `Flow` into a `Subgraph` for the engine.
-
-        The pure builders (`call_subgraph`/`map_subgraph`/`loop_continue_subgraph`/
-        `agent_segment_subgraph`) now return a `Flow` with a single `start_id`; the engine still
-        consumes `Subgraph.roots`, so `roots = [flow.start_id]` (MAP's synthetic `map#/__start__`
-        fans out to the element starts via its ordering edges once it runs). A later step retypes
-        `Grow.subgraph` to `Flow` and drops this bridge with `Subgraph` itself."""
-        return cls(nodes=flow.nodes, edges=flow.edges, wiring=flow.wiring, roots=[flow.start_id])
-
 
 @dataclass(frozen=True)
 class Grow:
     """A spawner expands into a subgraph. The engine splices `subgraph` generically and
     applies `prune`. Fields:
-      - `subgraph`: the Subgraph to splice.
+      - `subgraph`: the `Flow` to splice — the builder's self-describing graph fragment. The engine
+        schedules its `start_id` (one node) and fans out downstream via `_advance`; a `Flow` whose
+        terminal carries a baked `commit_as=<spawner id>` commits under the spawner on success.
       - `prune`: ids to retire in the same step (∅ for call/map; a self-respawn loop's finished
         iteration ids). Defaults to ∅.
       - `seed`: the PURE BUILDER INPUT the engine persists so a resumed run can rebuild the spliced
@@ -123,7 +119,7 @@ class Grow:
         but OPAQUE to the engine (a call record dict, a map records list, agent segments, a loop
         (record, index)); it is durability data, NOT a per-kind policy switch."""
 
-    subgraph: Subgraph
+    subgraph: "Flow"
     prune: "frozenset[str]" = field(default_factory=frozenset)
     seed: Any = None
 
@@ -278,7 +274,7 @@ class Node(ABC):
         carries the element index). Default: `[]` (a node with no boundary check — AGENT, LOOP)."""
         return []
 
-    def replay_grow(self, seed: Any) -> "Subgraph":
+    def replay_grow(self, seed: Any) -> "Flow":
         """Durable-replay seam (the READ half of `Grow`): rebuild THIS spawner's subgraph from the
         persisted `seed` (the pure builder input captured on the live `Grow.seed`). The engine's
         `_replay_expansions` calls it on restore to re-grow a paused run's expanded subgraphs in a

@@ -39,7 +39,7 @@ def test_call_ref_mode_returns_grow():
     out = node.run({"topic": "ACME"})
     assert isinstance(out, Grow)
     assert out.seed == {"topic": "ACME"}
-    assert out.subgraph.roots == [ns("c", _child_flow().start_id)]
+    assert out.subgraph.start_id == ns("c", _child_flow().start_id)
     assert out.subgraph.nodes[ns("c", END_ID)].commit_as == "c"
 
 
@@ -54,9 +54,9 @@ def test_map_returns_grow():
     out = node.run({"over": ["ACME", "BETA"]}, bind_item=lambda el: {"x": el})
     assert isinstance(out, Grow)
     assert out.seed == [{"x": "ACME"}, {"x": "BETA"}]
-    # The single root is the synthetic map#/__start__ (it fans out to the element starts on run);
+    # The single entry is the synthetic map#/__start__ (it fans out to the element starts on run);
     # the list END commits under the spawner.
-    assert out.subgraph.roots == [ns("m", START_ID)]
+    assert out.subgraph.start_id == ns("m", START_ID)
     for i in range(2):
         assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.nodes
     assert out.subgraph.nodes[ns("m", END_ID)].commit_as == "m"
@@ -71,12 +71,12 @@ def test_map_empty_returns_grow_with_lone_list_end():
     out = node.run({"over": []}, bind_item=lambda el: {"x": el})
     assert isinstance(out, Grow)
     assert out.seed == []
-    # N=0: the body is the synthetic start + the list END; the root is the synthetic start, which
+    # N=0: the body is the synthetic start + the list END; the entry is the synthetic start, which
     # wires straight to the list END (emits []).
     map_start_id = ns("m", START_ID)
     map_end_id = ns("m", END_ID)
     assert set(out.subgraph.nodes) == {map_start_id, map_end_id}
-    assert out.subgraph.roots == [map_start_id]
+    assert out.subgraph.start_id == map_start_id
 
 
 def test_call_unbaked_child_raises():

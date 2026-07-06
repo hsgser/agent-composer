@@ -157,7 +157,7 @@ def test_map_run_returns_grow():
     assert isinstance(out, Grow)
     assert out.seed == [{"x": "A"}, {"x": "B"}]
     from agent_composer.compile.model import START_ID
-    assert out.subgraph.roots == [ns("m", START_ID)]
+    assert out.subgraph.start_id == ns("m", START_ID)
     for i in range(2):
         assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.nodes
 
@@ -174,7 +174,7 @@ def test_map_empty_over_returns_grow_with_lone_list_end():
     out = n.run({"over": []}, bind_item=lambda el: {})
     assert isinstance(out, Grow) and out.seed == []
     assert set(out.subgraph.nodes) == {ns("m", START_ID), ns("m", END_ID)}
-    assert out.subgraph.roots == [ns("m", START_ID)]
+    assert out.subgraph.start_id == ns("m", START_ID)
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])

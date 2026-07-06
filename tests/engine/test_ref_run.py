@@ -203,4 +203,4 @@ def test_ref_run_expands_not_child_engine():
     out = n.run({"topic": "ACME"})          # no *, system cap anymore
     assert isinstance(out, Grow)
     assert out.seed == {"topic": "ACME"}
-    assert out.subgraph.roots == [ns("r", child.start_id)]
+    assert out.subgraph.start_id == ns("r", child.start_id)
