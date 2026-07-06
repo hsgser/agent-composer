@@ -81,6 +81,8 @@ nav:
   - Internals:
     - The engine: engine.md
     - Nodes: nodes.md
+    - Types: typing.md
+    - Expressions: expressions.md
   - Python API: api.md
   - API Reference: reference.md
   - Roadmap:

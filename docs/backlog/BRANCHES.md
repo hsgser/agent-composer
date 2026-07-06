@@ -22,4 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| _(none)_ | | | |
+| dev/docs/docstring-sweep | main | Sweep docstrings/comments for CONTRIBUTING compliance; strip internal tracking tokens; add `docs/typing.md` + `docs/expressions.md` | 2026-07-06 |

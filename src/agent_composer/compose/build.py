@@ -556,7 +556,7 @@ def infer_ordering_edges(
 # defs-first resolution). From the child the loader derives its `ChildSignature` —
 # declared input types + single codomain `Type` — to stamp the node's `output_type` (a
 # plain call re-exports the codomain; a mapped call wraps it in `list[U]`) and to
-# name/arity- + type-check (e06) the bindings, AND bakes the child's compiled flow + input
+# name/arity- + type-check the bindings, AND bakes the child's compiled flow + input
 # decls onto the node so the built `CallNode` `run` drives the embedded child
 # (resolve-and-bake — the call graph, incl. nested flows, is fixed at compile).
 # --------------------------------------------------------------------------- #
@@ -676,7 +676,7 @@ def _check_child_bindings(
     """Name/arity check a `call` node's PARAMS against the child SIGNATURE (the analogue of
     `compile.validation._check_ref_bindings`'s name + required-input checks, read off the
     signature). Reads the node-side `params` (the split); the deep cross-flow TYPE
-    check (e06) is `check_ref_map_types`, a loader post-build pass over the flow wiring."""
+    check is `check_ref_map_types`, a loader post-build pass over the flow wiring."""
     declared = {d.name for d in sig.inputs}
     bound = set()
     for p in params:
@@ -910,7 +910,7 @@ def check_ref_map_types(
     flow_wiring: dict[str, dict[str, Any]],
     node_lines: Optional[dict] = None,
 ) -> None:
-    """e06 — cross-flow type check for every `call` binding (a loader post-build pass).
+    """Cross-flow type check for every `call` binding (a loader post-build pass).
 
     Each binding's SOURCE `Type` (resolved from its `${<id>.output}`/`${input.X}` ref over
     the PARENT producers + flow-input types — read from the flow-owned `wiring`) must be
@@ -1016,7 +1016,7 @@ def check_wiring_parity(
         if actual != expected:
             raise LoadError(
                 f"node {nid!r}: flow.wiring keys {sorted(actual)} != declared params + reserved "
-                f"{sorted(expected)} (wiring/params key parity, T6c)",
+                f"{sorted(expected)} (wiring/params key parity)",
                 line=lines.get(nid),
             )
 

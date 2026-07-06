@@ -76,8 +76,18 @@ class VariablePool(BaseModel):
         value: Any,
         declared: Optional[Union[ValueKind, Type]] = None,
     ) -> None:
-        """Store a node's single produced value. `declared` (a ValueKind or
-        structural Type) enables the write-time type check."""
+        """Store a node's single produced value, type-checking it if a type is declared.
+
+        Args:
+            node_id (`str`):
+                The producing node's id — the key the value is bound under.
+            value (`Any`):
+                The plain Python value the node returned.
+            declared (`ValueKind | Type`, *optional*, defaults to `None`):
+                The node's declared output type. When given, the value is validated
+                against it (`build_value_as`); when `None`, the type is inferred
+                (`build_value`).
+        """
         self.store[node_id] = (
             build_value_as(declared, value)
             if declared is not None
@@ -85,14 +95,24 @@ class VariablePool(BaseModel):
         )
 
     def add_system(self, key: str, value: Any) -> None:
+        """Store a host-injected ambient under `key`, read via `${system.<key>}`."""
         self.system[key] = build_value(value)
 
     # --- reads -------------------------------------------------------------- #
 
     def get_value(self, node_id: str) -> Optional[TypedValue]:
+        """Return a node's stored `TypedValue`, or `None` if it has not produced yet."""
         return self.store.get(node_id)
 
     def get(self, node_id: str, default: Any = None) -> Any:
+        """Return a node's plain (unwrapped) value, or `default` if it is unset.
+
+        Args:
+            node_id (`str`):
+                The producing node's id.
+            default (`Any`, *optional*, defaults to `None`):
+                Returned when `node_id` has no stored value.
+        """
         seg = self.store.get(node_id)
         return seg.to_object() if seg is not None else default
 
@@ -148,8 +168,10 @@ class VariablePool(BaseModel):
     # --- serialization ------------------------------------------------------ #
 
     def dumps(self) -> str:
+        """Serialize the whole pool to a JSON string (the state half of a checkpoint)."""
         return self.model_dump_json()
 
     @classmethod
     def loads(cls, blob: str) -> "VariablePool":
+        """Reconstruct a pool from `dumps` output, decoding each value to its exact type."""
         return cls.model_validate_json(blob)

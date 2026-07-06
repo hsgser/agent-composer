@@ -38,6 +38,7 @@ class OllamaClient(BaseLLMClient):
     provider = "ollama"
 
     def get_llm(self) -> Any:
+        """Return a `ChatOllama` on the native endpoint, with thinking disabled by default."""
         self.warn_if_unknown_model()
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -52,5 +53,5 @@ class OllamaClient(BaseLLMClient):
         return ChatOllama(**kwargs)
 
     def validate_model(self) -> bool:
-        # A local Ollama serves whatever the user has pulled; don't gate on a catalog.
+        """Always `True` — a local Ollama serves whatever the user has pulled (no catalog gate)."""
         return True

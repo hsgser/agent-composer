@@ -68,7 +68,7 @@ _JOIN_TIMEOUT = 2.0
 
 
 class _Aborted(Exception):
-    pass
+    """Internal signal raised out of the drain when a cooperative abort is requested."""
 
 
 class NodeExecutionError(RuntimeError):
@@ -187,7 +187,7 @@ class FlowEngine:
         self._cancel = False
 
     def request_abort(self) -> None:
-        """Cooperative cancel: checked between nodes."""
+        """Request a cooperative cancel, checked between nodes."""
         self._cancel = True
 
     # --- lifecycle ---------------------------------------------------------- #
@@ -201,7 +201,7 @@ class FlowEngine:
         yield RunStarted()
         # Init: seed store[START_ID] (StartNode.run ONCE, not scheduled), fire the
         # top-level boundary asserts pool-scoped, then advance START_ID's out-edges. A failure here
-        # (e08 type / boundary assert) yields RunFailed before any body node ("no node ran").
+        # (input type / boundary assert) yields RunFailed before any body node ("no node ran").
         failure = self._seed_start_and_advance()
         if failure is not None:
             yield failure
@@ -255,10 +255,10 @@ class FlowEngine:
 
     def _seed_start_and_advance(self):
         """The pinned top-level START_ID seeding. Invoke StartNode.run(run_inputs) ONCE
-        (coerce + e08 + defaults), commit store[START_ID] directly — WITHOUT enqueuing START_ID and
+        (coerce + type-check + defaults), commit store[START_ID] directly — WITHOUT enqueuing START_ID and
         WITHOUT a NodeSucceeded — then fire the flow's boundary asserts pool-scoped (reading the
         just-committed store[START_ID]), then mark START_ID done + advance its out-edges. Returns a
-        RunFailed on an e08 type failure or a false boundary assert (fail-fast before any body
+        RunFailed on an input type failure or a false boundary assert (fail-fast before any body
         node; "no node ran" holds), else None. Direct-FlowEngine tests that hand-seed
         store[START_ID] pass no `run_inputs` — START_ID is then taken from the pre-seeded store."""
         from agent_composer.expr import first_failing_assert
@@ -266,11 +266,11 @@ class FlowEngine:
         start_id = self.flow.start_id
         if start_id in self.flow.nodes:
             if self.run_inputs is not None:
-                # seed via StartNode.run, funneling an e08 TypeCheckError -> RunFailed.
+                # seed via StartNode.run, funneling a TypeCheckError -> RunFailed.
                 try:
                     out = self.flow.nodes[start_id].run(dict(self.run_inputs))
                 except TypeCheckError as exc:
-                    # e08 forwards the StartNode's `input_decl` locator (the failing input's
+                    # forwards the StartNode's `input_decl` locator (the failing input's
                     # declaration line) so the CLI boxes it precisely.
                     return RunFailed(error=str(exc), error_type="TypeCheckError",
                                      locator=getattr(exc, "locator", None))

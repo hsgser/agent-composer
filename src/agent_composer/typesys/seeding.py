@@ -61,7 +61,7 @@ def apply_defaults(inputs: List[Any], coerced: Dict[str, Any]) -> Dict[str, Any]
     So a parent that BINDS ``null`` to a child input SHADOWS that child's default (the
     name is present in the record): null is a value, not absence (like Python
     ``f(x=None)``). The child default fills only when the parent omits the input. The
-    cross-flow type check (e06) relies on this — a nullable source needs a binding-level
+    cross-flow type check relies on this — a nullable source needs a binding-level
     non-null guarantee (`:-literal` / `:?`), not the child's default, to fill a
     non-nullable input.
     """

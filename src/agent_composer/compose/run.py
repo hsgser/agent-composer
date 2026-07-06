@@ -83,6 +83,11 @@ class RunResult:
             when `status == "failed"` AND no `NodeFailed` carries the location (a node-level
             failure puts its locator on the `NodeFailed` event instead). The CLI resolves it
             to a 1-based source line.
+        traceback (`str`, *optional*, defaults to `None`):
+            The formatted Python traceback of the node that aborted the run, when one was
+            captured (a code/tool/agent raise). `None` for failures with no exception behind
+            them (a boundary or post assert, input coercion). The CLI prints it only under
+            `--engine-trace`.
         events (`list[Any]`):
             The raw engine event objects, in emission order. A host serializes them
             however it sees fit.
@@ -102,9 +107,6 @@ class RunResult:
     output: Any = None
     error: Optional[str] = None
     locator: Optional[SourceSpan] = None
-    # Formatted Python traceback of the node that aborted the run, when one was captured
-    # (a code/tool/agent raise). None for failures with no exception behind them (a boundary
-    # or post assert, input coercion). The CLI prints it only under `--engine-trace`.
     traceback: Optional[str] = None
     events: List[Any] = field(default_factory=list)
     checkpoint: Optional[Any] = None
@@ -181,10 +183,10 @@ def run_flow(
     # ${system.run_id} — host-injected, else a freshly minted id; child-inherited like the clock.
     pool.add_system("run_id", run_id if run_id is not None else default_run_id())
 
-    # The engine seeds store[START_ID] at run init (StartNode.run -> coerce/e08/defaults),
+    # The engine seeds store[START_ID] at run init (StartNode.run -> coerce/type-check/defaults),
     # fires the boundary asserts pool-scoped (reading store[START_ID]), then advances START_ID. The
-    # `inputs` namespace + run.py's add_inputs/e08/boundary-assert blocks are retired; the
-    # e08 TypeCheckError + the false-boundary-assert both come back as a RunFailed engine event.
+    # `inputs` namespace + run.py's add_inputs/type-check/boundary-assert blocks are retired; the
+    # input TypeCheckError + the false-boundary-assert both come back as a RunFailed engine event.
     engine = FlowEngine(
         loaded.compiled, pool,
         num_workers=num_workers,
@@ -208,7 +210,7 @@ def run_flow(
                 output = event.output
             elif isinstance(event, RunFailed):
                 error = event.error
-                result_locator = event.locator  # boundary assert / input-coercion (Step 8)
+                result_locator = event.locator  # boundary assert / input-coercion error
                 tb = event.traceback
 
     # A paused run carries the resume handles: the live engine (fast in-process),
