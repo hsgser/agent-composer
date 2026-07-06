@@ -4,9 +4,9 @@ These operate on bare `Type`/`Edge`/path-set inputs (never a `FlowSpec`), so the
 Compose loader (`agent_composer.compose`) reuses them directly:
 
 - `_reject_cycles` — Kahn's-algorithm cycle check over a bare edge list + node-id set.
-- `_classify_path` — head-resolution for one dotted `${...}` ref (e01) + the dotted
-  record-field walk (e03), dispatched through `_walk_record_fields`.
-- `_walk_record_fields` — the e03 dotted-field-into-a-record check.
+- `_classify_path` — head-resolution for one dotted `${...}` ref + the dotted
+  record-field walk, dispatched through `_walk_record_fields`.
+- `_walk_record_fields` — the dotted-field-into-a-record check.
 
 `FlowValidationError` is the shared structural-error type the compose loader catches
 and re-raises as a located `LoadError`.
@@ -100,7 +100,7 @@ def types_compatible(source: Type, sink: Type) -> bool:
 
 
 def _walk_record_fields(typ: "Type | None", fields: list, path: str) -> "str | None":
-    """Walk a dotted field path into a producer's record `Type` (the e03 mechanism).
+    """Walk a dotted field path into a producer's record `Type`.
 
     Only a CHECKED record (`typ.fields` is not None) is walked; a scalar / opaque /
     unresolved producer stays lenient (dotted access allowed, unchecked). An absent
@@ -169,6 +169,6 @@ def _classify_path(
                 f"reference ${{{path}}} on node {head!r} must be {head}.output[.field] "
                 f"(`.output` is the node-value selector)"
             )
-        # e03 dotted-field walk into the producer's record Type, starting at parts[2:].
+        # dotted-field walk into the producer's record Type, starting at parts[2:].
         return _walk_record_fields((producers or {}).get(head), parts[2:], path)
     return f"reference ${{{path}}} uses unknown namespace {head!r}"

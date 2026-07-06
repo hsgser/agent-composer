@@ -337,7 +337,7 @@ def binding_co_skips(source: Any) -> bool:
     A hard data dependency: a whole-string `${...}` span whose expression is a pure group
     of references / ref-defaults with NO literal escape and NO `:?` required. A literal
     operand runs the node with the literal; a `:-literal` default supplies one; a `:?` runs
-    it to fail loud (e07); embedded text stringifies an absent ref to ''. None of those
+    it to fail loud; embedded text stringifies an absent ref to ''. None of those
     co-skip; non-strings never co-skip.
 
     Re-implemented over the RAW string via the unified engine: scan `source` into template

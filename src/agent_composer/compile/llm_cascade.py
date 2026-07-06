@@ -28,7 +28,8 @@ def resolve_llm_cascade(flow, parent_config: dict) -> None:
     outward (the CLI config at the top call). Mutates `flow` in place.
 
     Args:
-        flow: a `CompiledFlow` — its `flow_llm_config` is this scope's flow layer.
+        flow (`CompiledFlow`): the flow to resolve; its `flow_llm_config` is this scope's
+            flow layer. Mutated in place.
         parent_config (`dict`): the gap-fill layer inherited from outside this flow (the
             enclosing flow's resolved flow-layer; the CLI config at the top-level call).
     """

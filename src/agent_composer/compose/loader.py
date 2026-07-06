@@ -173,13 +173,18 @@ class LoadedFlow:
 
 
 def _flow_outputs(outputs) -> list[FlowOutput]:
-    """The flow `outputs:` section as the `FlowOutput` carriers `terminal_output` reads.
+    """Read the flow `outputs:` section into the `FlowOutput` carriers `terminal_output` reads.
 
-    A name -> binding map (seeds 01/06/07/13/14/18) becomes one `FlowOutput` per entry
+    A name -> binding map becomes one `FlowOutput` per entry
     (>=2 -> `terminal_output` returns an object keyed by name); a bare whole-string
-    binding (`${note.output}`, seeds 00/02/11/19) is one output named `result` (1 ->
+    binding (`${note.output}`) is one output named `result` (1 ->
     `terminal_output` returns the bare value). A `None` section -> no declared outputs
     (`terminal_output` returns `None`).
+
+    Args:
+        outputs (`dict | str | None`):
+            The raw `outputs:` section: a name -> binding map, a single binding string,
+            or `None`.
     """
     if outputs is None:
         return []
@@ -225,6 +230,16 @@ def _join_path(base, p: str) -> Path:
 
 
 def _check_version(child: "LoadedFlow", path: str, version: Optional[str]) -> None:
+    """Raise if a `uses:` ref pins a version the resolved file does not declare.
+
+    Args:
+        child (`LoadedFlow`):
+            The resolved child flow whose declared `version` is compared.
+        path (`str`):
+            The `uses:` path (for the error message).
+        version (`str`, *optional*, defaults to `None`):
+            The pinned `@<version>`; `None` means unpinned (no check).
+    """
     if version is not None and child.version != version:
         raise LoadError(
             f"uses: ref pinned {path}@{version} but the resolved file declares "
@@ -503,7 +518,7 @@ def _load_def(name: str, body, registry, resolver: ChildResolver, parent_text: s
             return _load_single_node_def(name, body, registry, resolver, parent_text)
         raise LoadError(
             f"defs entry {name!r}: a callable needs a `nodes:` sub-flow body "
-            f"(inputs?/nodes/outputs?) OR a single-node `kind:` form (G)"
+            f"(inputs?/nodes/outputs?) OR a single-node `kind:` form"
         )
     extra = sorted(set(body) - _DEF_ALLOWED)
     if extra:
@@ -600,7 +615,7 @@ def _assemble(
     """Assemble parsed sections into a `LoadedFlow` — the post-parse pipeline shared by
     the top-level flow and every in-file def:
 
-      flow-input decls -> build leaf + `call` nodes -> e06 cross-flow check
+      flow-input decls -> build leaf + `call` nodes -> cross-flow type check
       -> desugar cases -> infer data edges -> reconcile case edges -> validate
       references + classify asserts -> synthesize roots/terminals -> reject
       cycles + check if/else handles -> CompiledFlow.from_parts.
@@ -702,7 +717,7 @@ def _assemble(
             leaf[nid] = node
             flow_wiring[nid] = wiring
     # producers: each built node's declared output_type (drives the case `on:` enum
-    # exhaustiveness + the e03 dotted-field walk in ref/assert validation).
+    # exhaustiveness + the dotted-field walk in ref/assert validation).
     producers: dict[str, Type] = {
         nid: node.output_type
         for nid, node in leaf.items()
@@ -745,7 +760,7 @@ def _assemble(
     reconciled = reconcile_case_edges(data_edges, desugars)
 
     # Reference + assert validation over the built flow. Errors locate
-    # at the node's line (a bad node-input ref) or the `outputs:` section line (e01/e03's
+    # at the node's line (a bad node-input ref) or the `outputs:` section line (a
     # dangling flow-output ref).
     validate_references(
         nodes,

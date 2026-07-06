@@ -1,8 +1,8 @@
 """Graph- and reference-level validation for the loader.
 
 Reuses the representation-neutral leaf checkers from `compile.validation` —
-`_reject_cycles` (the Kahn cycle check), `_classify_path` (e01 head-resolution + e03
-dotted-field dispatch) — on the synthesized graph + built nodes, re-raising as a
+`_reject_cycles` (the Kahn cycle check), `_classify_path` (head-resolution + dotted-field
+dispatch) — on the synthesized graph + built nodes, re-raising as a
 `LoadError` so the surface speaks one error type. The handle-alignment check ports
 `_check_case_handles`'s rule to the desugared `CaseNode`s + their control edges (the
 Compose path has no `FlowSpec`).
@@ -66,7 +66,7 @@ def reject_cycles(
     """Raise a `LoadError` if the inferred (real-node) graph has a directed cycle.
 
     Delegates to the shared `_reject_cycles` (Kahn's algorithm over the non-sentinel
-    edges); a cyclic flow (`errors/e02`: `a -> b -> a`) is loud and names the stuck
+    edges); a cyclic flow (`a -> b -> a`) is loud and names the stuck
     nodes. Sentinel `__start__`/`__end__` edges can't close a cycle, so passing the
     fully-assembled edge set is fine.
 
@@ -167,7 +167,7 @@ def check_case_handles(nodes: dict[str, Node], edges: list[Edge]) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Reference-wiring validation: e01 dangling + e03 dotted-field + prompt-scope
+# Reference-wiring validation: dangling head + dotted-field + prompt-scope
 #
 # The analogue of `compile.validation._collect_reference_errors`, walking the BUILT
 # flow instead of a `FlowSpec`: it CALLS the leaf checkers (`_classify_path`) directly
@@ -180,8 +180,8 @@ def check_case_handles(nodes: dict[str, Node], edges: list[Edge]) -> None:
 def _output_bindings(outputs: Any) -> list[Any]:
     """The flow `outputs:` section as a flat list of binding values (sites to check).
 
-    A whole-string binding (`${a.output | b.output}`, seed 02) is one value; a
-    name -> binding map (seed 01/06/18) is each mapped value. Mirrors
+    A whole-string binding (`${a.output | b.output}`) is one value; a
+    name -> binding map is each mapped value. Mirrors
     `build._output_bindings` (kept local — `validate` does not import `build`).
     """
     if isinstance(outputs, dict):
@@ -206,17 +206,17 @@ def validate_references(
     `nodes` is the built node map — leaf runtime `Node`s AND desugared `CaseNode`s
     (their `.inputs` carry the `__rN`/`__on` SOURCES, the reconciled `case` data refs).
     `flow_inputs` is the `read_flow_inputs(...)` decl names (the `${input.X}` set);
-    `producers` maps node id -> its `output_type` (drives the e03 dotted-field walk;
+    `producers` maps node id -> its `output_type` (drives the dotted-field walk;
     only resolvable/checked producers belong here — an opaque/None producer stays
     lenient). `outputs` is the raw flow `outputs:` section.
 
     `node_lines` (node id -> source line) + `outputs_line` (the `outputs:` section line)
     locate each error: a node-binding/prompt error at the node's line; a flow-output ref
-    (e01/e03) at the `outputs:` line. The aggregate `LoadError` carries the FIRST
+    at the `outputs:` line. The aggregate `LoadError` carries the FIRST
     located error's line (best-effort, since several sites may be wrong at once).
 
     Accumulates ALL located errors and raises a single `LoadError`; passes silently
-    on a clean flow. Reuses `_classify_path` (e01 head-resolution + e03 dotted walk)
+    on a clean flow. Reuses `_classify_path` (head-resolution + dotted walk)
     verbatim — the per-node walk glue is the only loader-specific code.
     """
     lines = node_lines or {}
@@ -300,7 +300,7 @@ def validate_references(
             scan(src, f"node {node_id!r} input {param!r} from", node_line)
 
     # Flow outputs (the codomain): each binding `from:` checked like a node input —
-    # located at the `outputs:` section line (e01/e03 point here).
+    # located at the `outputs:` section line (dangling-head/dotted-field errors point here).
     for value in _output_bindings(outputs):
         scan(value, "flow output from", outputs_line)
 

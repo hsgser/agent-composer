@@ -59,6 +59,7 @@ class ValueKind(str, Enum):
     LIST_OBJECT = "list[object]"
 
     def is_list(self) -> bool:
+        """Whether this kind is one of the six `list[...]` kinds."""
         return self in _LIST_ELEMENT_KIND
 
     @property
@@ -101,11 +102,12 @@ class TypedValue(BaseModel):
     value: Any
 
     def to_object(self) -> Any:
-        """The plain Python value (what expressions and node code see)."""
+        """Return the plain Python value (what expressions and node code see)."""
         return self.value
 
     @property
     def text(self) -> str:
+        """Render the value as a string (empty string for `None`)."""
         return "" if self.value is None else str(self.value)
 
 
@@ -291,6 +293,7 @@ class Type:
 
     @classmethod
     def scalar(cls, seg: ValueKind) -> "Type":
+        """Build a plain `Type` carrying only a storage tag (no field/tag/element refinement)."""
         return cls(kind=seg)
 
 
@@ -372,6 +375,19 @@ def build_value(value: Any) -> TypedValue:
 
     `FILE` is never inferred from a dict/str — only an explicit `FileRef`
     produces a `FileValue`. An empty list infers as `LIST_ANY`.
+
+    Args:
+        value (`Any`):
+            A plain Python value (scalar, `dict`, `list`/`tuple`, or `FileRef`), or an
+            already-wrapped `TypedValue` (returned as-is, so the call is idempotent).
+
+    Returns:
+        `TypedValue`:
+            The value wrapped in the subclass matching its inferred `ValueKind`.
+
+    Raises:
+        `TypeCheckError`:
+            The value is of a kind that has no `TypedValue` mapping (e.g. a custom object).
     """
     if isinstance(value, TypedValue):
         return value  # idempotent
@@ -408,11 +424,27 @@ def _infer_list(items: list[Any]) -> TypedValue:
 def build_value_as(declared: "ValueKind | Type", value: Any) -> TypedValue:
     """Wrap `value` as a TypedValue matching `declared`, raising on a type mismatch.
 
-    Accepts either a bare `ValueKind` (scalar / flat list — preserved behavior)
-    or a structural `Type` (records, variants, typed/element lists). This is the
-    write-boundary check the variable pool uses against each declared output type,
-    so a node returning the wrong type fails loudly at the write rather than
-    silently downstream.
+    This is the write-boundary check the variable pool uses against each declared
+    output type, so a node returning the wrong type fails loudly at the write rather
+    than silently downstream. The only coercion is widening (an `int` fills a `float`
+    slot).
+
+    Args:
+        declared (`ValueKind | Type`):
+            The target type. A bare `ValueKind` is a scalar or flat list; a structural
+            `Type` additionally checks records, variants, and typed/element lists.
+        value (`Any`):
+            The raw Python value to validate and wrap, or an already-wrapped
+            `TypedValue` (unwrapped to its plain value first).
+
+    Returns:
+        `TypedValue`:
+            The value wrapped in the subclass for `declared`'s storage kind.
+
+    Raises:
+        `TypeCheckError`:
+            The value does not satisfy `declared` — wrong scalar type, a non-member
+            variant tag, a record with missing/unknown fields, or a bad list element.
     """
     typ = Type.scalar(declared) if isinstance(declared, ValueKind) else declared
     if isinstance(value, TypedValue):

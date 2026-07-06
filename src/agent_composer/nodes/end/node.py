@@ -82,7 +82,7 @@ class EndNode(Node):
 
     def run(self, inputs: dict) -> Output:
         if self._mode == "record":
-            # terminal_output()'s arity rule (engine.py:163-188): 0 -> None; 1 -> bare; >=2 -> keyed.
+            # terminal arity rule: 0 -> None; 1 -> bare; >=2 -> keyed object.
             if not self._names:
                 return Output(value=None)
             if len(self._names) == 1:

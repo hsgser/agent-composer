@@ -1,9 +1,9 @@
-"""The D2 reader: a Compose `outputs:`/`inputs:` source node -> one runtime `Type`.
+"""The type-node reader: a Compose `outputs:`/`inputs:` source node -> one runtime `Type`.
 
 A node here is a leaf type string (`"float"`, `"list[str]"`, a registry name), a
 map of field -> node (a record, nested natively), or a list of single-key maps
-(D2's list-of-fields style). Resolution of leaf strings and nested records is the
-state layer's job (`type_for` recurses over records/lists/Optional); this reader
+(the list-of-fields style). Resolution of leaf strings and nested records is the
+type layer's job (`type_for` recurses over records/lists/Optional); this reader
 is the thin composition that walks the YAML structure and wraps any type error loudly.
 """
 
@@ -103,8 +103,8 @@ def read_flow_inputs(mapping, registry: TypeRegistry) -> list[InputDecl]:
     """Read a Compose `inputs:` mapping into the seeding pipeline's `InputDecl`s.
 
     A `str` value is the `TYPE [= default]` / `Optional[X]` form; a `dict` value is a
-    record type (resolved via `read_type`, no default — decision D-DEFAULTS dropped the
-    `{type:, default:}` escape-hatch map).
+    record type (resolved via `read_type`, no default — the `{type:, default:}`
+    escape-hatch map is intentionally not supported).
     """
     decls: list[InputDecl] = []
     for name, value in (mapping or {}).items():

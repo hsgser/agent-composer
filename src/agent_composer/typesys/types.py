@@ -74,6 +74,20 @@ def parse_type(s: str) -> TypeExpr:
     `topics`). A bare name that is neither a scalar nor a constructor is a registry
     reference. The legacy engine spelling (`string`/`integer`/`number`/`boolean`) no
     longer parses (it resolves as an unknown registry RefExpr).
+
+    Args:
+        s (`str`):
+            The authored type expression, e.g. `"list[Signal]"` or `"Optional[date]"`.
+
+    Returns:
+        `TypeExpr`:
+            The parsed AST node (`ScalarExpr`, `ListExpr`, `RefExpr`, `OptionalExpr`,
+            `EnumExpr`, or `DictExpr`) — still unresolved against any registry.
+
+    Raises:
+        `TypeCheckError`:
+            The string is not a valid expression, uses an unknown constructor, or is a
+            `Union[...]` (unsupported — model a tagged variant as a discriminated record).
     """
     s = s.strip()
     try:
@@ -180,7 +194,30 @@ _LIST_SEG_FOR_ELEMENT = {
 
 
 def resolve_type(t: TypeExpr, registry: TypeRegistry, _seen: frozenset[str] = frozenset()) -> Type:
-    """Resolve a `TypeExpr` against the registry into a runtime `Type`."""
+    """Resolve a `TypeExpr` against the registry into a runtime `Type`.
+
+    Expands records field-by-field and follows aliases transitively, guarding against
+    reference cycles via `_seen`.
+
+    Args:
+        t (`TypeExpr`):
+            A parsed type AST from [`parse_type`][agent_composer.typesys.types.parse_type].
+        registry (`TypeRegistry`):
+            The per-flow `name -> RecordDef | VariantDef | AliasDef` table a `RefExpr`
+            resolves against.
+        _seen (`frozenset[str]`, *optional*, defaults to `frozenset()`):
+            Registry names already being resolved on the current path — the cycle guard.
+            Callers pass nothing; it is threaded internally through nested resolution.
+
+    Returns:
+        `Type`:
+            The leaf structural type: a scalar, a typed list, a closed record, or a
+            tag-constrained variant.
+
+    Raises:
+        `TypeCheckError`:
+            A `RefExpr` names an unknown type, or a record/alias reference is recursive.
+    """
     if isinstance(t, ScalarExpr):
         return Type.scalar(_SCALAR_SEG[t.name])
 
@@ -224,7 +261,18 @@ def resolve_type(t: TypeExpr, registry: TypeRegistry, _seen: frozenset[str] = fr
 
 
 def type_for(type_str: str, registry: TypeRegistry) -> Type:
-    """Convenience: parse a type string and resolve it against the registry."""
+    """Parse a type string and resolve it against the registry in one step.
+
+    Args:
+        type_str (`str`):
+            The authored type expression.
+        registry (`TypeRegistry`):
+            The per-flow type table the reference resolves against.
+
+    Returns:
+        `Type`:
+            The resolved leaf structural type.
+    """
     return resolve_type(parse_type(type_str), registry)
 
 
@@ -266,10 +314,23 @@ def read_typedefs(raw: dict) -> TypeRegistry:
     A mapping value is a RECORD (`RecordDef`; field type-strings kept raw, resolved
     lazily). A `Literal[...]` string is an ENUM (`VariantDef`, tag-only). Any other
     string is an ALIAS (`AliasDef`). A **sequence** is the dropped tagged-union spelling
-    and is rejected: an all-bare-tags sequence must be a `Literal[...]` enum
-    (the e05 case); a payload sequence must be a discriminated record routed by
-    `case ... on tag`. Names must be PascalCase and must not shadow a scalar/typing
-    constructor. Alias cycles are rejected eagerly.
+    and is rejected: an all-bare-tags sequence must be a `Literal[...]` enum; a payload
+    sequence must be a discriminated record routed by `case ... on tag`. Names must be
+    PascalCase and must not shadow a scalar/typing constructor. Alias cycles are rejected
+    eagerly.
+
+    Args:
+        raw (`dict`):
+            The raw `typedefs:` mapping (`name -> definition`), or falsy for none.
+
+    Returns:
+        `TypeRegistry`:
+            The `name -> RecordDef | VariantDef | AliasDef` table used by `resolve_type`.
+
+    Raises:
+        `TypeCheckError`:
+            A name is not PascalCase or shadows a builtin, a field type is not a string,
+            a value is a union sequence, or an alias cycle is detected.
     """
     registry: TypeRegistry = {}
     for name, value in (raw or {}).items():

@@ -180,8 +180,8 @@ def _control_edges(node_id: str, handle_targets: list[tuple[str, str]]) -> list[
 def _resolve_on_type(on_ref: str, producers: dict[str, Type]) -> Optional[Type]:
     """The `Type` an `on: ${<id>.output[.<field>…]}` ref resolves to, else None.
 
-    Walks the producing node's `output_type` dotted-field by dotted-field (the e03
-    mechanism, `_walk_record_fields`) into a record to reach the named field. A
+    Walks the producing node's `output_type` dotted-field by dotted-field
+    (`_walk_record_fields`) into a record to reach the named field. A
     non-node-first head / opaque producer / non-record step -> None (lenient: no
     exhaustiveness check). Imported here to avoid coupling the walk logic twice.
     """
@@ -201,7 +201,7 @@ def _resolve_on_type(on_ref: str, producers: dict[str, Type]) -> Optional[Type]:
     else:
         return None
     typ = producers.get(producer_id)
-    # Reuse the e03 walk only to FAIL on a bad dotted field; then re-walk to the Type.
+    # Reuse the dotted-field walk only to FAIL on a bad dotted field; then re-walk to the Type.
     if _walk_record_fields(typ, fields, refs[0]) is not None:
         return None  # bad field -> the reference-wiring pass reports it; skip exhaustiveness
     for f in fields:
@@ -214,7 +214,7 @@ def _resolve_on_type(on_ref: str, producers: dict[str, Type]) -> Optional[Type]:
 def _check_exhaustive(
     desc: CaseDescriptor, covered: set[str], producers: dict[str, Type]
 ) -> None:
-    """Enum-exhaustiveness for the `on:` form (e04 mechanism).
+    """Enum-exhaustiveness for the `on:` form.
 
     Resolves the `on:` ref to a `Type`; if it carries `.tags` (an enum), every tag must
     be a `when:` match value OR be covered by a present `else:`. A missing tag with no
@@ -336,7 +336,7 @@ def _rewrite_when(when: str, ref_to_local: dict[str, str]) -> str:
 
 
 def reconcile_case_edges(
-    step8_edges: list[Edge], desugars: dict[str, CaseDesugar]
+    inferred_edges: list[Edge], desugars: dict[str, CaseDesugar]
 ) -> list[Edge]:
     """Merge the inferred data edges with the case desugars (the reconciliation pass).
 
@@ -347,7 +347,7 @@ def reconcile_case_edges(
     `desugars` is keyed by case node id.
     """
     case_ids = set(desugars)
-    kept = [e for e in step8_edges if e.to not in case_ids]
+    kept = [e for e in inferred_edges if e.to not in case_ids]
     for d in desugars.values():
         kept.extend(d.data_edges)
         kept.extend(d.control_edges)
@@ -453,7 +453,7 @@ def _lift_case_target(
 # branch was taken. Pure load-time sugar — it rewrites the ref to a COALESCE over the
 # case's branch targets (`${t1.output | t2.output | … | else.output}`). The existing
 # skip-flood makes every non-taken branch null, so the coalesce yields the taken value
-# (exactly the hand-written join seed 02 uses). Runtime IR unchanged.
+# (exactly what a hand-written coalesce join uses). Runtime IR unchanged.
 #
 # Only a CLEAN whole-span ref `${<case>.output[.dotted.path]}` is expanded (incl.
 # embedded-in-text and dotted). A case-value ref in a non-clean position — inside a

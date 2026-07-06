@@ -4,12 +4,21 @@ import warnings
 
 
 def normalize_content(response):
-    """Normalize LLM response content to a plain string.
+    """Coerce an LLM response's `.content` to a plain string in place.
 
-    Multiple providers (OpenAI Responses API, Google Gemini 3) return content
-    as a list of typed blocks, e.g. [{'type': 'reasoning', ...}, {'type': 'text', 'text': '...'}].
-    Downstream agents expect response.content to be a string. This extracts
-    and joins the text blocks, discarding reasoning/metadata blocks.
+    Multiple providers (OpenAI Responses API, Google Gemini 3) return content as a list
+    of typed blocks, e.g. `[{'type': 'reasoning', ...}, {'type': 'text', 'text': '...'}]`.
+    Downstream agents expect `response.content` to be a string, so the text blocks are
+    joined and the reasoning/metadata blocks discarded.
+
+    Args:
+        response (`Any`):
+            A langchain message-like object with a mutable `.content` attribute, either
+            a string (left untouched) or a list of block dicts / strings.
+
+    Returns:
+        `Any`:
+            The same `response` object, with `.content` replaced by the joined text.
     """
     content = response.content
     if isinstance(content, list):

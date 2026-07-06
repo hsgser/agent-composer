@@ -29,7 +29,30 @@ if TYPE_CHECKING:
 
 
 class StateManager:
+    """Mutable per-run scheduling state: node/edge `NodeState` maps + the executing set.
+
+    Owns everything the dispatcher mutates during a drain and answers the join predicates
+    (`disposition`, `is_node_ready`, `is_complete`). A single `RLock` guards all of it,
+    preserving the single-writer invariant under the worker pool.
+
+    Attributes:
+        flow (`CompiledFlow`):
+            The compiled graph whose nodes and edges seed the state maps.
+        node_state (`dict[str, NodeState]`):
+            Map of node id to its resolution state (`UNKNOWN` until settled).
+        edge_state (`dict[str, NodeState]`):
+            Map of edge id to `TAKEN` / `SKIPPED` / `UNKNOWN` — what the join reads.
+        executing (`set[str]`):
+            Ids of nodes currently running (a worker holds them); part of `is_complete`.
+    """
+
     def __init__(self, flow: CompiledFlow) -> None:
+        """Seed every node and edge to `UNKNOWN` from the compiled flow.
+
+        Args:
+            flow (`CompiledFlow`):
+                The compiled graph whose `nodes` and `edges` initialize the state maps.
+        """
         self.flow = flow
         self.node_state: dict[str, NodeState] = {nid: NodeState.UNKNOWN for nid in flow.nodes}
         self.edge_state: dict[str, NodeState] = {e.id: NodeState.UNKNOWN for e in flow.edges}
@@ -39,16 +62,41 @@ class StateManager:
     # --- edge / node marking ----------------------------------------------- #
 
     def mark_edge(self, edge_id: str, state: NodeState) -> None:
+        """Set an edge's resolution state (marked once; state is monotonic).
+
+        Args:
+            edge_id (`str`):
+                The edge to mark.
+            state (`NodeState`):
+                Its settled state — `TAKEN` or `SKIPPED`.
+        """
         with self.lock:
             self.edge_state[edge_id] = state
 
     def mark_node(self, node_id: str, state: NodeState) -> None:
+        """Set a node's resolution state.
+
+        Args:
+            node_id (`str`):
+                The node to mark.
+            state (`NodeState`):
+                Its settled state.
+        """
         with self.lock:
             self.node_state[node_id] = state
 
     def register(self, node_ids: "list[str]", edges: "list[Edge]") -> None:
-        """Runtime overlay: add UNKNOWN node/edge state for a freshly-added subgraph,
-        atomically under the lock, before any of its nodes can become ready."""
+        """Seed UNKNOWN state for a freshly-added subgraph, atomically under the lock.
+
+        The runtime overlay that admits a grown sub-namespace (a loop iteration, an inlined
+        child) before any of its nodes can become ready. Existing ids are left untouched.
+
+        Args:
+            node_ids (`list[str]`):
+                Ids of the newly-added nodes.
+            edges (`list[Edge]`):
+                The newly-added edges.
+        """
         with self.lock:
             for nid in node_ids:
                 self.node_state.setdefault(nid, NodeState.UNKNOWN)
@@ -56,11 +104,18 @@ class StateManager:
                 self.edge_state.setdefault(edge.id, NodeState.UNKNOWN)
 
     def drop(self, node_ids: set[str], edge_ids: set[str]) -> None:
-        """Runtime overlay: remove node/edge state for a pruned sub-namespace, the
-        inverse of `register`. Clears the pruned ids from every per-node structure
-        (`node_state`, `executing`) and per-edge structure (`edge_state`) so no
-        structure keys on a dropped id after this returns (a finished loop iteration's
-        `#i` overlay is dropped from the live graph)."""
+        """Remove node/edge state for a pruned sub-namespace — the inverse of `register`.
+
+        Clears the pruned ids from every per-node structure (`node_state`, `executing`)
+        and per-edge structure (`edge_state`), so no structure keys on a dropped id after
+        this returns (e.g. a finished loop iteration's `#i` overlay leaving the live graph).
+
+        Args:
+            node_ids (`set[str]`):
+                Ids of the nodes to remove.
+            edge_ids (`set[str]`):
+                Ids of the edges to remove.
+        """
         with self.lock:
             for nid in node_ids:
                 self.node_state.pop(nid, None)
@@ -71,19 +126,24 @@ class StateManager:
     # --- executing-set ------------------------------------------------------ #
 
     def add_executing(self, node_id: str) -> None:
+        """Mark a node as currently running (a worker has claimed it)."""
         with self.lock:
             self.executing.add(node_id)
 
     def finish_executing(self, node_id: str) -> None:
+        """Clear a node from the executing set once its worker returns."""
         with self.lock:
             self.executing.discard(node_id)
 
     # --- predicates --------------------------------------------------------- #
 
     def real_incoming(self, node_id: str) -> "list[Edge]":
-        # START_ID is now a real root NODE (it has no incoming edge of its own, so
-        # real_incoming(START_ID) == [] -> disposition `ready`). A `START_ID->X` edge is an
-        # ORDINARY incoming edge of X that gates X on START_ID settling, so it is no longer filtered.
+        """Return a node's real incoming edges (those the join gates on).
+
+        START_ID is a real root node with no incoming edge of its own, so
+        `real_incoming(START_ID) == []` (disposition `ready`). A `START_ID->X` edge is an
+        ordinary incoming edge of X that gates X on START_ID settling.
+        """
         return list(self.flow.incoming(node_id))
 
     def disposition(self, node_id: str) -> str:
@@ -140,8 +200,16 @@ class StateManager:
             return "ready"
 
     def is_node_ready(self, node_id: str) -> bool:
+        """Whether the node's join is satisfied and it can be scheduled now."""
         return self.disposition(node_id) == "ready"
 
     def is_complete(self, ready_is_empty: bool) -> bool:
+        """Whether the whole run is done: nothing ready to schedule and nothing executing.
+
+        Args:
+            ready_is_empty (`bool`):
+                Whether the dispatcher's ready queue is currently empty (the caller owns
+                that queue, so it passes the fact in rather than the state manager reading it).
+        """
         with self.lock:
             return ready_is_empty and not self.executing

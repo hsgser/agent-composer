@@ -42,7 +42,7 @@ def _normalize_section_keys(body: Any) -> Any:
     NOTE: this function does NOT recurse into nested per-node or `defs:` bodies — the
     descriptor dataclasses (AgentDescriptor, CodeDescriptor, ...) keep their internal
     `inputs`/`outputs` field names (Python collection fields stay plural).
-    The body-level back-map (`_phase3_back_map_to_plural`) translates the new singular
+    The body-level back-map (`_back_map_to_plural`) translates the new singular
     keys to the dataclass field names. The rejector fires at the TOP-level only — if a
     flow author writes `inputs:` at any depth, the top-level rejector catches it via
     parse_file before _parse_node sees it.
@@ -58,7 +58,7 @@ def _normalize_section_keys(body: Any) -> Any:
     return body
 
 
-def _phase3_back_map_to_plural(body: Any) -> Any:
+def _back_map_to_plural(body: Any) -> Any:
     """Map normalized `input`/`output` keys back to `inputs`/`outputs` for the dataclass
     constructors (transitional — the dataclass fields stay plural). Recurses into
     `nodes:`/`defs:`."""
@@ -70,9 +70,9 @@ def _phase3_back_map_to_plural(body: Any) -> Any:
     if "output" in out:
         out["outputs"] = out.pop("output")
     if isinstance(out.get("nodes"), dict):
-        out["nodes"] = {nid: _phase3_back_map_to_plural(nb) for nid, nb in out["nodes"].items()}
+        out["nodes"] = {nid: _back_map_to_plural(nb) for nid, nb in out["nodes"].items()}
     if isinstance(out.get("defs"), dict):
-        out["defs"] = {dname: _phase3_back_map_to_plural(db) for dname, db in out["defs"].items()}
+        out["defs"] = {dname: _back_map_to_plural(db) for dname, db in out["defs"].items()}
     return out
 
 
@@ -111,17 +111,17 @@ class ComposeFile(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _phase3_normalize_sections(cls, data: Any) -> Any:
+    def _normalize_sections(cls, data: Any) -> Any:
         """Normalize `inputs:`/`outputs:` ↔ `input:`/`output:` BEFORE Pydantic validates.
         Recurses into nested `nodes:` + `defs:` bodies. Raises on ambiguous (both).
 
         The dataclass fields are still named `inputs`/`outputs` plural, so after
-        normalization we map BACK to the plural names (`_phase3_back_map_to_plural`).
+        normalization we map BACK to the plural names (`_back_map_to_plural`).
         The validator rejects the legacy plural section keywords with a bespoke message."""
         if not isinstance(data, dict):
             return data
         normalized = _normalize_section_keys(data)
-        return _phase3_back_map_to_plural(normalized)
+        return _back_map_to_plural(normalized)
 
 
 # Compact (single-node) flow: the flow's top-level body carries a node `kind:` and
@@ -576,7 +576,7 @@ def _parse_node(node_id: str, body: Any, line: Optional[int]) -> NodeDescriptor:
     # Direct callers of `_parse_node` (`parse_nodes`) get the same treatment as
     # `parse_file` does at the top level. The top-level rejector is in parse_file;
     # per-node we only run the back-map (legacy is already gone by the time we get here).
-    body = _phase3_back_map_to_plural(body)
+    body = _back_map_to_plural(body)
     kind = body.get("kind")
     if kind is None:
         raise LoadError(f"node {node_id!r}: missing `kind`", line=line)
@@ -921,8 +921,8 @@ def assert_lines(text: str) -> dict[tuple[Optional[str], str], int]:
 def input_decl_lines(text: str) -> dict[str, int]:
     """Map flow input name -> 1-based source line for the top-level `input:` mapping.
 
-    Locates the declaration of an input that failed coercion at the run boundary
-    (e08). Reads both `input:` and legacy `inputs:`. Best-effort: {} when uncomposable.
+    Locates the declaration of an input that failed coercion at the run boundary.
+    Reads both `input:` and legacy `inputs:`. Best-effort: {} when uncomposable.
     """
     m = _section_mapping(text, "input", "inputs")
     if m is None:
