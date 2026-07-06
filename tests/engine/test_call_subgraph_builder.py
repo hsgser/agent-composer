@@ -13,7 +13,7 @@ from agent_composer.compile.model import END_ID, Flow
 from tests.engine.test_expand import _child_flow
 
 
-def test_call_subgraph_matches_grow_call_shape():
+def test_call_subgraph_matches_grow_call_type():
     child = _child_flow()
     sg = call_subgraph(child, callsite="c0", record={"x": 1})
 

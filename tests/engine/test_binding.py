@@ -32,7 +32,7 @@ def bind_inputs(bindings, pool, *, item=None):
     param `default`/`required` fires. An edge that merely RESOLVES to null (e.g. `${system.w}`
     with the pool empty) is BOUND-NULL, which shadows a param default (`f(x=None)` semantics).
     Resolve-fallback / required-in-source are the SEPARATE `:-` / `:?` grammar (tested below)."""
-    params = [ParamDecl(name=b.name, type=b.type, required=b.required, default=b.default)
+    params = [ParamDecl(name=b.name, type_str=b.type, required=b.required, default=b.default)
               for b in bindings]
     wiring = {b.name: b.source for b in bindings if b.source is not None}
     return bind_params(params, wiring, pool, item=item)

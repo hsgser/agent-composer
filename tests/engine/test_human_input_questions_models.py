@@ -23,7 +23,7 @@ def test_parse_questions_multiselect_and_freetext_only():
     assert qs[1].options == []
 
 
-def test_parse_questions_rejects_empty_too_many_dups_badshape():
+def test_parse_questions_rejects_empty_too_many_dups_badtype():
     with pytest.raises(QuestionSpecError): parse_questions([])
     with pytest.raises(QuestionSpecError):
         parse_questions([{"question": f"q{i}", "header": f"H{i}"} for i in range(5)])

@@ -205,7 +205,7 @@ def _enum_case(tags: list[str], cases: list[str], else_: str | None):
     """A constructed `case ... on ${cls.output}` over a Literal-enum producer.
 
     `producers` maps `cls` -> a record? no: cls produces the enum value directly
-    (its output_shape carries `.tags`). The on: ref is `${cls.output}`.
+    (its output_type carries `.tags`). The on: ref is `${cls.output}`.
     """
     desc = CaseDescriptor(
         id="route",
@@ -244,7 +244,7 @@ def test_exhaustiveness_all_tags_covered_no_else_ok():
 
 
 def test_exhaustiveness_walks_dotted_field_into_record():
-    # seed 18 shape: on ${synth.output.stance}; synth.output_shape is a View record
+    # seed 18 shape: on ${synth.output.stance}; synth.output_type is a View record
     # whose `stance` field carries the Stance enum tags.
     view = Type(
         kind=ValueKind.OBJECT,

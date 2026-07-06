@@ -24,7 +24,7 @@ allocated `__rN`/`__on` input names (so `score -> gate` carries `input_group="__
 the caller replaces the case node's provisional edges with these.
 
 **Exhaustiveness:** when `on:` names an ENUM producer — the dotted `on:` ref
-resolves through the producing node's `output_shape` (walking dotted fields into a record
+resolves through the producing node's `output_type` (walking dotted fields into a record
 to reach a `Type` with `.tags`) — every tag must be covered by a case `when:` value OR a
 present `else:`. A missing tag with no `else:` is a `LoadError`.
 
@@ -177,10 +177,10 @@ def _control_edges(node_id: str, handle_targets: list[tuple[str, str]]) -> list[
     return edges
 
 
-def _resolve_on_shape(on_ref: str, producers: dict[str, Type]) -> Optional[Type]:
+def _resolve_on_type(on_ref: str, producers: dict[str, Type]) -> Optional[Type]:
     """The `Type` an `on: ${<id>.output[.<field>…]}` ref resolves to, else None.
 
-    Walks the producing node's `output_shape` dotted-field by dotted-field (the e03
+    Walks the producing node's `output_type` dotted-field by dotted-field (the e03
     mechanism, `_walk_record_fields`) into a record to reach the named field. A
     non-node-first head / opaque producer / non-record step -> None (lenient: no
     exhaustiveness check). Imported here to avoid coupling the walk logic twice.
@@ -200,15 +200,15 @@ def _resolve_on_shape(on_ref: str, producers: dict[str, Type]) -> Optional[Type]
         fields = parts[2:]
     else:
         return None
-    shape = producers.get(producer_id)
+    typ = producers.get(producer_id)
     # Reuse the e03 walk only to FAIL on a bad dotted field; then re-walk to the Type.
-    if _walk_record_fields(shape, fields, refs[0]) is not None:
+    if _walk_record_fields(typ, fields, refs[0]) is not None:
         return None  # bad field -> the reference-wiring pass reports it; skip exhaustiveness
     for f in fields:
-        if shape is None or shape.fields is None:
+        if typ is None or typ.fields is None:
             return None
-        shape = shape.fields.get(f)
-    return shape
+        typ = typ.fields.get(f)
+    return typ
 
 
 def _check_exhaustive(
@@ -222,10 +222,10 @@ def _check_exhaustive(
     """
     if desc.on is None or desc.else_ is not None:
         return  # searched form, or an else: that satisfies coverage
-    shape = _resolve_on_shape(desc.on, producers)
-    if shape is None or shape.tags is None:
+    typ = _resolve_on_type(desc.on, producers)
+    if typ is None or typ.tags is None:
         return  # not a checked enum producer -> lenient
-    missing = sorted(shape.tags - covered)
+    missing = sorted(typ.tags - covered)
     if missing:
         raise LoadError(
             f"case node {desc.id!r} on {desc.on}: non-exhaustive — enum tag(s) "
@@ -236,7 +236,7 @@ def _check_exhaustive(
 def desugar_case(desc: CaseDescriptor, producers: dict[str, Type]) -> CaseDesugar:
     """Lower one `case` descriptor to a strict `CaseNode` + control + data edges.
 
-    `producers` maps producer-node id -> its `output_shape` (for `on:` enum
+    `producers` maps producer-node id -> its `output_type` (for `on:` enum
     exhaustiveness). Raises `LoadError` on a malformed case or a non-exhaustive enum.
     """
     if desc.on is not None:

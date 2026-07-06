@@ -135,8 +135,8 @@ class LoopNode(Node):
         attributes its grow/commit to the compiled loop and self-prunes (`id != origin`).
 
         `params` must be copied for `eval_node` to bind the clone's carried inputs off the CONTINUE
-        wiring. `output_shape`/asserts are copied for clone self-consistency only — the STOP commit
-        reads the COMPILED origin `L`'s shape via `_on_success`, not the clone's."""
+        wiring. `output_type`/asserts are copied for clone self-consistency only — the STOP commit
+        reads the COMPILED origin `L`'s type via `_on_success`, not the clone's."""
         clone = LoopNode(
             f"{self.origin_id}~{k}", flow_id=self.flow_id, flow_version=self.flow_version,
             child=self.child, child_inputs=self.child_inputs, child_asserts=self.child_asserts,
@@ -144,7 +144,7 @@ class LoopNode(Node):
             predicate=self.predicate, times=self.times, max_iters=self.max_iters,
             title=self.title, iteration=k, origin_id=self.origin_id)
         clone.params = self.params
-        clone.output_shape = self.output_shape
+        clone.output_type = self.output_type
         clone.pre_asserts = list(self.pre_asserts)
         clone.post_asserts = list(self.post_asserts)
         return clone

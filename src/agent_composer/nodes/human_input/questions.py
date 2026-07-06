@@ -97,7 +97,7 @@ def parse_questions(raw) -> list[QuestionSpec]:
     return questions
 
 
-def question_list_shape() -> Type:
+def question_list_type() -> Type:
     """Build the typed `Type` a synthesized compose-agent generates questions against.
 
     Mirrors `QuestionSpec`/`OptionSpec` in the engine's Type vocabulary so the

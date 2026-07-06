@@ -194,7 +194,7 @@ def _walk_call_frames(loaded, node_id: str, top_text: str, top_label: str,
         line: Optional[int] = None
         fields = f_lines.get(seg, {})
         if is_last:
-            # precise field locator (e.g. `output:` for a coercion / shape mismatch)
+            # precise field locator (e.g. `output:` for a coercion / type mismatch)
             if span is not None and span.kind == "field" and span_leaf == seg:
                 line = fields.get(span.key)
             if line is None:  # else the node's kind fallback (e.g. a code node's `code:`)
@@ -433,11 +433,11 @@ _FORMAT_EXAMPLE: Dict[Any, str] = {
 }
 
 
-def _format_hint(shape: Any) -> Optional[str]:
+def _format_hint(typ: Any) -> Optional[str]:
     """An `e.g. <value>` example for an input whose string format isn't obvious, or
-    `None` when none is needed. Keyed off the shape's scalar `kind`, so it fires for
-    `Optional[date]` too (the resolved shape stays `DATE`, just nullable)."""
-    example = _FORMAT_EXAMPLE.get(getattr(shape, "kind", None))
+    `None` when none is needed. Keyed off the typ's scalar `kind`, so it fires for
+    `Optional[date]` too (the resolved typ stays `DATE`, just nullable)."""
+    example = _FORMAT_EXAMPLE.get(getattr(typ, "kind", None))
     return f"e.g. {example}" if example else None
 
 
@@ -447,7 +447,7 @@ def _input_label(decl: Any) -> str:
     Carries the input's name, declared `type`, a required (`*`) / `optional` mark,
     any default, and — for an ISO-8601 scalar with no default — an example value (a
     default already shows the format, so the example is dropped there). So an author at
-    the prompt sees what is expected without reading the `.yaml`. Shapes:
+    the prompt sees what is expected without reading the `.yaml`. Examples:
         `topic (str) *`                                      (required)
         `as_of (Optional[date]) [optional] e.g. 2026-05-21`  (date: example shown)
         `as_of (Optional[date]) [default: 2026-05-21]`       (default shows the format)
@@ -507,14 +507,14 @@ def _prompt_missing(decls: List[Any], have: Dict[str, Any]) -> Optional[Dict[str
         if decl.name in have:
             continue
         label = _input_label(decl)
-        shape = decl.type
-        if shape.kind == ValueKind.BOOLEAN:
+        typ = decl.type
+        if typ.kind == ValueKind.BOOLEAN:
             value = questionary.confirm(
                 label, default=bool(decl.default), qmark="?", style=style
             ).ask()
-        elif shape.tags:  # a Literal[...] enum
+        elif typ.tags:  # a Literal[...] enum
             value = questionary.select(
-                label, choices=sorted(shape.tags), qmark="?", style=style
+                label, choices=sorted(typ.tags), qmark="?", style=style
             ).ask()
         else:
             default = "" if decl.default is None else str(decl.default)
@@ -570,7 +570,7 @@ def assemble_question_answers(questions, ask):
     multi_select}). `ask(question) -> answer` is the per-question elicitation (the real
     one wraps questionary; tests pass a scripted callable). Returns a record keyed by
     each question's `header`: a single label `str` for a single-select question, a
-    `list[str]` for a `multi_select` question (the `ask` callable returns whichever shape).
+    `list[str]` for a `multi_select` question (the `ask` callable returns whichever form).
     """
     record = {}
     for q in questions:

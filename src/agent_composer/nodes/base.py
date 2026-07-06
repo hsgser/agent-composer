@@ -128,7 +128,7 @@ class Node(ABC):
             The node's unique id within its (possibly namespaced) flow.
         title (`str`, *optional*):
             A human-friendly display title, or `None`.
-        output_shape (`Type`, *optional*):
+        output_type (`Type`, *optional*):
             The declared output Type (one value); `None` leaves the write unenforced.
         params (`list[ParamDecl]`, *optional*):
             The node-side declared params (no source — the flow owns the wiring); `None`
@@ -194,13 +194,13 @@ class Node(ABC):
         node_id: str,
         *,
         title: Optional[str] = None,
-        output_shape: Optional[Type] = None,
+        output_type: Optional[Type] = None,
     ) -> None:
         self.id = node_id
         self.title = title
         # The node's declared output Type (one value). Threaded by the compiler;
         # None for fakes / nodes that declare none (then the write is unenforced).
-        self.output_shape: Optional[Type] = output_shape
+        self.output_type: Optional[Type] = output_type
         # The node-side signature (the node/flow split): declared params with NO source — the flow owns
         # the wiring in `CompiledFlow.wiring[node_id][param]`. Stamped by the compiler
         # (`build_*`/case desugar); the engine's `eval_node` binds via `params` + `flow.wiring`.

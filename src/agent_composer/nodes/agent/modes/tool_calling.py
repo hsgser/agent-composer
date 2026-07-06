@@ -97,17 +97,17 @@ def agent_step(
         if not calls:
             # Final answer. A declared non-text `output:` forces a structured emit turn
             # (native or prompt-injection, with capped self-correction); a bare-str/Literal
-            # shape keeps the text path. The structured value is enforced at the engine write
-            # boundary on BOTH the primary path (`pool.set(..., declared=output_shape)`) and a
+            # type keeps the text path. The structured value is enforced at the engine write
+            # boundary on BOTH the primary path (`pool.set(..., declared=output_type)`) and a
             # resumed agent's alias-filler path, so either re-entry validates it.
-            from agent_composer.nodes.agent.structured import generate_structured, shape_to_schema
+            from agent_composer.nodes.agent.structured import generate_structured, type_to_schema
 
-            if ctx.output_shape is not None and shape_to_schema(ctx.output_shape) is not None:
+            if ctx.output_type is not None and type_to_schema(ctx.output_type) is not None:
                 return Output(
                     value=generate_structured(
                         ctx.model,
                         messages,
-                        ctx.output_shape,
+                        ctx.output_type,
                         max_retries=ctx.retries,
                         llm_config=ctx.llm_config,
                     )
@@ -158,7 +158,7 @@ def agent_step(
             }
             return Grow(
                 agent_segment_subgraph([human_input, resume], callsite=ctx.node_id,
-                                       output_shape=ctx.output_shape, retries=ctx.retries),
+                                       output_type=ctx.output_type, retries=ctx.retries),
                 seed={"hi_desc": human_input, "resume_desc": resume},
             )
 

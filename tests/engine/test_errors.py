@@ -174,7 +174,7 @@ def test_e04_else_satisfies_coverage():
 
 
 # --------------------------------------------------------------------------- #
-# e06 — cross-flow type mismatch at a `call` boundary (shapes_compatible).
+# e06 — cross-flow type mismatch at a `call` boundary (types_compatible).
 # A float-typed node output bound to a callable input declared `str` -> loud + located.
 # --------------------------------------------------------------------------- #
 

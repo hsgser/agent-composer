@@ -266,13 +266,13 @@ _LIST_VALUE_CLASS: dict[ValueKind, type[TypedValue]] = {
 }
 
 # --------------------------------------------------------------------------- #
-# Structural shape (records / variants / typed lists)
+# Structural type (records / variants / typed lists)
 # --------------------------------------------------------------------------- #
 
 
 @dataclass(frozen=True)
 class Type:
-    """Resolved runtime shape of a declared Type — drives the write-boundary check.
+    """Resolved runtime structure of a declared Type — drives the write-boundary check.
 
     `kind` is the storage tag (what the value persists as). The optional fields
     refine validation beyond the bare tag:
@@ -414,49 +414,49 @@ def build_value_as(declared: "ValueKind | Type", value: Any) -> TypedValue:
     so a node returning the wrong type fails loudly at the write rather than
     silently downstream.
     """
-    shape = Type.scalar(declared) if isinstance(declared, ValueKind) else declared
+    typ = Type.scalar(declared) if isinstance(declared, ValueKind) else declared
     if isinstance(value, TypedValue):
         value = value.to_object()
-    return _build_for_shape(shape, value)
+    return _build_for_type(typ, value)
 
 
-def _build_for_shape(shape: Type, value: Any) -> TypedValue:
+def _build_for_type(typ: Type, value: Any) -> TypedValue:
     # nullable (Optional[X]) — a None value is accepted as NoneValue
-    if value is None and shape.nullable:
+    if value is None and typ.nullable:
         return NoneValue()
 
     # variant — a tag-constrained string
-    if shape.tags is not None:
-        if not isinstance(value, str) or value not in shape.tags:
-            raise TypeCheckError(f"{value!r} is not a member of variant {sorted(shape.tags)}")
+    if typ.tags is not None:
+        if not isinstance(value, str) or value not in typ.tags:
+            raise TypeCheckError(f"{value!r} is not a member of variant {sorted(typ.tags)}")
         return StringValue(value=value)
 
-    # record — an object with declared field shapes (closed: all required, no unknowns)
-    if shape.fields is not None:
+    # record — an object with declared field types (closed: all required, no unknowns)
+    if typ.fields is not None:
         if not isinstance(value, dict):
             raise TypeCheckError(f"{value!r} is not an object for a record type")
-        required = shape.required or frozenset()
+        required = typ.required or frozenset()
         missing = required - value.keys()
         if missing:
             raise TypeCheckError(f"record missing required fields: {sorted(missing)}")
-        unknown = value.keys() - shape.fields.keys()
+        unknown = value.keys() - typ.fields.keys()
         if unknown:
             raise TypeCheckError(f"record has unknown fields: {sorted(unknown)}")
         for fname, fval in value.items():
-            _build_for_shape(shape.fields[fname], fval)  # validates each field, raises on mismatch
+            _build_for_type(typ.fields[fname], fval)  # validates each field, raises on mismatch
         return ObjectValue(value=value)
 
-    # list with a known element shape (incl. List[record])
-    if shape.kind.is_list() and shape.element is not None:
+    # list with a known element typ (incl. List[record])
+    if typ.kind.is_list() and typ.element is not None:
         if not isinstance(value, (list, tuple)):
             raise TypeCheckError(
-                f"{value!r} is not a list for declared {shape.kind.value}"
+                f"{value!r} is not a list for declared {typ.kind.value}"
             )
-        items = [_build_for_shape(shape.element, item).to_object() for item in value]
-        return _LIST_VALUE_CLASS[shape.kind](value=items)
+        items = [_build_for_type(typ.element, item).to_object() for item in value]
+        return _LIST_VALUE_CLASS[typ.kind](value=items)
 
     # plain scalar / flat list — the original behavior
-    return _build_scalar_or_list(shape.kind, value)
+    return _build_scalar_or_list(typ.kind, value)
 
 
 def _build_scalar_or_list(declared: ValueKind, value: Any) -> TypedValue:

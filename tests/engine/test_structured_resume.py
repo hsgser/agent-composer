@@ -1,8 +1,8 @@
 """Structured AGENT output survives an `ask_user` pause/resume.
 
 A `tool_calling` agent that declares a non-text `output:` AND pauses on `ask_user` must
-still emit the declared shape on its resumed final-answer turn — the continuation node must
-carry the spawner's `output_shape` (and `retries`), or the resumed answer is plain text and
+still emit the declared type on its resumed final-answer turn — the continuation node must
+carry the spawner's `output_type` (and `retries`), or the resumed answer is plain text and
 the write boundary rejects it.
 """
 
@@ -56,7 +56,7 @@ class _StructuredAskChat:
         return _Bound()
 
 
-def _record_shape():
+def _record_type():
     return Type(
         kind=ValueKind.OBJECT,
         fields={
@@ -74,7 +74,7 @@ def test_structured_output_survives_ask_user_resume(monkeypatch):
     node = AgentNode(
         "agent", prompt="go", controls=["ask_user"], llm_config=LLMConfig(), mode="tool_calling"
     )
-    node.output_shape = _record_shape()
+    node.output_type = _record_type()
     graph = CompiledFlow.from_parts(
         {
             "agent": node,

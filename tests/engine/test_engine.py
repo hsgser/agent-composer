@@ -377,7 +377,7 @@ def test_pause_suspends_run_with_reason():
 
 def test_output_enforced_rejects_type_mismatch():
     g = _graph(
-        [FuncNode("a", lambda p: "oops", output_shape=Type.scalar(ValueKind.NUMBER))],
+        [FuncNode("a", lambda p: "oops", output_type=Type.scalar(ValueKind.NUMBER))],
         [(START_ID, "a"), ("a", END_ID)],
     )
     events = _run(FlowEngine(g))
@@ -387,7 +387,7 @@ def test_output_enforced_rejects_type_mismatch():
 def test_output_enforced_coerces_and_types_storage():
     pool = TypedVariablePool()
     g = _graph(
-        [FuncNode("a", lambda p: 3, output_shape=Type.scalar(ValueKind.NUMBER))],
+        [FuncNode("a", lambda p: 3, output_type=Type.scalar(ValueKind.NUMBER))],
         [(START_ID, "a"), ("a", END_ID)],
     )
     events = _run(FlowEngine(g, pool))
@@ -396,7 +396,7 @@ def test_output_enforced_coerces_and_types_storage():
     assert seg.kind.value == "float" and seg.value == 3.0  # int coerced to float, typed NUMBER
 
 
-def test_multi_output_record_is_a_closed_shape():
+def test_multi_output_record_is_a_closed_type():
     # >=2 declared outputs -> a CLOSED record Type ("several outputs = one object"):
     # all fields required, no extras. A node returning a MISSING or an EXTRA field fails
     # at the write boundary (NodeExecutionError -> RunFailed); the exact object stores whole.
@@ -405,24 +405,24 @@ def test_multi_output_record_is_a_closed_shape():
         fields={"a": Type.scalar(ValueKind.STRING), "b": Type.scalar(ValueKind.STRING)},
         required=frozenset({"a", "b"}),
     )
-    g_missing = _graph([FuncNode("n", lambda p: {"a": "x"}, output_shape=rec)], [(START_ID, "n"), ("n", END_ID)])
+    g_missing = _graph([FuncNode("n", lambda p: {"a": "x"}, output_type=rec)], [(START_ID, "n"), ("n", END_ID)])
     assert isinstance(_run(FlowEngine(g_missing))[-1], RunFailed)
     g_extra = _graph(
-        [FuncNode("n", lambda p: {"a": "x", "b": "y", "c": "z"}, output_shape=rec)], [(START_ID, "n"), ("n", END_ID)]
+        [FuncNode("n", lambda p: {"a": "x", "b": "y", "c": "z"}, output_type=rec)], [(START_ID, "n"), ("n", END_ID)]
     )
     assert isinstance(_run(FlowEngine(g_extra))[-1], RunFailed)
     pool = TypedVariablePool()
-    g_ok = _graph([FuncNode("n", lambda p: {"a": "x", "b": "y"}, output_shape=rec)], [(START_ID, "n"), ("n", END_ID)])
+    g_ok = _graph([FuncNode("n", lambda p: {"a": "x", "b": "y"}, output_type=rec)], [(START_ID, "n"), ("n", END_ID)])
     assert isinstance(_run(FlowEngine(g_ok, pool))[-1], RunSucceeded)
     assert pool.get("n") == {"a": "x", "b": "y"}
 
 
 def test_unresolvable_declared_type_is_not_enforced():
     # 'Policy' is unresolvable against the empty registry -> the compiler stamps
-    # output_shape=None (unenforced); the node's value is stored raw.
+    # output_type=None (unenforced); the node's value is stored raw.
     pool = TypedVariablePool()
     g = _graph(
-        [FuncNode("a", lambda p: {"k": 1}, output_shape=None)],
+        [FuncNode("a", lambda p: {"k": 1}, output_type=None)],
         [(START_ID, "a"), ("a", END_ID)],
     )
     events = _run(FlowEngine(g, pool))
@@ -431,11 +431,11 @@ def test_unresolvable_declared_type_is_not_enforced():
 
 
 def test_undeclared_output_is_not_enforced():
-    # No declared output_shape -> the node's value is stored whole, unenforced;
+    # No declared output_type -> the node's value is stored whole, unenforced;
     # any object key is reachable via object-walk.
     pool = TypedVariablePool()
     g = _graph(
-        [FuncNode("a", lambda p: {"other": "x"}, output_shape=None)],
+        [FuncNode("a", lambda p: {"other": "x"}, output_type=None)],
         [(START_ID, "a"), ("a", END_ID)],
     )
     events = _run(FlowEngine(g, pool))

@@ -1,14 +1,14 @@
-"""build_loop_node + loader dispatch + the `'a -> 'a` shape contract.
+"""build_loop_node + loader dispatch + the `'a -> 'a` type contract.
 
 A `kind: loop` node bakes a `LoopNode` from a `LoopDescriptor`: it resolves+bakes the
 body subflow (the `call:` child, a `defs:` callable here so no external resolver is
-needed), stamps `output_shape`, and enforces the two halves of the shape contract:
+needed), stamps `output_type`, and enforces the two halves of the type contract:
 
 - FIELD-NAME-set (in `build_loop_node`): body output field NAMES == carried keys,
   body input NAMES subset of carried keys — a located `LoadError` on a name mismatch.
-- FULL TYPE equality (in the loader post-build pass `check_loop_shape_contract`):
+- FULL TYPE equality (in the loader post-build pass `check_loop_type_contract`):
   body output Type == carried record Type per field — a located `LoadError` on a
-  same-names/different-TYPES mismatch (needs the assembled producers/flow-input shapes).
+  same-names/different-TYPES mismatch (needs the assembled producers/flow-input types).
 """
 
 import pytest
@@ -89,7 +89,7 @@ output: ${chat_loop.output}
 # Same field NAMES ({n, exited}) but the body output declares `n: str` while the
 # carried `n` is seeded from `${input.n0}` (an int flow input) -> a same-names/
 # different-TYPES mismatch, caught in the loader post-build pass
-# check_loop_shape_contract. (The carried field must be seeded from a ref with a
+# check_loop_type_contract. (The carried field must be seeded from a ref with a
 # resolvable Type — a bare literal stays lenient/opaque in the type pass.)
 BAD_TYPES = """
 id: loop-bad-types
@@ -143,9 +143,9 @@ def test_good_loop_bakes_loopnode():
     node = flow.compiled.nodes["chat_loop"]
     assert node.kind == NodeKind.LOOP
     assert node.child is not None
-    # output_shape IS the carried record shape (the body codomain) — prove the contract
+    # output_type IS the carried record type (the body codomain) — prove the contract
     # baked, not just that a child was resolved.
-    assert set(node.output_shape.fields.keys()) == {"n", "exited"}
+    assert set(node.output_type.fields.keys()) == {"n", "exited"}
 
 
 def test_body_output_fieldset_must_equal_carried():
@@ -158,7 +158,7 @@ def test_body_output_fieldset_must_equal_carried():
 def test_body_output_types_must_equal_carried():
     with pytest.raises(LoadError) as e:
         load_flow(BAD_TYPES)
-    # pin the failure to the TYPE pass (check_loop_shape_contract), not any LoadError.
+    # pin the failure to the TYPE pass (check_loop_type_contract), not any LoadError.
     assert "carried field" in str(e.value)
     assert e.value.line is not None
 

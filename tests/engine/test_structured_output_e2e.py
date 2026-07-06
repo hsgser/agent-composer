@@ -2,7 +2,7 @@
 
 A `plain` agent declaring a record `output:` emits a structured value via the engine's
 structured-generation path; the flow output is the plain dict and it passes the write
-boundary (`pool.set(..., declared=output_shape)`). A sibling bare-`str` agent in the same
+boundary (`pool.set(..., declared=output_type)`). A sibling bare-`str` agent in the same
 flow confirms the text passthrough is untouched.
 """
 

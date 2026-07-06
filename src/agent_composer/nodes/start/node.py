@@ -3,7 +3,7 @@
 The loader synthesizes ONE StartNode per flow from its `input:` decls; it is the flow's single
 root. `self.params` are the input NAMES (ParamDecl per input) so the engine's eval_node ->
 bind_params reads START_ID's sources from flow.wiring[START_ID] (top-level: the run-arg seed;
-child: the call-arg edges). `run(record)` = coerce_inputs + e08 shape-check + apply_defaults,
+child: the call-arg edges). `run(record)` = coerce_inputs + e08 type-check + apply_defaults,
 returning the bound input record as ONE object keyed by input name -> store[<start id>], the
 `inputs`-namespace replacement (binding at the boundary, not the driver).
 
@@ -27,7 +27,7 @@ class StartNode(Node):
 
     One per flow (the single root). Its params are the input names; the engine reads each source
     from `flow.wiring[START_ID]` (the run-arg seed at top level, the call-arg edges in a child).
-    `run` coerces the wired args to declared types, shape-checks them, and fills declared defaults
+    `run` coerces the wired args to declared types, type-checks them, and fills declared defaults
     for omitted inputs, returning the bound record as one object keyed by input name.
 
     Args:
@@ -58,7 +58,7 @@ class StartNode(Node):
         # one). This is what lets the child START_ID own omitted-input defaulting — without
         # the REF/MAP driver pre-defaulting (a naive driver-drop otherwise loses the default, since a
         # bare param binds an absent input as present-None which run()'s apply_defaults can't fill).
-        # `type`/`shape` are intentionally NOT carried: run() is the sole shape authority (e08), so
+        # `type`/`type_str` are intentionally NOT carried: run() is the sole type authority (e08), so
         # bind_params must not type-check first with its own BindingError message.
         self.params = [
             ParamDecl(name=d.name, required=d.required, default=d.default)
@@ -67,10 +67,10 @@ class StartNode(Node):
 
     def run(self, inputs: dict) -> Output:
         # The seeding.py pipeline lifted onto the node: coerce the wired args to the
-        # declared types, e08-shape-check each, then fill each declared default for an OMITTED
+        # declared types, e08-type-check each, then fill each declared default for an OMITTED
         # input. Returns the bound record as ONE object keyed by input name.
         coerced = coerce_inputs(self.input_decls, inputs)
-        # e08: enforce each value against its declared shape; raise the byte-stable
+        # e08: enforce each value against its declared type; raise the byte-stable
         # located message (preserved from run.py:101). A raise -> NodeFailed at the engine boundary.
         for decl in self.input_decls:
             if decl.type is None or decl.name not in coerced or coerced[decl.name] is None:

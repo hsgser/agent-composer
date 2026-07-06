@@ -201,7 +201,7 @@ class FlowEngine:
         yield RunStarted()
         # Init: seed store[START_ID] (StartNode.run ONCE, not scheduled), fire the
         # top-level boundary asserts pool-scoped, then advance START_ID's out-edges. A failure here
-        # (e08 shape / boundary assert) yields RunFailed before any body node ("no node ran").
+        # (e08 type / boundary assert) yields RunFailed before any body node ("no node ran").
         failure = self._seed_start_and_advance()
         if failure is not None:
             yield failure
@@ -258,7 +258,7 @@ class FlowEngine:
         (coerce + e08 + defaults), commit store[START_ID] directly — WITHOUT enqueuing START_ID and
         WITHOUT a NodeSucceeded — then fire the flow's boundary asserts pool-scoped (reading the
         just-committed store[START_ID]), then mark START_ID done + advance its out-edges. Returns a
-        RunFailed on an e08 shape failure or a false boundary assert (fail-fast before any body
+        RunFailed on an e08 type failure or a false boundary assert (fail-fast before any body
         node; "no node ran" holds), else None. Direct-FlowEngine tests that hand-seed
         store[START_ID] pass no `run_inputs` — START_ID is then taken from the pre-seeded store."""
         from agent_composer.expr import first_failing_assert
@@ -456,10 +456,10 @@ class FlowEngine:
             # its existing out-edges. The node is resolved against the LIVE graph, so a
             # runtime-namespaced id resolves. Wrapped in the SAME TypeCheckError -> NodeExecutionError
             # guard _on_success uses, so a type-invalid answer FAILS the run (it does not crash
-            # resume). A WAIT release delivers value=None (timed WAIT output_shape is None).
+            # resume). A WAIT release delivers value=None (timed WAIT output_type is None).
             node = self.flow.nodes[command.node_id]
             try:
-                self.pool.set(command.node_id, command.value, declared=node.output_shape)
+                self.pool.set(command.node_id, command.value, declared=node.output_type)
             except TypeCheckError as exc:
                 self.sm.finish_executing(command.node_id)
                 raise NodeExecutionError(
@@ -864,7 +864,7 @@ class FlowEngine:
         # need a kind-aware special-case here, which the kind-agnostic commit path deliberately avoids.
         target_node = self.flow.nodes[target]
         try:
-            self.pool.set(target, event.output, declared=target_node.output_shape)
+            self.pool.set(target, event.output, declared=target_node.output_type)
         except TypeCheckError as exc:
             self.sm.finish_executing(node_id)
             raise NodeExecutionError(

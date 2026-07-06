@@ -2,9 +2,9 @@
 
 A leaf descriptor (agent/code/model/tool) + a typedefs registry build the
 matching runtime `Node`, stamped with:
-  - `output_shape = read_type(descriptor.outputs, registry)` (None if no outputs),
+  - `output_type = read_type(descriptor.outputs, registry)` (None if no outputs),
   - `inputs = [InputBinding(name=k, source=v)]` from the descriptor's `inputs:`
-    map (sink bindings — `type`/`shape` lenient/None; the type is carried by the
+    map (sink bindings — `type_str`/`type` lenient/None; the type is carried by the
     source); a TOOL's `args` map binds the same way (untyped).
 
 Mirrors the per-kind ctor args. case/ref/map are later steps.
@@ -36,18 +36,18 @@ def _seed_nodes(name: str):
 # ---------- agent ----------
 
 
-def test_agent_node_built_with_shape_and_bindings():
+def test_agent_node_built_with_type_and_bindings():
     # seed 00 — a scalar (str) output, one ${input.topic} sink binding.
     desc = _seed_nodes("00-hello-agent.yaml")["note"]
     node, wiring = build_leaf_node(desc, {})
     assert isinstance(node, AgentNode)
     assert node.id == "note"
-    assert node.output_shape.kind == ValueKind.STRING
+    assert node.output_type.kind == ValueKind.STRING
     # the node-side signature is the param NAMES; the flow owns the source.
     assert [p.name for p in node.params] == ["topic"]
     assert wiring == {"topic": "${input.topic}"}
     # sink params are lenient: the type travels with the source.
-    assert node.params[0].type is None and node.params[0].shape is None
+    assert node.params[0].type_str is None and node.params[0].type is None
 
 
 def test_agent_node_object_output():
@@ -55,9 +55,9 @@ def test_agent_node_object_output():
     desc = _seed_nodes("01-structured-agent.yaml")["score"]
     node, _ = build_leaf_node(desc, {})
     assert isinstance(node, AgentNode)
-    assert node.output_shape.kind == ValueKind.OBJECT
-    assert node.output_shape.fields["rating"].kind == ValueKind.NUMBER
-    assert node.output_shape.fields["rationale"].kind == ValueKind.STRING
+    assert node.output_type.kind == ValueKind.OBJECT
+    assert node.output_type.fields["rating"].kind == ValueKind.NUMBER
+    assert node.output_type.fields["rationale"].kind == ValueKind.STRING
 
 
 def test_agent_unknown_mode_is_loud_loaderror():
@@ -122,7 +122,7 @@ def test_agent_node_knobs():
     assert node.llm_config["model"] == "claude-opus-4-8"
     assert node.llm_config["temperature"] == 0.3
     assert node.prompt.startswith("Research ${topic}")
-    assert node.output_shape.fields["confidence"].kind == ValueKind.NUMBER
+    assert node.output_type.fields["confidence"].kind == ValueKind.NUMBER
 
 
 def test_node_name_becomes_title():
@@ -156,7 +156,7 @@ def test_code_node_built():
     node, wiring = build_leaf_node(desc, {})
     assert isinstance(node, CodeNode)
     assert node.ref == "tests.seeds.fns:one_line_summary"
-    assert node.output_shape.kind == ValueKind.STRING
+    assert node.output_type.kind == ValueKind.STRING
     assert {p.name for p in node.params} == {"rating", "rationale"}
     assert wiring == {
         "rating": "${score.output.rating}",
@@ -175,8 +175,8 @@ def test_model_node_built():
     assert node.model_id == "topic-ranker-v1"
     assert node.weights_uri == "manifold://calpha/models/topic-ranker-v1.pt"
     assert node.runtime_name == "torchscript"
-    assert node.output_shape.fields["score"].kind == ValueKind.NUMBER
-    assert node.output_shape.fields["rank"].kind == ValueKind.INTEGER
+    assert node.output_type.fields["score"].kind == ValueKind.NUMBER
+    assert node.output_type.fields["rank"].kind == ValueKind.INTEGER
     assert {p.name for p in node.params} == {"topic", "features"}
     assert wiring == {"topic": "${input.topic}", "features": "${input.features}"}
 
@@ -199,17 +199,17 @@ def test_tool_node_built_with_args_bindings():
     node, wiring = build_leaf_node(desc, {})
     assert isinstance(node, ToolNode)
     assert node.tool_id == "get_facts"
-    assert node.output_shape is None  # no outputs: declared
+    assert node.output_type is None  # no outputs: declared
     assert {p.name for p in node.params} == {"symbol", "limit"}
     assert wiring == {"symbol": "${input.topic}", "limit": 10}
     # args are untyped sink params.
-    assert all(p.type is None for p in node.params)
+    assert all(p.type_str is None for p in node.params)
 
 
-# ---------- registry-resolved output shape ----------
+# ---------- registry-resolved output type ----------
 
 
-def test_output_shape_resolves_registry_name():
+def test_output_type_resolves_registry_name():
     registry = read_typedefs({"Rating": {"category": "str", "score": "float"}})
     # an agent descriptor whose outputs name a registry record.
     nodes = parse_nodes(
@@ -224,5 +224,5 @@ def test_output_shape_resolves_registry_name():
     )
     node, _ = build_leaf_node(nodes["synth"], registry)
     assert isinstance(node, AgentNode)
-    assert node.output_shape.kind == ValueKind.OBJECT
-    assert node.output_shape.fields["category"].kind == ValueKind.STRING
+    assert node.output_type.kind == ValueKind.OBJECT
+    assert node.output_type.fields["category"].kind == ValueKind.STRING

@@ -45,7 +45,7 @@ from agent_composer.compose.build import (
     build_call_node,
     build_leaf_node,
     build_loop_node,
-    check_loop_shape_contract,
+    check_loop_type_contract,
     check_ref_map_types,
     check_wiring_parity,
     infer_data_edges,
@@ -701,22 +701,22 @@ def _assemble(
                 raise
             leaf[nid] = node
             flow_wiring[nid] = wiring
-    # producers: each built node's declared output_shape (drives the case `on:` enum
+    # producers: each built node's declared output_type (drives the case `on:` enum
     # exhaustiveness + the e03 dotted-field walk in ref/assert validation).
     producers: dict[str, Type] = {
-        nid: node.output_shape
+        nid: node.output_type
         for nid, node in leaf.items()
-        if node.output_shape is not None
+        if node.output_type is not None
     }
 
-    # cross-flow type check: each `call` binding's source shape vs the callable
-    # input shape (needs producers, so it runs after all leaf/call nodes are built).
-    flow_input_shapes = {decl.name: decl.type for decl in inputs}
-    check_ref_map_types(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
-    # loop `'a -> 'a` shape contract (types): each carried field's seed-source Type vs the
+    # cross-flow type check: each `call` binding's source type vs the callable
+    # input type (needs producers, so it runs after all leaf/call nodes are built).
+    flow_input_types = {decl.name: decl.type for decl in inputs}
+    check_ref_map_types(leaf, producers, flow_input_types, flow_wiring, n_lines)
+    # loop `'a -> 'a` type contract (types): each carried field's seed-source Type vs the
     # body output's same-named field Type (needs producers, so it runs alongside the
     # cross-flow call/map type check above).
-    check_loop_shape_contract(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
+    check_loop_type_contract(leaf, producers, flow_input_types, flow_wiring, n_lines)
 
     # Desugar each `case` to an CaseNode + its data/control edges.
     desugars: dict[str, CaseDesugar] = {}

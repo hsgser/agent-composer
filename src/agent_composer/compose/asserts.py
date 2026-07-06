@@ -52,7 +52,7 @@ def classify_asserts(
 
     `flow_inputs` is the declared flow-input names (the `${input.X}` set); `valid_targets`
     is the node ids (the `${<id>.output}` set); `producers` maps node id -> its
-    `output_shape` (drives the dotted-field walk, e.g. `${synth.output.confidence}`
+    `output_type` (drives the dotted-field walk, e.g. `${synth.output.confidence}`
     against the `View` record). Each assert is parse-checked in the boolean grammar (a
     malformed expression is loud) and each `${...}` ref is name-checked via
     `_classify_path` (a dangling ref / bad field is loud). An assert is
@@ -64,7 +64,7 @@ def classify_asserts(
     result = AssertSet()
     # Only resolvable producers participate in the dotted walk (an opaque/None producer
     # stays lenient) — mirrors validate.validate_references.
-    producer_shapes = {nid: sh for nid, sh in producers.items() if sh is not None}
+    producer_types = {nid: sh for nid, sh in producers.items() if sh is not None}
 
     for expr in assert_list:
         # 1. parse-check + collect refs on the ONE unified condition walk. `condition_refs`
@@ -81,7 +81,7 @@ def classify_asserts(
         # 2. validate each ref + 3. detect any outputs-head ref (-> post-terminal).
         is_post = False
         for path in refs:
-            err = _classify_path(path, valid_targets, flow_inputs, (), producer_shapes)
+            err = _classify_path(path, valid_targets, flow_inputs, (), producer_types)
             if err is not None:
                 raise LoadError(f"assert {expr!r}: {err}")
             # post-terminal iff a ref has a head other than input/system.

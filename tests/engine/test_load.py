@@ -116,7 +116,7 @@ def test_seed02_start_feeds_input_readers_branch_targets_control_gated():
 
 
 # --------------------------------------------------------------------------- #
-# seed 13 — nested record output_shape + a dict-valued (record-typed) flow input
+# seed 13 — nested record output_type + a dict-valued (record-typed) flow input
 # --------------------------------------------------------------------------- #
 
 
@@ -124,10 +124,10 @@ def test_seed13_nested_record_output_and_dict_input():
     loaded = _load("13")
     plan = loaded.compiled.nodes["plan"]
     assert isinstance(plan, CodeNode)
-    shape = plan.output_shape
-    assert shape.kind == ValueKind.OBJECT
+    typ = plan.output_type
+    assert typ.kind == ValueKind.OBJECT
     # summary is a nested record; meta is nested again (two levels deep).
-    summary = shape.fields["summary"]
+    summary = typ.fields["summary"]
     assert summary.kind == ValueKind.OBJECT
     meta = summary.fields["meta"]
     assert meta.kind == ValueKind.OBJECT
@@ -148,7 +148,7 @@ def test_seed11_anchored_nodes_built():
     for nid in ("pro", "con", "judge"):
         node = flow.nodes[nid]
         assert isinstance(node, AgentNode)
-        assert node.output_shape.kind == ValueKind.STRING  # from the anchor
+        assert node.output_type.kind == ValueKind.STRING  # from the anchor
         assert node.llm_config is not None  # llm_config merged in from the anchor
 
 
@@ -165,7 +165,7 @@ def test_seed07_model_fields():
     assert predict.weights_uri == "manifold://calpha/models/topic-ranker-v1.pt"
     assert predict.runtime_name == "torchscript"
     # object output {score, rank}.
-    assert set(predict.output_shape.fields) == {"score", "rank"}
+    assert set(predict.output_type.fields) == {"score", "rank"}
 
 
 # --------------------------------------------------------------------------- #
@@ -192,12 +192,12 @@ def test_seed14_agent_knobs():
 def test_seed18_synth_carries_view_record():
     flow = _load("18").compiled
     synth = flow.nodes["synth"]
-    shape = synth.output_shape
-    assert shape.kind == ValueKind.OBJECT
-    assert set(shape.fields) == {"stance", "claim", "confidence"}
+    typ = synth.output_type
+    assert typ.kind == ValueKind.OBJECT
+    assert set(typ.fields) == {"stance", "claim", "confidence"}
     # stance is the Stance enum -> its Type carries the tags.
-    assert shape.fields["stance"].tags == {"positive", "negative", "neutral"}
-    assert shape.fields["confidence"].kind == ValueKind.NUMBER
+    assert typ.fields["stance"].tags == {"positive", "negative", "neutral"}
+    assert typ.fields["confidence"].kind == ValueKind.NUMBER
 
 
 def test_seed18_route_desugars_case_on_with_else():

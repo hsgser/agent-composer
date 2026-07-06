@@ -77,7 +77,7 @@ class TypedVariablePool(BaseModel):
         declared: Optional[Union[ValueKind, Type]] = None,
     ) -> None:
         """Store a node's single produced value. `declared` (a ValueKind or
-        structural Type) enables the write-time type/shape check."""
+        structural Type) enables the write-time type check."""
         self.store[node_id] = (
             build_value_as(declared, value)
             if declared is not None

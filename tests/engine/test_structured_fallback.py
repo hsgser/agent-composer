@@ -10,7 +10,7 @@ from agent_composer.state.segments import Type, ValueKind
 
 
 def test_no_native_support_uses_prompt_injection():
-    shape = Type.scalar(ValueKind.INTEGER)
+    typ = Type.scalar(ValueKind.INTEGER)
 
     class _NoNative:
         def invoke(self, msgs):
@@ -26,13 +26,13 @@ def test_no_native_support_uses_prompt_injection():
             raise AssertionError("no-native model must not use with_structured_output")
 
     cfg = {"provider": "vllm", "model": "no-structured-sentinel"}
-    assert generate_structured(_NoNative(), [], shape, llm_config=cfg) == 5
+    assert generate_structured(_NoNative(), [], typ, llm_config=cfg) == 5
 
 
 def test_fallback_tolerates_json_code_fence():
     # Models often wrap JSON in a ```json … ``` fence despite the "no code fences"
     # instruction; the fallback strips it rather than burning a retry.
-    shape = Type.scalar(ValueKind.INTEGER)
+    typ = Type.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Fenced:
@@ -45,13 +45,13 @@ def test_fallback_tolerates_json_code_fence():
             return R()
 
     cfg = {"provider": "vllm", "model": "no-structured-sentinel"}
-    assert generate_structured(_Fenced(), [], shape, llm_config=cfg) == 5
+    assert generate_structured(_Fenced(), [], typ, llm_config=cfg) == 5
     assert calls["n"] == 1  # parsed on the first try, no corrective retry
 
 
 def test_fallback_tolerates_bare_code_fence():
     # A bare ``` … ``` fence (no language tag) is stripped just the same.
-    shape = Type.scalar(ValueKind.INTEGER)
+    typ = Type.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Fenced:
@@ -64,12 +64,12 @@ def test_fallback_tolerates_bare_code_fence():
             return R()
 
     cfg = {"provider": "vllm", "model": "no-structured-sentinel"}
-    assert generate_structured(_Fenced(), [], shape, llm_config=cfg) == 9
+    assert generate_structured(_Fenced(), [], typ, llm_config=cfg) == 9
     assert calls["n"] == 1
 
 
 def test_fallback_retries_on_unparseable_then_succeeds():
-    shape = Type.scalar(ValueKind.INTEGER)
+    typ = Type.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Flaky:
@@ -82,5 +82,5 @@ def test_fallback_retries_on_unparseable_then_succeeds():
             return R()
 
     cfg = {"provider": "vllm", "model": "no-structured-sentinel"}
-    assert generate_structured(_Flaky(), [], shape, max_retries=2, llm_config=cfg) == 7
+    assert generate_structured(_Flaky(), [], typ, max_retries=2, llm_config=cfg) == 7
     assert calls["n"] == 2

@@ -1,4 +1,4 @@
-"""`tool_calling` mode emits the declared `output:` shape on its final answer turn."""
+"""`tool_calling` mode emits the declared `output:` type on its final answer turn."""
 
 import agent_composer.llm_clients as llm_clients_mod
 import agent_composer.tools as tools_mod
@@ -29,7 +29,7 @@ def _ai_tool_call(name, args, call_id="1"):
 
 class _StructuredFinalChat:
     """A tool-calling model: runs one tool turn, then its final (no-tool) answer is produced
-    structurally via with_structured_output for the declared record shape."""
+    structurally via with_structured_output for the declared record type."""
 
     def __init__(self, schema_value):
         self._value = schema_value
@@ -66,7 +66,7 @@ def test_tool_calling_final_answer_is_structured(monkeypatch):
     monkeypatch.setattr(llm_clients_mod, "model_from_config", lambda cfg: chat)
 
     node = AgentNode("n", prompt="hi", tools=["value"], llm_config=LLMConfig(), mode="tool_calling")
-    node.output_shape = Type(
+    node.output_type = Type(
         kind=ValueKind.OBJECT,
         fields={
             "name": Type.scalar(ValueKind.STRING),
@@ -85,6 +85,6 @@ def test_tool_calling_text_answer_unchanged(monkeypatch):
     chat._replies = [AIMessage(content="plain answer")]
     monkeypatch.setattr(llm_clients_mod, "model_from_config", lambda cfg: chat)
     node = AgentNode("n", prompt="hi", llm_config=LLMConfig(), mode="tool_calling")
-    # no output_shape declared -> text passthrough, no structured emit turn
+    # no output_type declared -> text passthrough, no structured emit turn
     assert _run_node(node).output == "plain answer"
     assert chat.structured_called_with is None

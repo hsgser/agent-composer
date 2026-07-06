@@ -12,7 +12,7 @@ def _schema(type_expr, typedefs=None):
     return _answer_schema(read_type(type_expr, reg))
 
 
-def test_none_shape_is_empty():
+def test_none_type_is_empty():
     assert _answer_schema(None) == []
 
 

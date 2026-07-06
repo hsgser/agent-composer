@@ -16,7 +16,7 @@ from agent_composer.compile.model import END_ID, START_ID, Flow
 from tests.engine.test_expand import _child_flow
 
 
-def test_map_subgraph_matches_grow_map_shape():
+def test_map_subgraph_matches_grow_map_type():
     child = _child_flow()
     records = [{"x": 1}, {"x": 2}]
     sg = map_subgraph(child, spawner_id="m0", records=records)

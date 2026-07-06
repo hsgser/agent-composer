@@ -86,7 +86,7 @@ def test_declared_type_drift_raises():
     assert pool.get("n1") == 12
 
 
-def test_pool_set_accepts_shape_and_enforces():
+def test_pool_set_accepts_type_and_enforces():
     from agent_composer.state.segments import Type
 
     pool = TypedVariablePool()

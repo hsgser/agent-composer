@@ -185,7 +185,7 @@ def test_plain_string_not_inferred_as_datetime():
 # --- structural Type (records / variants / typed lists) -------------------- #
 
 
-def test_shape_back_compat_segmenttype_still_accepted():
+def test_type_back_compat_kind_accepted():
     from agent_composer.state.segments import Type
 
     assert isinstance(build_value_as(Type.scalar(ValueKind.STRING), "x"), StringValue)
@@ -193,7 +193,7 @@ def test_shape_back_compat_segmenttype_still_accepted():
     assert build_value_as(ValueKind.NUMBER, 3).value == 3.0
 
 
-def test_shape_variant_membership():
+def test_type_variant_membership():
     from agent_composer.state.segments import Type
 
     action = Type(kind=ValueKind.STRING, tags=frozenset({"Approve", "Reject", "Defer"}))
@@ -202,7 +202,7 @@ def test_shape_variant_membership():
         build_value_as(action, "approve")
 
 
-def test_shape_record_fields():
+def test_type_record_fields():
     from agent_composer.state.segments import Type
 
     rating = Type(
@@ -222,7 +222,7 @@ def test_shape_record_fields():
         build_value_as(rating, {"value": "hi", "confidence": 0.9})
 
 
-def test_shape_nullable_field_accepts_none_and_absent():
+def test_type_nullable_field_accepts_none_and_absent():
     from agent_composer.state.segments import Type
 
     sig = Type(
@@ -244,7 +244,7 @@ def test_shape_nullable_field_accepts_none_and_absent():
         build_value_as(sig, {"score": None, "note": "x"})
 
 
-def test_shape_list_of_record():
+def test_type_list_of_record():
     from agent_composer.state.segments import ListObjectValue, Type
 
     rating = Type(

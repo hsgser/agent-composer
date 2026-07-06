@@ -72,7 +72,7 @@ def _reject_cycles(edges: "list", node_ids: set[str]) -> None:
         raise FlowValidationError(f"flow has a cycle involving {stuck}; flows must be acyclic")
 
 
-def shapes_compatible(source: Type, sink: Type) -> bool:
+def types_compatible(source: Type, sink: Type) -> bool:
     """Structural compatibility (C-EQUIV) of a SOURCE value type with a SINK slot.
 
     Same `kind` (with int->number widening, mirroring `_coerce_scalar`); records
@@ -90,8 +90,8 @@ def shapes_compatible(source: Type, sink: Type) -> bool:
         for fname in (sink.required or frozenset()):
             if fname not in source.fields:
                 return False
-        for fname, fshape in sink.fields.items():
-            if fname in source.fields and not shapes_compatible(source.fields[fname], fshape):
+        for fname, ftyp in sink.fields.items():
+            if fname in source.fields and not types_compatible(source.fields[fname], ftyp):
                 return False
     if sink.tags is not None and source.tags is not None:
         if not source.tags <= sink.tags:
@@ -99,18 +99,18 @@ def shapes_compatible(source: Type, sink: Type) -> bool:
     return True
 
 
-def _walk_record_fields(shape: "Type | None", fields: list, path: str) -> "str | None":
+def _walk_record_fields(typ: "Type | None", fields: list, path: str) -> "str | None":
     """Walk a dotted field path into a producer's record `Type` (the e03 mechanism).
 
-    Only a CHECKED record (`shape.fields` is not None) is walked; a scalar / opaque /
+    Only a CHECKED record (`typ.fields` is not None) is walked; a scalar / opaque /
     unresolved producer stays lenient (dotted access allowed, unchecked). An absent
     field on a checked record is a located compile error."""
     for f in fields:
-        if shape is None or shape.fields is None:
+        if typ is None or typ.fields is None:
             return None  # opaque / not a checked record -> lenient
-        if f not in shape.fields:
+        if f not in typ.fields:
             return f"reference ${{{path}}} reads unknown field {f!r} on record"
-        shape = shape.fields[f]
+        typ = typ.fields[f]
     return None
 
 

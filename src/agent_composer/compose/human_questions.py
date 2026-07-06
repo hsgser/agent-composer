@@ -6,8 +6,8 @@ that AUTHORS the questions: `{prompt: <LLM brief, required>, mode?, llm_config?,
 retries?}`. This pass lowers that single descriptor into TWO ordinary descriptors:
 
 1. a synth **AgentDescriptor** (id `<gate>__compose`) that composes a
-   `list[Question]` — its codomain is the code-built `question_list_shape()` set via
-   the `output_shape_override` seam (no surface type-string), its prompt is the
+   `list[Question]` — its codomain is the code-built `question_list_type()` set via
+   the `output_type_override` seam (no surface type-string), its prompt is the
    block's brief, and it inherits the gate's context `inputs:`;
 2. the original **HumanInputDescriptor** gate (same id), rewritten to read its
    questions from the composer: `questions: "${__questions}"`, with the composer's
@@ -35,7 +35,7 @@ from agent_composer.compose.parser import (
     HumanInputDescriptor,
     NodeDescriptor,
 )
-from agent_composer.nodes.human_input.questions import question_list_shape
+from agent_composer.nodes.human_input.questions import question_list_type
 
 # Reserved gate input name: the wire from the synth composer's output into the gate's
 # questions input. Authors never write it; the desugar owns the namespace.
@@ -78,7 +78,7 @@ def desugar_adaptive_questions(
             "id": synth_id,
             "prompt": auto["prompt"],
             "inputs": dict(desc.inputs),  # carry the gate's context inputs to the composer
-            "output_shape_override": question_list_shape(),  # the codomain (list[Question])
+            "output_type_override": question_list_type(),  # the codomain (list[Question])
             "outputs": None,
             "mode": auto.get("mode", "plain"),
         }

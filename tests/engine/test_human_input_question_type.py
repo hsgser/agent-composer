@@ -1,10 +1,10 @@
-from agent_composer.nodes.human_input.questions import question_list_shape
+from agent_composer.nodes.human_input.questions import question_list_type
 from agent_composer.state.segments import ValueKind
-from agent_composer.nodes.agent.structured import shape_to_schema
+from agent_composer.nodes.agent.structured import type_to_schema
 
 
-def test_question_list_shape_structure():
-    sh = question_list_shape()
+def test_question_list_type_structure():
+    sh = question_list_type()
     assert sh.kind == ValueKind.LIST_OBJECT
     q = sh.element
     assert q.kind == ValueKind.OBJECT
@@ -15,7 +15,7 @@ def test_question_list_shape_structure():
     assert {"label", "description"} <= set(opt.element.fields)
 
 
-def test_question_shape_drives_structured_schema():
+def test_question_type_drives_structured_schema():
     # the synth compose-agent generates against this; it must build a pydantic model
-    model = shape_to_schema(question_list_shape())
+    model = type_to_schema(question_list_type())
     assert model is not None  # list -> ListWrapper(items=List[Record])

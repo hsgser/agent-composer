@@ -54,21 +54,21 @@ class ParamDecl:
     Attributes:
         name (`str`):
             The input name (the key the bound record is keyed by).
-        type (`str`, *optional*, defaults to `None`):
+        type_str (`str`, *optional*, defaults to `None`):
             The declared type name; `None` is an UNTYPED param (e.g. TOOL args).
         required (`bool`, *optional*, defaults to `False`):
             Whether an omitted input is an error. In practice only START params set this.
         default (`Any`, *optional*, defaults to `None`):
             The value filled for an OMITTED input. In practice only START params set this.
-        shape (`Type`, *optional*, defaults to `None`):
-            The compile-stamped resolved type used to shape-check the bound value.
+        type (`Type`, *optional*, defaults to `None`):
+            The compile-stamped resolved type used to type-check the bound value.
     """
 
     name: str
-    type: Optional[str] = None
+    type_str: Optional[str] = None
     required: bool = False
     default: Any = None
-    shape: Optional[Type] = None
+    type: Optional[Type] = None
 
 
 def _resolve_source(source: Any, pool: TypedVariablePool, item: Any = None) -> Any:
@@ -102,7 +102,7 @@ def bind_params(
     """Resolve each declared `ParamDecl` into a typed record — the engine's read boundary.
 
     Joins each param to its source from the flow-owned `wiring` dict (`wiring[name] -> source`):
-    coalesce / default / required / shape-check / deep-copy / `item` scope. An OMITTED input (no
+    coalesce / default / required / type-check / deep-copy / `item` scope. An OMITTED input (no
     wiring edge) fills its declared default or fails when required; a caller's explicit null
     SHADOWS the child default (`f(x=None)` semantics).
 
@@ -142,15 +142,15 @@ def bind_params(
                 else:
                     record[p.name] = None
                     continue
-            shape = p.shape
-            if shape is None and p.type is not None:
+            typ = p.type
+            if typ is None and p.type_str is not None:
                 try:
-                    shape = type_for(p.type, {})
+                    typ = type_for(p.type_str, {})
                 except TypeCheckError:
-                    shape = None
-            if shape is not None:
+                    typ = None
+            if typ is not None:
                 try:
-                    value = build_value_as(shape, value).to_object()
+                    value = build_value_as(typ, value).to_object()
                 except TypeCheckError as exc:
                     raise BindingError(f"input {p.name!r}: {exc}") from exc
             record[p.name] = copy.deepcopy(value)

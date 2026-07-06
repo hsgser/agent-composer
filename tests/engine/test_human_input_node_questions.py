@@ -43,7 +43,7 @@ def test_questions_input_ref_resolves():
     assert reason.questions[0]["question"] == "Q"
 
 
-def test_bad_fed_shape_raises():
+def test_bad_fed_type_raises():
     node = HumanInputNode("ask", questions_input="qs")
     with pytest.raises(QuestionSpecError):
         node.run({"qs": []})  # empty list -> parse_questions rejects

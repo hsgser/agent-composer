@@ -7,7 +7,7 @@ from agent_composer.state.segments import Type, ValueKind
 
 
 def test_retry_on_invalid_then_succeeds():
-    shape = Type.scalar(ValueKind.INTEGER)
+    typ = Type.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Flaky:
@@ -21,12 +21,12 @@ def test_retry_on_invalid_then_succeeds():
 
             return _Bound()
 
-    out = generate_structured(_Flaky(), [], shape, max_retries=2)
+    out = generate_structured(_Flaky(), [], typ, max_retries=2)
     assert out == 42 and calls["n"] == 2
 
 
 def test_retry_exhausted_raises():
-    shape = Type.scalar(ValueKind.INTEGER)
+    typ = Type.scalar(ValueKind.INTEGER)
 
     class _Always:
         def with_structured_output(self, schema):
@@ -37,4 +37,4 @@ def test_retry_exhausted_raises():
             return _Bound()
 
     with pytest.raises(Exception):
-        generate_structured(_Always(), [], shape, max_retries=2)
+        generate_structured(_Always(), [], typ, max_retries=2)

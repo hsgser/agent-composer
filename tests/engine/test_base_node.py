@@ -77,8 +77,8 @@ def test_node_does_not_write_pool():
     assert pool.get("n") is None
 
 
-def test_node_carries_declared_output_shape():
-    assert FuncNode("n", lambda p: {}).output_shape is None
-    shape = Type.scalar(ValueKind.NUMBER)
-    n = FuncNode("n", lambda p: {}, output_shape=shape)
-    assert n.output_shape == shape
+def test_node_carries_declared_output_type():
+    assert FuncNode("n", lambda p: {}).output_type is None
+    typ = Type.scalar(ValueKind.NUMBER)
+    n = FuncNode("n", lambda p: {}, output_type=typ)
+    assert n.output_type == typ

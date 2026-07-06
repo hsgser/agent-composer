@@ -4,7 +4,7 @@ A node here is a leaf type string (`"float"`, `"list[str]"`, a registry name), a
 map of field -> node (a record, nested natively), or a list of single-key maps
 (D2's list-of-fields style). Resolution of leaf strings and nested records is the
 state layer's job (`type_for` recurses over records/lists/Optional); this reader
-is the thin composition that walks the YAML shape and wraps any type error loudly.
+is the thin composition that walks the YAML structure and wraps any type error loudly.
 """
 
 from dataclasses import dataclass
@@ -32,7 +32,7 @@ def read_type(node, registry: TypeRegistry) -> Type:
         return Type(
             kind=ValueKind.OBJECT,
             fields=fields,
-            required=frozenset(k for k, sh in fields.items() if not sh.nullable),
+            required=frozenset(k for k, ty in fields.items() if not ty.nullable),
         )
 
     if isinstance(node, list):
@@ -45,7 +45,7 @@ def read_type(node, registry: TypeRegistry) -> Type:
             merged.update(elem)
         return read_type(merged, registry)
 
-    raise LoadError(f"cannot read shape from {node!r} (type {type(node).__name__})")
+    raise LoadError(f"cannot read type from {node!r} (type {type(node).__name__})")
 
 
 # ---------- flow `inputs:` declarations ----------
@@ -110,7 +110,7 @@ def read_flow_inputs(mapping, registry: TypeRegistry) -> list[InputDecl]:
     for name, value in (mapping or {}).items():
         if isinstance(value, str):
             type_part, default_part = _split_default(value)
-            shape = read_type(type_part, registry)
+            typ = read_type(type_part, registry)
             default: Any = None
             if default_part is not None and default_part != "":
                 try:
@@ -124,11 +124,11 @@ def read_flow_inputs(mapping, registry: TypeRegistry) -> list[InputDecl]:
             except TypeCheckError as exc:
                 raise LoadError(f"input {name!r}: {exc}") from exc
             engine_type = parsed.name if isinstance(parsed, ScalarExpr) else type_part
-            required = not shape.nullable and default is None
-            decls.append(InputDecl(name, engine_type, default, required, shape))
+            required = not typ.nullable and default is None
+            decls.append(InputDecl(name, engine_type, default, required, typ))
         elif isinstance(value, dict):
-            shape = read_type(value, registry)
-            decls.append(InputDecl(name, value, None, True, shape))
+            typ = read_type(value, registry)
+            decls.append(InputDecl(name, value, None, True, typ))
         else:
             raise LoadError(
                 f"input {name!r}: declaration must be a type string or a record map, "
