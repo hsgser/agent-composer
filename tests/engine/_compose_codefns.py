@@ -116,3 +116,9 @@ def loop_countdown(inputs: dict) -> dict:
     # not let it escape run() uncaught.
     return {"n": inputs["n"] - 1}
 
+
+def reply_fold(inputs: dict) -> dict:
+    # loop body 'a -> 'a over {transcript, exited}: append this turn's agent reply.
+    return {"transcript": inputs["transcript"] + "|" + inputs["reply"],
+            "exited": bool(inputs["exited"])}
+
