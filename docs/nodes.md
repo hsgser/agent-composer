@@ -48,6 +48,8 @@ class NodeBase(ABC):
     binds_per_item: bool = False     # bind my inputs PER ELEMENT (map), not once up front
     def bind_reserved(self, wiring, pool) -> dict:  # reserved keys to pre-resolve before run
         return {}                    # e.g. wait -> {"until": ts}; map -> {"over": [...]}
+    def reserved_wiring_keys(self) -> set:  # the NAMES of those reserved keys (load-time; no pool)
+        return set()                 # e.g. timed wait -> {"until"}; map -> {"over"}
 
     # --- growth hooks/traits (only read for a spawner) --------------------------
     grow_depth_delta: int | None = None  # REF-depth increment: 1 call/map, 0 agent, None loop
@@ -219,6 +221,7 @@ scheduled; the loop node does not know how state is stored.
 | `is_spawner` | declares "I may return `Grow`"; lets the engine reject a leaf that tries to grow the graph |
 | `binds_per_item` | declares "bind my inputs PER ELEMENT via a `bind_item` cap" (map); the read seam then starts my record empty instead of binding `params` once |
 | `bind_reserved(wiring, pool)` | reserved input keys the read seam pre-resolves before `run` (timed `wait` → `until`, `map` → `over`); default `{}` |
+| `reserved_wiring_keys()` | the NAMES of those reserved author-wiring keys — the load-time counterpart of `bind_reserved` (no pool). Compile passes (`check_wiring_parity`, ref-scan) read it instead of dispatching on `node.kind`; timed `wait` → `{"until"}`, `map` → `{"over"}`; default `∅` |
 | `iter_boundary_records(seed)` | the input records the growth core eager-checks against my child's boundary asserts *before* splicing; default `[]` (no check) |
 | `grow_depth_delta` | my REF-depth increment for the growth core: `1` (call/map, bounded), `0` (agent), `None` (loop / non-REF, no depth work) |
 | `grow_restamps_self` | declares "on a grow, also stamp my own id" (agent re-pause nesting); default `False` |

@@ -87,6 +87,10 @@ a node declares *how* to bind rather than the engine branching on kind.
 - **`bind_reserved(node_wiring, pool)`** (default `{}`) — reserved input keys the seam pre-resolves
   before `run` and merges into the record: a timed `wait` returns `{"until": <ISO ts>}`, a `map`
   returns `{"over": <list>}`. The node owns *what* to pre-resolve; the seam owns *when*.
+- **`reserved_wiring_keys()`** (default `∅`) — the static NAMES of those reserved author-wiring keys,
+  the load-time counterpart of `bind_reserved` (no pool). Compile passes (`check_wiring_parity`, the
+  ref-scan) read it to know which wiring keys sit beyond a node's declared `params` — a timed `wait`
+  reserves `{"until"}`, a `map` reserves `{"over"}` — instead of dispatching on `node.kind`.
 
 Both pre- and post-asserts run one generic path: each assert's refs resolve **record-first,
 pool-fallback**, then evaluate purely. Because a namespaced cross-node ref falls through to the pool,
@@ -322,6 +326,7 @@ Static at authoring time, but a `Grow` outcome splices in more — and, when the
 | `node.run(inputs, **caps) -> Outcome` | the one kind-specific step; the engine calls it via `run_node` |
 | `node.on_failure(exc, inputs, **caps)` | error-strategy hook (default: re-raise); the recovery seam |
 | `node.binds_per_item` / `node.bind_reserved(wiring, pool)` | read-boundary hooks: bind per element (map) / pre-resolve reserved keys (`until`, `over`) before `run` |
+| `node.reserved_wiring_keys()` | load-time hook: the NAMES of those reserved keys, so compile passes gate on traits (not `node.kind`); ∅ default |
 | `node.iter_boundary_records(seed)` | growth hook: the records to eager-check against the child's boundary asserts before splicing (∅ = no check) |
 | `node.grow_depth_delta` / `node.grow_restamps_self` / `node.is_loop` | growth traits: REF-depth increment; self-restamp on re-pause; loop bookkeeping gate |
 | `node.needs_llm` | read-boundary trait: build the `caps['llm']` model-factory cap for an LLM-backed node (agent) |
