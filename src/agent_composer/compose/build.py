@@ -30,7 +30,7 @@ from agent_composer.expr import (
 )
 from agent_composer.expr.template import prompt_refs
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.nodes.base import Node, NodeKind
+from agent_composer.nodes.base import Node
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.call import CallNode
 from agent_composer.nodes.code import CodeNode
@@ -704,6 +704,9 @@ def build_call_node(desc: CallDescriptor, resolver: ChildResolver) -> tuple[Node
     `output_shape` (REF re-exports the codomain; MAP wraps it in `list[U]`), name/arity-checks the
     params, and BAKES the child's compiled flow onto the node. The REF/MAP discriminator is
     `desc.kind` (`"map"` -> `MapNode`, else `CallNode`)."""
+    # The construction boundary: this reads the RAW authored `desc.kind` STRING (not the
+    # compiled kind enum) to pick the runtime class. Kind identity is BORN here — downstream
+    # compile passes then dispatch on the node's traits, never on `node.kind`.
     is_map = desc.kind == "map"
     if is_map and "over" in (desc.inputs or {}):
         # Reserved-name guard: a MAP's `over` is the iteration source, carried under
@@ -917,7 +920,11 @@ def check_ref_map_types(
     node's `.yaml` line. Iterates the WIRING (not the params) so a mis-named binding still
     surfaces here when its child decl is absent rather than being silently skipped."""
     for nid, node in nodes.items():
-        if node.kind not in (NodeKind.CALL, NodeKind.MAP):
+        # CALL/MAP carry `child_inputs` to type-check against; a LOOP also carries a child but
+        # its `'a -> 'a` contract is checked by check_loop_shape_contract/carried_types instead.
+        # A leaf has no `child_inputs` attr, and a zero-input child gives [] (falsy) -> skip
+        # (behavior-identical to the old empty-child_decls loop, which ran zero checks).
+        if node.is_loop or not getattr(node, "child_inputs", None):
             continue
         child_decls = {d.name: d for d in node.child_inputs}
         for param, src in flow_wiring.get(nid, {}).items():
@@ -967,7 +974,7 @@ def check_loop_shape_contract(
     or an opaque body output field, stays lenient (skipped). Loud + located at the loop
     node's `.yaml` line on a same-names/different-TYPES mismatch."""
     for nid, node in nodes.items():
-        if node.kind != NodeKind.LOOP:
+        if not node.is_loop:
             continue
         body_out = node.output_shape
         # A non-record / absent body output was already caught by the field-name half in
@@ -1004,11 +1011,7 @@ def check_wiring_parity(
     eval_node seam pre-resolves) are never author wiring and do not appear here."""
     lines = node_lines or {}
     for nid, node in nodes.items():
-        expected = {p.name for p in (node.params or [])}
-        if node.kind == NodeKind.WAIT and getattr(node, "is_timed", False):
-            expected |= {"until"}
-        elif node.kind == NodeKind.MAP:
-            expected |= {"over"}
+        expected = {p.name for p in (node.params or [])} | node.reserved_wiring_keys()
         actual = set(flow_wiring.get(nid, {}))
         if actual != expected:
             raise LoadError(

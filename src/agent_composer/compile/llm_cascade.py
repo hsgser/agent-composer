@@ -3,8 +3,9 @@
 Run ONCE at run start (the CLI layer is known only then). Fill-the-gap is per-field,
 most-specific-wins, which is associative, so one top-down walk that accumulates the parent
 config and bakes the effective dict onto every `AgentNode` is correct for arbitrary nesting.
-Each CALL/MAP child is DEEP-COPIED before recursion so a shared/memoized def or external flow
-is never mutated and two callsites with different parent configs stay isolated; runtime
+Each node carrying a static child flow (CALL/MAP/LOOP) is DEEP-COPIED before recursion so a
+shared/memoized def or external flow is never mutated and two callsites with different parent
+configs stay isolated; runtime
 expansion (`clone_child`) then deep-copies an already-resolved child, so the effective configs
 ride into the live graph with no change to `expand.py`. On a DURABLE resume this must run
 BEFORE `FlowEngine.restore` (restore's replay re-clones children from
@@ -19,7 +20,6 @@ import copy
 
 from agent_composer.llm_clients.config import merge_llm_config
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.nodes.base import NodeKind
 
 
 def resolve_llm_cascade(flow, parent_config: dict) -> None:
@@ -43,6 +43,8 @@ def resolve_llm_cascade(flow, parent_config: dict) -> None:
                 if not node.llm_inherit
                 else merge_llm_config(node.own_llm_config, flow_layer)
             )
-        elif node.kind in (NodeKind.CALL, NodeKind.MAP) and getattr(node, "child", None) is not None:
+        elif getattr(node, "child", None) is not None:
+            # Any node carrying a static child flow (CALL/MAP/LOOP) recurses so its body agents
+            # inherit this scope's layers too.
             node.child = copy.deepcopy(node.child)  # per-callsite isolation
             resolve_llm_cascade(node.child, flow_layer)

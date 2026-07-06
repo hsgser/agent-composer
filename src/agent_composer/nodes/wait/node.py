@@ -95,6 +95,10 @@ class WaitNode(Node):
             return {"until": resolve_until(node_wiring["until"], pool)}
         return {}
 
+    def reserved_wiring_keys(self) -> set[str]:
+        """A timed WAIT reserves `until` (its author-wiring source); event mode reserves nothing."""
+        return {"until"} if self.is_timed else set()
+
     def run(self, inputs: dict):
         # The engine pre-resolves a timed `until` into inputs["until"] (a concrete ISO ts);
         # its presence is the timed/event discriminator. `resolve_until` is the bind's job now.

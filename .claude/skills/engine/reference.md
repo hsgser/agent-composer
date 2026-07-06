@@ -53,6 +53,7 @@ base `Node`; a kind overrides only what it needs.
 |--------|-------------------------|---------------------|
 | `binds_per_item: bool` | read boundary (`eval_node`): bind PER ELEMENT via a `bind_item` cap vs bind `params` once | `False` → `True` on `map` |
 | `bind_reserved(wiring, pool) -> dict` | read boundary: reserved keys pre-resolved into the record before `run` | `{}` → timed `wait` `{"until": ts}`, `map` `{"over": [...]}` |
+| `reserved_wiring_keys() -> set` | load-time (compile passes: `check_wiring_parity`, ref-scan): the NAMES of those reserved keys so validation gates on traits, not `node.kind` | `∅` → timed `wait` `{"until"}`, `map` `{"over"}` |
 | `iter_boundary_records(seed) -> [(record,label)]` | growth core (`_apply_grow`): records eager-checked against the child's boundary asserts *before* the ledger attach | `[]` → `call` one, `map` one/element (agent/loop none) |
 | `grow_depth_delta: int\|None` | growth core: REF-depth increment stamped on the spliced spawners + terminal (positive bounded by `MAX_REF_DEPTH`) | `None` (loop/non-REF, no depth work) → `1` call/map, `0` agent |
 | `grow_restamps_self: bool` | growth core: also stamp `_spawner_expansion` at the spawner's OWN bare id (re-pause nesting) | `False` → `True` on `agent` |

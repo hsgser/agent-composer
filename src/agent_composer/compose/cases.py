@@ -3,7 +3,7 @@
 Pattern-match compilation, the OCaml analogue of lowering `match e with | p -> e1
 | _ -> e2` to nested conditionals. A `case` node carries no inputs and no built leaf
 Node; this pass lowers it to the existing strict `CaseNode` plus the control + data
-edges — with NO new `NodeKind`. Two surface forms:
+edges — with NO new node kind. Two surface forms:
 
 - **searched** (`cases: [{when: "<bool>", then: <t>}]`, `else: <e>`): scan each `when:`
   for its distinct `${...}` refs -> allocate one `CaseNode` input `__rN` per distinct
