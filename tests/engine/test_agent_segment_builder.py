@@ -2,13 +2,13 @@
 
 `agent_segment_subgraph(pair, callsite)` wraps `clone_continuation_pair`, bakes a PROVISIONAL
 `commit_as=callsite` on the resume terminal (the engine residual overrides it to the true
-multi-pause origin), and returns a `Subgraph` (the fragment an AGENT grows into on a control
-pause). This test pins: the human_input leaf is the sole root; the resume terminal carries the
-provisional `commit_as == callsite`; both node ids are `ns(callsite, …)`-prefixed.
+multi-pause origin), and returns a `Flow` (the fragment an AGENT grows into on a control
+pause). This test pins: the human_input leaf is the `start_id`; the resume terminal (`end_id`)
+carries the provisional `commit_as == callsite`; both node ids are `ns(callsite, …)`-prefixed.
 """
 
 from agent_composer.compile.expand import agent_segment_subgraph, ns
-from agent_composer.nodes.base import Subgraph
+from agent_composer.compile.model import Flow
 
 
 def _pair():
@@ -31,14 +31,15 @@ def _pair():
 def test_agent_segment_subgraph_matches_continuation_shape():
     sg = agent_segment_subgraph(_pair(), callsite="a0")
 
-    assert isinstance(sg, Subgraph)
+    assert isinstance(sg, Flow)
 
     hi_id = ns("a0", "__ask#q1")
     resume_id = ns("a0", "__resume#q1")
 
-    # Root == the human_input leaf (0 incoming edges -> the leaf-pause path).
-    assert sg.roots == [hi_id]
-    # Terminal == the resume node; provisional commit_as == callsite (engine overrides it).
+    # start_id == the human_input leaf (0 incoming edges -> the leaf-pause path).
+    assert sg.start_id == hi_id
+    # Terminal (end_id) == the resume node; provisional commit_as == callsite (engine overrides it).
+    assert sg.end_id == resume_id
     assert sg.nodes[resume_id].commit_as == "a0"
     # Both node ids are namespaced under the callsite.
     assert set(sg.nodes) == {hi_id, resume_id}

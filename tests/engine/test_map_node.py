@@ -37,21 +37,25 @@ def test_map_node_run_builds_grow_fan_in_per_element():
     grow = n.run({"over": [1, 2, 3]}, bind_item=lambda el: {"x": el})
     assert isinstance(grow, Grow)
     assert grow.seed == [{"x": 1}, {"x": 2}, {"x": 3}]
-    # One namespaced child START root per element.
+    # The single root is the synthetic map#/__start__; each element START is present in nodes and
+    # reached from the synthetic start by an ordering edge.
+    from agent_composer.compile.model import START_ID
+    assert grow.subgraph.roots == [ns("m", START_ID)]
     for i in range(3):
-        assert ns(map_callsite("m", i), child.start_id) in grow.subgraph.roots
+        assert ns(map_callsite("m", i), child.start_id) in grow.subgraph.nodes
 
 
 def test_map_node_run_empty_over_builds_lone_list_end():
     from agent_composer.compile.expand import ns
-    from agent_composer.compile.model import END_ID
+    from agent_composer.compile.model import END_ID, START_ID
 
     from tests.engine.test_expand import _child_flow
 
     n = MapNode("m", flow_id="child", child=_child_flow(), child_inputs=[])
     grow = n.run({"over": []}, bind_item=lambda el: {"x": el})
     assert isinstance(grow, Grow) and grow.seed == []
-    assert set(grow.subgraph.nodes) == {ns("m", END_ID)}
+    # N=0: the body is the synthetic start + the list END.
+    assert set(grow.subgraph.nodes) == {ns("m", START_ID), ns("m", END_ID)}
 
 
 def test_map_node_kind_exists_and_package_imports():

@@ -22,7 +22,7 @@ from typing import Any, ClassVar, Optional
 
 from agent_composer.compile.expand import loop_continue_subgraph, map_callsite, ns
 from agent_composer.expr.expressions import evaluate_when_record
-from agent_composer.nodes.base import Grow, Node, NodeKind, Output
+from agent_composer.nodes.base import Grow, Node, NodeKind, Output, Subgraph
 
 
 class LoopMaxExceeded(RuntimeError):
@@ -117,7 +117,8 @@ class LoopNode(Node):
             if k >= 1 else set()
         if self.id != self.origin_id:
             prune.add(self.id)                       # self-prune (never the origin L)
-        sg = loop_continue_subgraph(self.child, self.origin_id, carried, k, driver)
+        sg = Subgraph.from_flow(
+            loop_continue_subgraph(self.child, self.origin_id, carried, k, driver))
         return Grow(sg, prune=frozenset(prune), seed=(carried, k))
 
     def _should_stop_now(self, carried: dict[str, Any], k: int) -> bool:
@@ -166,4 +167,5 @@ class LoopNode(Node):
         as a 2-element list, so unpacking covers tuple and list."""
         carried, k = seed
         driver = self.respawn(k + 1)
-        return loop_continue_subgraph(self.child, self.origin_id, dict(carried), k, driver)
+        return Subgraph.from_flow(
+            loop_continue_subgraph(self.child, self.origin_id, dict(carried), k, driver))

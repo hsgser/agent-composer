@@ -44,35 +44,39 @@ def test_call_ref_mode_returns_grow():
 
 
 def test_map_returns_grow():
-    # MAP is self-describing now: run builds the whole fan-in subgraph (N child clones + a list END)
-    # and returns a Grow whose seed is the raw per-element records (the durable builder input).
+    # MAP is self-describing now: run builds the whole fan-in subgraph (a synthetic map#/__start__ +
+    # N child clones + a list END) and returns a Grow whose seed is the raw per-element records.
     from agent_composer.compile.expand import map_callsite, ns
-    from agent_composer.compile.model import END_ID
+    from agent_composer.compile.model import END_ID, START_ID
     from tests.engine.test_expand import _child_flow
 
     node = MapNode("m", flow_id="child", child=_child_flow(), child_inputs=[])
     out = node.run({"over": ["ACME", "BETA"]}, bind_item=lambda el: {"x": el})
     assert isinstance(out, Grow)
     assert out.seed == [{"x": "ACME"}, {"x": "BETA"}]
-    # One namespaced child START per element is a root; the list END commits under the spawner.
+    # The single root is the synthetic map#/__start__ (it fans out to the element starts on run);
+    # the list END commits under the spawner.
+    assert out.subgraph.roots == [ns("m", START_ID)]
     for i in range(2):
-        assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.roots
+        assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.nodes
     assert out.subgraph.nodes[ns("m", END_ID)].commit_as == "m"
 
 
 def test_map_empty_returns_grow_with_lone_list_end():
     from agent_composer.compile.expand import ns
-    from agent_composer.compile.model import END_ID
+    from agent_composer.compile.model import END_ID, START_ID
     from tests.engine.test_expand import _child_flow
 
     node = MapNode("m", flow_id="child", child=_child_flow(), child_inputs=[])
     out = node.run({"over": []}, bind_item=lambda el: {"x": el})
     assert isinstance(out, Grow)
     assert out.seed == []
-    # N=0: the sole node is the list END; it has 0 incoming edges so it is a root (emits []).
+    # N=0: the body is the synthetic start + the list END; the root is the synthetic start, which
+    # wires straight to the list END (emits []).
+    map_start_id = ns("m", START_ID)
     map_end_id = ns("m", END_ID)
-    assert set(out.subgraph.nodes) == {map_end_id}
-    assert map_end_id in out.subgraph.roots
+    assert set(out.subgraph.nodes) == {map_start_id, map_end_id}
+    assert out.subgraph.roots == [map_start_id]
 
 
 def test_call_unbaked_child_raises():

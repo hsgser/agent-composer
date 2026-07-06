@@ -51,7 +51,7 @@ def test_ref_child_with_effect_loads_pauses_namespaced_and_resumes():
 def test_child_suspend_resumes_through_namespaced_end():
     # after a nested pause resumes, the parent's call value flows from the NAMESPACED
     # child END_ID (the alias filler) — the splice's alias substitution writes the spawner value
-    # from cloned.out_node_id == ns(callsite, child.end_id).
+    # from the cloned Flow's end_id == ns(callsite, child.end_id).
     loaded = load_flow(CHILD_EFFECT)
     res = run_flow(loaded, {"settle_at": "2099-01-01"})
     assert res.status == "paused"

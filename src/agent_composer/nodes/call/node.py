@@ -18,7 +18,7 @@ coerce+default view for the eager `${input.X}` check).
 from typing import Any, ClassVar, Optional
 
 from agent_composer.compile.expand import call_subgraph
-from agent_composer.nodes.base import Grow, Node, NodeKind
+from agent_composer.nodes.base import Grow, Node, NodeKind, Subgraph
 
 
 class CallNode(Node):
@@ -76,13 +76,13 @@ class CallNode(Node):
         # splice generically; `seed=record` is the durable builder input (a resumed run rebuilds
         # the same subgraph via `call_subgraph(child, self.id, record)`).
         record = dict(inputs)
-        sg = call_subgraph(self.child, callsite=self.id, record=record)
+        sg = Subgraph.from_flow(call_subgraph(self.child, callsite=self.id, record=record))
         return Grow(sg, seed=record)
 
     def replay_grow(self, seed: Any):
         """Durable-replay inverse of `run`: rebuild the CALL child subgraph from the persisted
         call-arg record (`seed`) via the SAME `call_subgraph` builder — no body re-run."""
-        return call_subgraph(self.child, callsite=self.id, record=dict(seed))
+        return Subgraph.from_flow(call_subgraph(self.child, callsite=self.id, record=dict(seed)))
 
     def iter_boundary_records(self, seed: Any) -> list:
         """One boundary record: the call-arg record (`seed`), labelled `REF child <id>`. The engine

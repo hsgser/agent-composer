@@ -149,10 +149,16 @@ def test_start_end_splice_is_exercised():
     eng, events = _run_map(["ACME", "BETA"])
     assert isinstance(events[-1], RunSucceeded)
     ids = list(eng.flow.nodes)
-    # each element splices the namespaced child START_ID..END_ID; the MAP fan-in is ONE
-    # END_ID(list-mode) aggregator under the spawner namespace.
+    # each element splices the namespaced child START_ID..END_ID; MAP also synthesizes ONE
+    # `research_each/__start__` fan-out start + ONE END_ID(list-mode) aggregator under the spawner
+    # namespace.
     starts = sorted(i for i in ids if i.endswith("/__start__"))
-    assert starts == ["research_each#0/__start__", "research_each#1/__start__"]
+    assert starts == ["research_each#0/__start__", "research_each#1/__start__",
+                      "research_each/__start__"]
+    map_start_id = "research_each/__start__"                     # ns(spawner, START_ID)
+    # the synthetic start fans out to each element START via an ordering edge.
+    fanout = {e.to for e in eng.flow.edges if e.from_ == map_start_id and e.ordering}
+    assert fanout == {"research_each#0/__start__", "research_each#1/__start__"}
     map_end_id = "research_each/__end__"                         # ns(spawner, END_ID)
     assert eng.flow.nodes[map_end_id].kind == NodeKind.END
     into_end = {(e.from_, e.input_group) for e in eng.flow.edges if e.to == map_end_id}

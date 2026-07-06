@@ -156,13 +156,15 @@ def test_map_run_returns_grow():
     out = n.run({"over": ["A", "B"]}, bind_item=lambda el: {"x": el})  # no system cap
     assert isinstance(out, Grow)
     assert out.seed == [{"x": "A"}, {"x": "B"}]
+    from agent_composer.compile.model import START_ID
+    assert out.subgraph.roots == [ns("m", START_ID)]
     for i in range(2):
-        assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.roots
+        assert ns(map_callsite("m", i), _child_flow().start_id) in out.subgraph.nodes
 
 
 def test_map_empty_over_returns_grow_with_lone_list_end():
     from agent_composer.compile.expand import ns
-    from agent_composer.compile.model import END_ID
+    from agent_composer.compile.model import END_ID, START_ID
     from agent_composer.nodes.base import Grow
     from agent_composer.nodes.map import MapNode
 
@@ -171,8 +173,8 @@ def test_map_empty_over_returns_grow_with_lone_list_end():
     n = MapNode("m", flow_id="c", child=_child_flow(), child_inputs=[])
     out = n.run({"over": []}, bind_item=lambda el: {})
     assert isinstance(out, Grow) and out.seed == []
-    assert set(out.subgraph.nodes) == {ns("m", END_ID)}
-    assert ns("m", END_ID) in out.subgraph.roots
+    assert set(out.subgraph.nodes) == {ns("m", START_ID), ns("m", END_ID)}
+    assert out.subgraph.roots == [ns("m", START_ID)]
 
 
 @pytest.mark.parametrize("num_workers", [0, 4])

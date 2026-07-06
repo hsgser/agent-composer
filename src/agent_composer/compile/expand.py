@@ -9,10 +9,10 @@ target child(ren) deep-namespaced into the running `CompiledFlow`. This module h
   cloned node/edge id is a pure function of `(callsite, child static id, element index)` —
   NO emission counter — so a re-clone on kill-recovery re-keys identically.
 
-The pure cloner (`clone_child` / `ClonedSubgraph`) splices the child's own
-`START_ID..END_ID` (every flow is `START_ID -> body -> END_ID`): the child `START_ID` is the alias-
-seed point — SEEDED WITH THE CALL-ARGS AS EDGES (no `_rens` literal-baking) — and the child
-`END_ID` is the alias filler. A child node reading `${input.X}` is re-pointed to the namespaced
+The pure cloner (`clone_child`) splices the child's own
+`START_ID..END_ID` (every flow is `START_ID -> body -> END_ID`) into a `Flow`: the child `START_ID`
+is the alias-seed point — SEEDED WITH THE CALL-ARGS AS EDGES (no `_rens` literal-baking) — and the
+child `END_ID` is the alias filler. A child node reading `${input.X}` is re-pointed to the namespaced
 child START_ID's output object (`${<callsite>/<start>.output.X}`); the dispatcher
 consumes the descriptions and performs the (impure) `add_subgraph` + `register` + seed.
 
@@ -25,10 +25,11 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from agent_composer.compile.model import Edge, END_ID, START_ID
+from agent_composer.compile.model import Edge, END_ID, Flow, START_ID
 from agent_composer.expr import rewrite_template_refs
-from agent_composer.nodes.base import Node, Subgraph
+from agent_composer.nodes.base import Node
 from agent_composer.nodes.end.node import EndNode
+from agent_composer.nodes.start.node import StartNode
 
 
 def ns(callsite: str, child_id: str) -> str:
@@ -54,15 +55,13 @@ def ask_resume_edge_id(callsite: str) -> str:
 
 @dataclass(frozen=True)
 class ClonedSubgraph:
-    """The pure result of cloning a child flow at one callsite.
+    """DEAD — no builder returns this anymore (they return `Flow`); deleted in a later step.
 
-    `nodes`/`edges`/`wiring` are deep-namespaced under the callsite (the dispatcher appends
-    them to the live `CompiledFlow` via `add_subgraph`); `roots` is the namespaced child `START_ID`
-    (the sole seed point — `[ns(callsite, child.start_id)]`); `out_node_id` is the namespaced
-    child `END_ID` (the alias filler for REF / one element input for MAP). `boundary_asserts` are
-    the child's BOUNDARY asserts exposed RAW (un-namespaced — they read `${inputs}/${system}`)
-    for the dispatcher to evaluate eagerly against the baked record in `_apply_grow` (fired only
-    there, NOT off the spliced child START_ID)."""
+    Historically the pure result of cloning a child flow at one callsite: `nodes`/`edges`/`wiring`
+    deep-namespaced under the callsite, `roots` the namespaced child `START_ID`, `out_node_id` the
+    namespaced child `END_ID`, and `boundary_asserts` the child's raw BOUNDARY asserts. The `Flow`
+    core now carries `start_id`/`end_id` in place of `roots`/`out_node_id`, and boundary asserts are
+    read engine-side off the spawner, so this type and its fields are retired."""
 
     nodes: dict[str, Node]
     edges: list[Edge]
@@ -116,11 +115,14 @@ def _rens_internal(src: Any, callsite: str) -> Any:
     return rewrite_template_refs(src, _rename)
 
 
-def clone_child(child, callsite: str, record: dict) -> ClonedSubgraph:
+def clone_child(child, callsite: str, record: dict) -> Flow:
     """Splice a child `CompiledFlow`'s `START_ID..END_ID` at `callsite`. Every child node
     (incl. its `START_ID`/`END_ID`) is cloned deep-namespaced; the child `START_ID` is SEEDED with the
     call-args as edges (no baking); the child `END_ID` is the alias filler. Pure — the dispatcher
-    performs the impure `add_subgraph`/`register`/seed."""
+    performs the impure `add_subgraph`/`register`/seed.
+
+    Returns a `Flow` whose `start_id` is the namespaced child START (the sole seed point) and whose
+    `end_id` is the namespaced child END (the alias filler for REF / one element input for MAP)."""
     nodes: dict[str, Node] = {}
     for nid, node in child.nodes.items():
         clone = copy.deepcopy(node)
@@ -170,27 +172,19 @@ def clone_child(child, callsite: str, record: dict) -> ClonedSubgraph:
                     to=start_ns,
                     input_group=param,
                 ))
-    roots = [start_ns]
 
     # The child END_ID is the alias filler (its producer->END_ID edges are already re-keyed above).
     out_id = ns(callsite, child.end_id)
 
-    # Carry the child AssertSet: boundary RAW (un-namespaced) for the dispatcher's eager eval
-    # ONLY (never fired off the spliced START_ID); post re-homed onto the cloned child END_ID.
+    # Re-home the child's POST asserts onto the cloned child END filler (the dispatcher fires them
+    # at the redirect-commit site). The child BOUNDARY asserts are NOT carried on the Flow: the
+    # engine reads them off the spawner node via `iter_boundary_records` and evaluates them eagerly.
     asserts = getattr(child, "child_asserts", None)
-    boundary_asserts = list(asserts.boundary) if asserts is not None else []
     nodes[out_id].post_asserts = [
         _rens_internal(a, callsite) for a in (asserts.post if asserts is not None else [])
     ]
 
-    return ClonedSubgraph(
-        nodes=nodes,
-        edges=edges,
-        wiring=wiring,
-        roots=roots,
-        out_node_id=out_id,
-        boundary_asserts=boundary_asserts,
-    )
+    return Flow(nodes=nodes, edges=edges, wiring=wiring, start_id=start_ns, end_id=out_id)
 
 
 def _producer_of(src: str) -> Optional[str]:
@@ -205,77 +199,90 @@ def _producer_of(src: str) -> Optional[str]:
     return None
 
 
-def call_subgraph(child, callsite: str, record: dict) -> Subgraph:
+def call_subgraph(child, callsite: str, record: dict) -> Flow:
     """The pure CALL builder: the self-describing fragment a CALL spawner grows into.
 
     Wraps `clone_child` (the deep-namespaced clone of the child's `START_ID..END_ID` at `callsite`,
     seeded with `record`), bakes `commit_as=callsite` on the cloned child END filler (so its Output
-    commits under the spawner id on the ordinary success path), and returns a `Subgraph`. The
-    filler id (`clone_child`'s `out_node_id`) is kept only as a LOCAL — it is derivable from the
-    subgraph as `ns(callsite, END_ID)` and is NOT a `Subgraph` field. The boundary asserts stay on
-    the `ClonedSubgraph` and are re-derived engine-side (the residual reads the child's raw
-    START_ID record view), so they are not carried on the returned `Subgraph`."""
+    commits under the spawner id on the ordinary success path), and returns a `Flow` whose `start_id`
+    is the single cloned child START and whose `end_id` is the cloned child END filler. The child
+    boundary asserts are re-derived engine-side (the engine reads them off the spawner node), so they
+    are not carried on the returned `Flow`."""
     cloned = clone_child(child, callsite=callsite, record=record)
-    out_node_id = cloned.out_node_id                     # local only: derivable as ns(callsite, END_ID)
-    cloned.nodes[out_node_id].commit_as = callsite
-    return Subgraph(
-        nodes=cloned.nodes,
-        edges=cloned.edges,
-        wiring=cloned.wiring,
-        roots=cloned.roots,
-    )
+    cloned.nodes[cloned.end_id].commit_as = callsite
+    return Flow(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring,
+                start_id=cloned.start_id, end_id=cloned.end_id)
 
 
-def map_subgraph(child, spawner_id: str, records: list) -> Subgraph:
+def map_subgraph(child, spawner_id: str, records: list) -> Flow:
     """The pure MAP builder: the self-describing fragment a MAP spawner grows into.
 
-    MAP is CALL × N plus a synthesized list-`END` fan-in. For each element `i`, `clone_child`
-    deep-namespaces the child at `map_callsite(spawner_id, i)` (`f"{spawner}#{i}"`), seeded with
-    element `i`'s `record`; every element's namespaced child START (its sole seed point) joins
-    `roots`. The N child END fillers fan into ONE `EndNode.list_(map_end_id, n=N)` (the
-    `map_end_id = ns(spawner_id, END_ID)` filler) via one `e{i}` input group per element (a
-    node-first `${<filler>.output}` wiring + a `<filler>-><map_end>#{i}` edge). The list-END carries
-    `commit_as=spawner_id`, so its list Output commits under the spawner on the success path.
+    MAP is CALL × N plus a synthesized `map#/__start__` fan-out and a list-`END` fan-in. For each
+    element `i`, `clone_child` deep-namespaces the child at `map_callsite(spawner_id, i)`
+    (`f"{spawner}#{i}"`), seeded with element `i`'s `record`. A single synthetic `map#/__start__`
+    StartNode (`ns(spawner_id, START_ID)`, empty decls — it runs once and emits `{}`) fans out to
+    every element's namespaced child START via an ORDERING edge (`ordering=True, optional=False`):
+    a data edge with `input_group=None` would form a phantom data group, so the fan-out is pure
+    ordering. Element STARTs have zero real incoming data edges (MAP records are resolved values), so
+    the ordering edge is their sole gate; when `map#/__start__` runs (always TAKEN — it has no
+    predecessors), each element START's disposition becomes `ready`, mirroring the top-level
+    `__start__ → body-root` seed. The N child END fillers fan into ONE `EndNode.list_(map_end_id, n=N)`
+    (`map_end_id = ns(spawner_id, END_ID)`) via one `e{i}` input group per element. The list-END
+    carries `commit_as=spawner_id`, so its list Output commits under the spawner on the success path.
 
-    N=0: the only node is the list-END (`EndNode.list_(n=0)`); it has 0 incoming edges, so it MUST
-    be a root to schedule and emit `[]` (the empty-`over` case: with no per-element clones, the
-    list-END is the sole root). The boundary asserts stay on the per-element `ClonedSubgraph` and are
-    re-derived engine-side (the residual reads each element's raw START record view), so they are not
-    carried on the returned `Subgraph`."""
+    Returns a `Flow` with `start_id = ns(spawner_id, START_ID)` (the synthetic start) and
+    `end_id = ns(spawner_id, END_ID)` (the list collector).
+
+    N=0 (empty map): the only body node is the list-END; `map#/__start__ → map#/__end__` is wired
+    with the same ordering edge so the collector still schedules and emits `[]`."""
+    map_start_id = ns(spawner_id, START_ID)              # the synthetic fan-out start
     map_end_id = ns(spawner_id, END_ID)                  # the END_ID-list filler
     nodes: dict[str, Node] = {}
     edges: list[Edge] = []
     wiring: dict[str, dict[str, Any]] = {}
-    roots: list[str] = []
     end_wiring: dict[str, str] = {}
     end_edges: list[Edge] = []
+    start_edges: list[Edge] = []                         # map_start -> each element start (ordering)
 
     for i, record in enumerate(records):
         cloned = clone_child(child, callsite=map_callsite(spawner_id, i), record=record)
         nodes.update(cloned.nodes)
         edges.extend(cloned.edges)
         wiring.update(cloned.wiring)
-        roots.extend(cloned.roots)
-        end_wiring[f"e{i}"] = f"${{{cloned.out_node_id}.output}}"   # node-first
+        # Ordering fan-out: map_start -> this element's START (the element's sole incoming gate).
+        start_edges.append(Edge(
+            id=f"{map_start_id}->{cloned.start_id}#0",
+            from_=map_start_id, to=cloned.start_id, ordering=True))
+        end_wiring[f"e{i}"] = f"${{{cloned.end_id}.output}}"   # node-first
         end_edges.append(Edge(
-            id=f"{cloned.out_node_id}->{map_end_id}#{i}",
-            from_=cloned.out_node_id, to=map_end_id, input_group=f"e{i}"))
+            id=f"{cloned.end_id}->{map_end_id}#{i}",
+            from_=cloned.end_id, to=map_end_id, input_group=f"e{i}"))
+
+    # The synthetic fan-out start: a StartNode with empty decls — it runs once, emits `{}`, and its
+    # out-edges make every element START ready (the single-start entry, like CALL and the top level).
+    nodes[map_start_id] = StartNode(map_start_id, input_decls=[])
+    wiring[map_start_id] = {}
 
     # ONE EndNode in LIST mode — the MAP fan-in over the N child ENDs (still built + stamped at
     # N=0). Bake the commit redirect so its list Output commits under the spawner id.
     map_end = EndNode.list_(map_end_id, n=len(records))
     map_end.commit_as = spawner_id
     nodes[map_end_id] = map_end
+    edges.extend(start_edges)
     edges.extend(end_edges)
     wiring[map_end_id] = end_wiring
-    # N=0: the list-END has 0 incoming edges -> it must be a root so it schedules and emits [].
+    # N=0: no element clones, so the list-END has 0 incoming data edges. Wire the synthetic start to
+    # it (same ordering edge) so the collector schedules off the fan-out and emits [].
     if not records:
-        roots.append(map_end_id)
+        edges.append(Edge(
+            id=f"{map_start_id}->{map_end_id}#0",
+            from_=map_start_id, to=map_end_id, ordering=True))
 
-    return Subgraph(nodes=nodes, edges=edges, wiring=wiring, roots=roots)
+    return Flow(nodes=nodes, edges=edges, wiring=wiring,
+                start_id=map_start_id, end_id=map_end_id)
 
 
-def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) -> Subgraph:
+def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) -> Flow:
     """The pure LOOP CONTINUE builder: body_k + the fresh next-iteration driver.
 
     `origin` is the ORIGIN loop id `L` (NOT the running driver id) — bodies are always keyed
@@ -286,14 +293,15 @@ def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) ->
     Splices: body_k (`clone_child` at `map_callsite(origin, k)`, NO baked `commit_as` — its
     Output commits under its own id `L#k/END` and feeds the next driver by plain wiring), the
     driver `L~(k+1)`, the producer edge `body_k.END -> L~(k+1)` (one input_group per carried
-    field), and the driver's wiring `{field: "${L#k/END.output.field}"}`. `roots` = [body_k.START]
-    (the sole seed point); the driver is scheduled by normal readiness when the edge fires.
+    field), and the driver's wiring `{field: "${L#k/END.output.field}"}`. The returned `Flow`'s
+    `start_id` is body_k's START (the sole seed point) and `end_id` is body_k's END; the driver is
+    scheduled by normal readiness when the edge fires.
 
     Unlike `call_subgraph`/`map_subgraph`, the body-END carries NO `commit_as`: the CONTINUE arm
     never commits under the origin (only the STOP arm's `Output(carried, commit_as=origin)` does),
     so `_derived_terminals` returns `[]` for a continue grow and the terminal stamping no-ops."""
     cloned = clone_child(child, callsite=map_callsite(origin, k), record=dict(carried))
-    body_end = cloned.out_node_id                          # ns(map_callsite(origin, k), END_ID)
+    body_end = cloned.end_id                               # ns(map_callsite(origin, k), END_ID)
     nodes = dict(cloned.nodes)
     edges = list(cloned.edges)
     wiring = dict(cloned.wiring)
@@ -309,7 +317,8 @@ def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) ->
             from_=body_end, to=driver.id, input_group=field_name))
     wiring[driver.id] = driver_wiring
     edges.extend(driver_edges)
-    return Subgraph(nodes=nodes, edges=edges, wiring=wiring, roots=cloned.roots)
+    return Flow(nodes=nodes, edges=edges, wiring=wiring,
+                start_id=cloned.start_id, end_id=body_end)
 
 
 
@@ -318,18 +327,18 @@ def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) ->
 # --------------------------------------------------------------------------- #
 
 
-def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: int = 2) -> ClonedSubgraph:
+def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: int = 2) -> Flow:
     """Materialize the agent-pause continuation PAIR namespaced at `callsite`.
 
     `pair` is `[human_input_desc, resume_desc]` from `agent_step`'s continuation `Grow`. The
-    `human_input` leaf is a ROOT (no incoming edge), so the engine's leaf-pause path applies and its
-    `HumanInputRequired.node_id` is the namespaced `hi_id`. The resume node is an `AgentNode`
+    `human_input` leaf is the `start_id` (no incoming edge), so the engine's leaf-pause path applies
+    and its `HumanInputRequired.node_id` is the namespaced `hi_id`. The resume node is an `AgentNode`
     with a `Resume` entry (the continuation arm — same `kind = AGENT`, no separate kind); it
     reads the human's `answer` via the BARE forward-ref `${<hi_id>.output}` bound to
     its single `answer` param; the data edge for that ref is synthesized via the SAME producer
     derivation `clone_child`/`build.py` use (`f"{producer}->{consumer}#{i}"`), so the pool ref
-    and the edge agree on `hi_id`. Pure — the dispatcher performs the impure
-    append/register/seed.
+    and the edge agree on `hi_id`. Returns a `Flow` (`start_id = hi_id`, `end_id = resume_id`). Pure
+    — the dispatcher performs the impure append/register/seed.
 
     `output_shape`/`retries` carry the SPAWNER's declared output Shape and self-correction cap
     onto the resume node so a resumed agent with a non-text `output:` still emits the declared
@@ -372,22 +381,22 @@ def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: 
         input_group="answer",
     )
 
-    return ClonedSubgraph(
+    return Flow(
         nodes={hi_id: hi_node, resume_id: resume_node},
         edges=[edge],
         wiring={hi_id: {}, resume_id: {"answer": answer_ref}},
-        roots=[hi_id],
-        out_node_id=resume_id,
+        start_id=hi_id,
+        end_id=resume_id,
     )
 
 
-def agent_segment_subgraph(pair, callsite: str, *, output_shape=None, retries: int = 2) -> Subgraph:
+def agent_segment_subgraph(pair, callsite: str, *, output_shape=None, retries: int = 2) -> Flow:
     """The pure AGENT-pause builder: the continuation fragment an AGENT grows into when it pauses.
 
     Wraps `clone_continuation_pair` (the deep-namespaced clone of the `[human_input, resume]` PAIR
-    at `callsite`) and returns a `Subgraph`. Its `roots` is the `human_input` leaf (a 0-incoming
-    ROOT, so the engine's leaf-pause path applies and the `HumanInputRequired.node_id` is the
-    namespaced `hi_id`); the resume node is its terminal. Every cloned id is `ns(callsite, …)`-
+    at `callsite`) and returns a `Flow`. Its `start_id` is the `human_input` leaf (a 0-incoming
+    entry, so the engine's leaf-pause path applies and the `HumanInputRequired.node_id` is the
+    namespaced `hi_id`); its `end_id` is the resume terminal. Every cloned id is `ns(callsite, …)`-
     prefixed (`hi_id = ns(callsite, hi_desc["node_id"])`, `resume_id = ns(callsite,
     "__resume#" + hi_desc["slot"])`).
 
@@ -395,14 +404,12 @@ def agent_segment_subgraph(pair, callsite: str, *, output_shape=None, retries: i
     commit target: a multi-pause chain routes the FINAL non-pausing Output back to the ORIGINAL
     spawner, so the engine residual OVERRIDES this provisional value with the true origin (read
     off the previous segment's baked `commit_as`). The builder is pure and cannot see the prior
-    segment, so it bakes the local callsite and lets the engine chain the origin. The terminal id
-    (`clone_continuation_pair`'s `out_node_id`) is kept only as a LOCAL — it is derivable from the
-    subgraph as `ns(callsite, "__resume#" + hi_desc["slot"])` and is NOT a `Subgraph` field.
+    segment, so it bakes the local callsite and lets the engine chain the origin.
 
     `output_shape`/`retries` carry the SPAWNER's declared output Shape + self-correction cap onto
     the resume node (see `clone_continuation_pair`), so a resumed agent with a non-text `output:`
     still emits the declared shape on its final turn and the shape propagates segment to segment."""
     cloned = clone_continuation_pair(pair, callsite=callsite, output_shape=output_shape, retries=retries)
-    out_node_id = cloned.out_node_id                 # local only: the resume terminal (== ns(callsite, "__resume#"+slot))
-    cloned.nodes[out_node_id].commit_as = callsite   # PROVISIONAL: the engine residual overrides it to the true origin
-    return Subgraph(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring, roots=cloned.roots)
+    cloned.nodes[cloned.end_id].commit_as = callsite   # PROVISIONAL: the engine residual overrides it to the true origin
+    return Flow(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring,
+                start_id=cloned.start_id, end_id=cloned.end_id)

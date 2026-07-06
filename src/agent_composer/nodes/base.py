@@ -99,6 +99,17 @@ class Subgraph:
     wiring: "dict[str, dict[str, Any]]"
     roots: "list[str]"
 
+    @classmethod
+    def from_flow(cls, flow) -> "Subgraph":
+        """TRANSITIONAL bridge: wrap a builder's `Flow` into a `Subgraph` for the engine.
+
+        The pure builders (`call_subgraph`/`map_subgraph`/`loop_continue_subgraph`/
+        `agent_segment_subgraph`) now return a `Flow` with a single `start_id`; the engine still
+        consumes `Subgraph.roots`, so `roots = [flow.start_id]` (MAP's synthetic `map#/__start__`
+        fans out to the element starts via its ordering edges once it runs). A later step retypes
+        `Grow.subgraph` to `Flow` and drops this bridge with `Subgraph` itself."""
+        return cls(nodes=flow.nodes, edges=flow.edges, wiring=flow.wiring, roots=[flow.start_id])
+
 
 @dataclass(frozen=True)
 class Grow:
