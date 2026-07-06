@@ -365,6 +365,18 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   `lib_boom.yaml`), `e26-three-level-raise.yaml` + tests in `test_cli_prompt.py`,
   `test_call_source_frame.py`, `test_parser_lines.py`.~~ -- e801d26
 
+## Docs
+
+- [x] ~~**Docstring/comment sweep for CONTRIBUTING compliance + Types/Expressions internals pages.**
+  Brought docstrings/comments across `compose`/`typesys`/`runtime`/`nodes` in line with the
+  CONTRIBUTING template (imperative one-line summaries; full Args/Returns/Raises; backtick types)
+  and stripped internal tracking tokens banned by CLAUDE.md (`e00`–`e08`, `phase3`, `Step 8`,
+  `seed NN`, `T6c`, `D2`, `D-DEFAULTS`) — including the `phase3`-prefixed parser helper renames
+  (`_back_map_to_plural`, `_normalize_sections`) and `reconcile_case_edges`'s `step8_edges` ->
+  `inferred_edges`. Added `docs/typing.md` (typesys) + `docs/expressions.md` (expr `${...}`),
+  wired into the Internals nav. Behavior unchanged; `tests/engine` 1448 passed.~~
+  -- 6950e61 (branch `dev/docs/docstring-sweep`)
+
 ## Open bugs / known issues
 
 - [x] ~~**Node-local post-`asserts:` on a spawner (`call`/`map`) are silently dropped.** A leaf node's
