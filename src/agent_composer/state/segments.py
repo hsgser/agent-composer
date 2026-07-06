@@ -271,27 +271,27 @@ _LIST_VALUE_CLASS: dict[ValueKind, type[TypedValue]] = {
 
 
 @dataclass(frozen=True)
-class Shape:
+class Type:
     """Resolved runtime shape of a declared Type — drives the write-boundary check.
 
-    `seg_type` is the storage tag (what the value persists as). The optional fields
+    `kind` is the storage tag (what the value persists as). The optional fields
     refine validation beyond the bare tag:
-      - record:  seg_type=OBJECT,   fields={name: Shape}, required={names}
-      - variant: seg_type=STRING,   tags={labels}
-      - list:    seg_type=LIST_*,   element=<element Shape>
-    A plain scalar / flat list uses only `seg_type` (see `Shape.scalar`).
+      - record:  kind=OBJECT,   fields={name: Type}, required={names}
+      - variant: kind=STRING,   tags={labels}
+      - list:    kind=LIST_*,   element=<element Type>
+    A plain scalar / flat list uses only `kind` (see `Type.scalar`).
     """
 
-    seg_type: ValueKind
-    fields: Optional[dict[str, "Shape"]] = None
+    kind: ValueKind
+    fields: Optional[dict[str, "Type"]] = None
     required: Optional[frozenset[str]] = None
     tags: Optional[frozenset[str]] = None
-    element: Optional["Shape"] = None
+    element: Optional["Type"] = None
     nullable: bool = False  # an Optional[X] slot — accepts None (present-None or absent)
 
     @classmethod
-    def scalar(cls, seg: ValueKind) -> "Shape":
-        return cls(seg_type=seg)
+    def scalar(cls, seg: ValueKind) -> "Type":
+        return cls(kind=seg)
 
 
 # --------------------------------------------------------------------------- #
@@ -405,22 +405,22 @@ def _infer_list(items: list[Any]) -> TypedValue:
     return ListAnyValue(value=items)
 
 
-def build_value_as(declared: "ValueKind | Shape", value: Any) -> TypedValue:
+def build_value_as(declared: "ValueKind | Type", value: Any) -> TypedValue:
     """Wrap `value` as a TypedValue matching `declared`, raising on a type mismatch.
 
     Accepts either a bare `ValueKind` (scalar / flat list — preserved behavior)
-    or a structural `Shape` (records, variants, typed/element lists). This is the
+    or a structural `Type` (records, variants, typed/element lists). This is the
     write-boundary check the variable pool uses against each declared output type,
     so a node returning the wrong type fails loudly at the write rather than
     silently downstream.
     """
-    shape = Shape.scalar(declared) if isinstance(declared, ValueKind) else declared
+    shape = Type.scalar(declared) if isinstance(declared, ValueKind) else declared
     if isinstance(value, TypedValue):
         value = value.to_object()
     return _build_for_shape(shape, value)
 
 
-def _build_for_shape(shape: Shape, value: Any) -> TypedValue:
+def _build_for_shape(shape: Type, value: Any) -> TypedValue:
     # nullable (Optional[X]) — a None value is accepted as NoneValue
     if value is None and shape.nullable:
         return NoneValue()
@@ -447,16 +447,16 @@ def _build_for_shape(shape: Shape, value: Any) -> TypedValue:
         return ObjectValue(value=value)
 
     # list with a known element shape (incl. List[record])
-    if shape.seg_type.is_list() and shape.element is not None:
+    if shape.kind.is_list() and shape.element is not None:
         if not isinstance(value, (list, tuple)):
             raise TypeCheckError(
-                f"{value!r} is not a list for declared {shape.seg_type.value}"
+                f"{value!r} is not a list for declared {shape.kind.value}"
             )
         items = [_build_for_shape(shape.element, item).to_object() for item in value]
-        return _LIST_VALUE_CLASS[shape.seg_type](value=items)
+        return _LIST_VALUE_CLASS[shape.kind](value=items)
 
     # plain scalar / flat list — the original behavior
-    return _build_scalar_or_list(shape.seg_type, value)
+    return _build_scalar_or_list(shape.kind, value)
 
 
 def _build_scalar_or_list(declared: ValueKind, value: Any) -> TypedValue:

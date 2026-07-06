@@ -5,14 +5,14 @@ NO source); the flow owns the sources in `CompiledFlow.wiring[node_id][param]`. 
 joins each `ParamDecl` to its `wiring[name]` source (an `expr.template` value — a whole `${...}`
 resolved against the pool with type preserved, an embedded `${...}` stringified, or a literal),
 building the `{name: value}` record the engine's `eval_node` hands the node instead of the pool.
-Type-checking reuses the `shape_for` / `build_value_as` helpers and stays lenient
+Type-checking reuses the `type_for` / `build_value_as` helpers and stays lenient
 on record / variant types that can't resolve against the empty registry.
 
 A MAP body binds a per-element `item` scope: `${item}` / `${item.path}` resolve from the current
 element passed via the `item=` kwarg (a body-local scope, NOT a pool head). The default (`item`
 unset) is the ordinary non-MAP bind path.
 
-Imports `expr` (eval_binding / resolve_reference) + `state` (shape_for /
+Imports `expr` (eval_binding / resolve_reference) + `state` (type_for /
 build_value_as); both sit below/beside `nodes` in the layer ladder.
 """
 
@@ -29,7 +29,7 @@ from agent_composer.expr import (
     eval_binding,
     resolve_reference,
 )
-from agent_composer.state import TypeCheckError, Shape, build_value_as, shape_for
+from agent_composer.state import TypeCheckError, Type, build_value_as, type_for
 from agent_composer.state.pool import TypedVariablePool
 
 
@@ -60,7 +60,7 @@ class ParamDecl:
             Whether an omitted input is an error. In practice only START params set this.
         default (`Any`, *optional*, defaults to `None`):
             The value filled for an OMITTED input. In practice only START params set this.
-        shape (`Shape`, *optional*, defaults to `None`):
+        shape (`Type`, *optional*, defaults to `None`):
             The compile-stamped resolved type used to shape-check the bound value.
     """
 
@@ -68,7 +68,7 @@ class ParamDecl:
     type: Optional[str] = None
     required: bool = False
     default: Any = None
-    shape: Optional[Shape] = None
+    shape: Optional[Type] = None
 
 
 def _resolve_source(source: Any, pool: TypedVariablePool, item: Any = None) -> Any:
@@ -145,7 +145,7 @@ def bind_params(
             shape = p.shape
             if shape is None and p.type is not None:
                 try:
-                    shape = shape_for(p.type, {})
+                    shape = type_for(p.type, {})
                 except TypeCheckError:
                     shape = None
             if shape is not None:

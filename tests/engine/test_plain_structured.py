@@ -2,7 +2,7 @@
 
 from agent_composer.nodes.agent.modes.common import AgentRunContext
 from agent_composer.nodes.agent.modes.plain import plain
-from agent_composer.state.segments import Shape, ValueKind
+from agent_composer.state.segments import Type, ValueKind
 
 
 class _StructuredModel:
@@ -23,11 +23,11 @@ class _StructuredModel:
 
 
 def test_plain_uses_structured_output_for_record():
-    shape = Shape(
-        seg_type=ValueKind.OBJECT,
+    shape = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "name": Shape.scalar(ValueKind.STRING),
-            "score": Shape.scalar(ValueKind.INTEGER),
+            "name": Type.scalar(ValueKind.STRING),
+            "score": Type.scalar(ValueKind.INTEGER),
         },
         required=frozenset({"name", "score"}),
     )
@@ -48,6 +48,6 @@ class _TextModel:
 def test_plain_bare_str_text_passthrough():
     ctx = AgentRunContext(
         node_id="a", prompt="x", model=_TextModel(),
-        output_shape=Shape.scalar(ValueKind.STRING),
+        output_shape=Type.scalar(ValueKind.STRING),
     )
     assert plain(ctx).value == "hello"  # unchanged behavior

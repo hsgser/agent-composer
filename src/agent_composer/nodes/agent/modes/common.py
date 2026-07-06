@@ -33,7 +33,7 @@ class AgentRunContext:
     controls: list[str] = field(default_factory=list)  # control tools (e.g. ask_user)
     model: Any = None  # a ready langchain chat model
     llm_config: dict | None = None  # plain dict; a continuation carries it forward
-    output_shape: Any = None  # the node's declared output Shape; None = text passthrough
+    output_shape: Any = None  # the node's declared output Type; None = text passthrough
     retries: int = 2  # structured-generation self-correction cap (extra attempts)
 
 

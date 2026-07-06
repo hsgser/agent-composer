@@ -16,7 +16,7 @@ This module does NOT run the asserts — `run_flow` evaluates each split against
 appropriate pool via `expr.evaluate_when`. Here we just parse, validate, and split.
 
 Imports flow DOWN only: `compile.validation` (the leaf `_classify_path`), `expr`
-(the grammar parse-check), `state.segments` (Shape, for typing). Nothing imports this back.
+(the grammar parse-check), `state.segments` (Type, for typing). Nothing imports this back.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 from agent_composer.compile.validation import _classify_path
 from agent_composer.expr.expressions import ExpressionError, condition_refs
-from agent_composer.state.segments import Shape
+from agent_composer.state.segments import Type
 from agent_composer.compose.errors import LoadError
 
 
@@ -46,7 +46,7 @@ def classify_asserts(
     assert_list: list[str],
     flow_inputs: "set[str]",
     valid_targets: "set[str]",
-    producers: "dict[str, Shape]",
+    producers: "dict[str, Type]",
 ) -> AssertSet:
     """Parse, validate, and split a flow's `asserts:` into boundary vs post-terminal.
 

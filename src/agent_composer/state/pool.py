@@ -26,7 +26,7 @@ from agent_composer.state.segments import (
     AnyValue,
     TypedValue,
     ValueKind,
-    Shape,
+    Type,
     build_value,
     build_value_as,
 )
@@ -74,10 +74,10 @@ class TypedVariablePool(BaseModel):
         self,
         node_id: str,
         value: Any,
-        declared: Optional[Union[ValueKind, Shape]] = None,
+        declared: Optional[Union[ValueKind, Type]] = None,
     ) -> None:
         """Store a node's single produced value. `declared` (a ValueKind or
-        structural Shape) enables the write-time type/shape check."""
+        structural Type) enables the write-time type/shape check."""
         self.store[node_id] = (
             build_value_as(declared, value)
             if declared is not None

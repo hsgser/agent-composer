@@ -8,7 +8,7 @@ the inherited `pool.system` (`${system.today}`/`${system.now}`) — there is no 
 
 Lives in the engine layer so the nodes can import it without an import-direction
 inversion. It is spec-free at runtime — it duck-types the declared-input decls
-(`.name`/`.type`/`.default`); the `InputDecl` it operates on is the Compose loader's.
+(`.name`/`.type_str`/`.default`); the `InputDecl` it operates on is the Compose loader's.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only (keeps state import-clean)
 
 
 def coerce_param(field: Any, value: Any) -> Any:
-    """Coerce a raw (usually string) input to the flow input's declared `type`.
+    """Coerce a raw (usually string) input to the flow input's declared `type_str`.
 
     Only the unambiguous scalar types are coerced; string/topics/object pass
     through as-entered. Invalid numbers/bools fall back to the raw value rather
@@ -32,11 +32,11 @@ def coerce_param(field: Any, value: Any) -> Any:
         return value
     raw = value.strip()
     try:
-        if field.type == "int":
+        if field.type_str == "int":
             return int(raw)
-        if field.type == "float":
+        if field.type_str == "float":
             return float(raw)
-        if field.type == "bool":
+        if field.type_str == "bool":
             return raw.lower() in ("1", "true", "yes", "y", "on")
     except ValueError:
         return value

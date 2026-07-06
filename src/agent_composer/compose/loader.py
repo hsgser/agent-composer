@@ -14,7 +14,7 @@ in-loader by the same `_assemble`) or, failing that, an external flow via the
 injected `child_resolver` (`(flow_id, version) -> LoadedFlow`). `_make_call_resolver`
 composes the two (and rejects recursive/mutual defs). `call` nodes are resolved-and-baked
 at load: the loader derives the callable's signature (a plain call re-exports the single
-codomain `Shape`; a mapped call stamps `list[<codomain>]`; bindings are name/arity- and
+codomain `Type`; a mapped call stamps `list[<codomain>]`; bindings are name/arity- and
 type-checked against it) AND bakes the callable's compiled flow onto the built
 `CallNode` so `run` drives the embedded child. A flow whose `call`s are all
 in-file defs loads resolver-free; a `call` to a non-def callable without a resolver is
@@ -37,7 +37,7 @@ from typing import Any, Optional
 
 from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput
 from agent_composer.nodes.base import Node
-from agent_composer.state.segments import TypeCheckError, Shape
+from agent_composer.state.segments import TypeCheckError, Type
 from agent_composer.state.types import read_typedefs
 from agent_composer.compose.asserts import AssertSet, classify_asserts
 from agent_composer.compose.build import (
@@ -703,7 +703,7 @@ def _assemble(
             flow_wiring[nid] = wiring
     # producers: each built node's declared output_shape (drives the case `on:` enum
     # exhaustiveness + the e03 dotted-field walk in ref/assert validation).
-    producers: dict[str, Shape] = {
+    producers: dict[str, Type] = {
         nid: node.output_shape
         for nid, node in leaf.items()
         if node.output_shape is not None
@@ -711,10 +711,10 @@ def _assemble(
 
     # cross-flow type check: each `call` binding's source shape vs the callable
     # input shape (needs producers, so it runs after all leaf/call nodes are built).
-    flow_input_shapes = {decl.name: decl.shape for decl in inputs}
+    flow_input_shapes = {decl.name: decl.type for decl in inputs}
     check_ref_map_types(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
-    # loop `'a -> 'a` shape contract (types): each carried field's seed-source Shape vs the
-    # body output's same-named field Shape (needs producers, so it runs alongside the
+    # loop `'a -> 'a` shape contract (types): each carried field's seed-source Type vs the
+    # body output's same-named field Type (needs producers, so it runs alongside the
     # cross-flow call/map type check above).
     check_loop_shape_contract(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
 

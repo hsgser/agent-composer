@@ -6,7 +6,7 @@ legacy `FlowNode`/`IOField`. For each LEAF kind (agent/code/model/tool) it:
 
 - instantiates the matching runtime `Node` per-kind (mirroring `_build_node`'s
   ctor args), with `node_name` -> the Node `title`;
-- stamps `output_shape = read_shape(descriptor.outputs, registry)` (the source
+- stamps `output_shape = read_type(descriptor.outputs, registry)` (the source
   reader), or `None` when the descriptor declares no `outputs:`;
 - stamps `params` (the node-side signature, names only) from the descriptor's `inputs:`
   map (a TOOL's `args:`) and returns the flow-owned `wiring` (`param -> source`) — the
@@ -43,7 +43,7 @@ from agent_composer.nodes.start import StartNode
 from agent_composer.nodes.tool import ToolNode
 from agent_composer.nodes.wait import WaitNode
 from agent_composer.llm_clients import LLMConfig
-from agent_composer.state.segments import ValueKind, Shape
+from agent_composer.state.segments import ValueKind, Type
 from agent_composer.state.types import TypeRegistry
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.parser import (
@@ -58,11 +58,11 @@ from agent_composer.compose.parser import (
     ToolDescriptor,
     WaitDescriptor,
 )
-from agent_composer.compose.shapes import InputDecl, read_shape
+from agent_composer.compose.shapes import InputDecl, read_type
 
-# A list-shape helper: the LIST_OBJECT/LIST_* seg for an element Shape (mirrors
+# A list-shape helper: the LIST_OBJECT/LIST_* seg for an element Type (mirrors
 # `state.types._LIST_SEG_FOR_ELEMENT` + the list-of-record / list-of-variant rule in
-# `resolve_shape`, applied to a precomputed element Shape rather than a Type).
+# `resolve_type`, applied to a precomputed element Type rather than a Type).
 _LIST_SEG_FOR_ELEMENT: dict[ValueKind, ValueKind] = {
     ValueKind.STRING: ValueKind.LIST_STRING,
     ValueKind.INTEGER: ValueKind.LIST_INTEGER,
@@ -72,34 +72,34 @@ _LIST_SEG_FOR_ELEMENT: dict[ValueKind, ValueKind] = {
 }
 
 
-def _output_shape(outputs: Any, registry: TypeRegistry) -> Optional[Shape]:
-    """A descriptor's declared `outputs:` as one `Shape`; `None` when absent."""
+def _output_shape(outputs: Any, registry: TypeRegistry) -> Optional[Type]:
+    """A descriptor's declared `outputs:` as one `Type`; `None` when absent."""
     if outputs is None:
         return None
-    return read_shape(outputs, registry)
+    return read_type(outputs, registry)
 
 
-def _field_schema(name: str, shape: Shape, required: bool) -> dict[str, Any]:
-    entry: dict[str, Any] = {"name": name, "type": shape.seg_type.value, "required": required}
+def _field_schema(name: str, shape: Type, required: bool) -> dict[str, Any]:
+    entry: dict[str, Any] = {"name": name, "type": shape.kind.value, "required": required}
     if shape.tags:  # a Literal[...] enum -> the allowed values
         entry["enum"] = sorted(shape.tags)
     elif shape.element is not None and shape.element.tags:  # list[Literal[...]] -> element enum
         entry["enum"] = sorted(shape.element.tags)
-    if shape.seg_type == ValueKind.OBJECT and shape.fields:  # nested record -> sub-fields
+    if shape.kind == ValueKind.OBJECT and shape.fields:  # nested record -> sub-fields
         req = shape.required or frozenset()
         entry["fields"] = [_field_schema(k, f, k in req) for k, f in shape.fields.items()]
     return entry
 
 
-def _answer_schema(shape: Optional[Shape]) -> list[dict[str, Any]]:
-    """A light IOField-shaped schema for a HUMAN_INPUT answer, from its output `Shape`.
+def _answer_schema(shape: Optional[Type]) -> list[dict[str, Any]]:
+    """A light IOField-shaped schema for a HUMAN_INPUT answer, from its output `Type`.
 
     A record output -> one entry per field (recursively); any other (scalar / enum / list,
     incl. list-of-enum) -> a single `answer` entry. Lets a host renderer prompt against the
     expected answer type, and the pause reason self-describe."""
     if shape is None:
         return []
-    if shape.seg_type == ValueKind.OBJECT and shape.fields:
+    if shape.kind == ValueKind.OBJECT and shape.fields:
         required = shape.required or frozenset()
         return [_field_schema(k, f, k in required) for k, f in shape.fields.items()]
     return [_field_schema("answer", shape, not shape.nullable)]
@@ -253,7 +253,7 @@ def build_leaf_node(
             if node.output_shape is None and (
                 node.questions is not None or node.questions_input is not None
             ):
-                node.output_shape = Shape.scalar(ValueKind.OBJECT)
+                node.output_shape = Type.scalar(ValueKind.OBJECT)
             node.answer_schema = _answer_schema(node.output_shape)
     return node, wiring
 
@@ -554,7 +554,7 @@ def infer_ordering_edges(
 # A `call` node names a CALLABLE (a defs: entry or an external flow). The child resolver
 # is the load-time seam: `(flow_id, version) -> LoadedFlow` (the loader composes the
 # defs-first resolution). From the child the loader derives its `ChildSignature` —
-# declared input shapes + single codomain `Shape` — to stamp the node's `output_shape` (a
+# declared input shapes + single codomain `Type` — to stamp the node's `output_shape` (a
 # plain call re-exports the codomain; a mapped call wraps it in `list[U]`) and to
 # name/arity- + type-check (e06) the bindings, AND bakes the child's compiled flow + input
 # decls onto the node so the built `CallNode` `run` drives the embedded child
@@ -565,15 +565,15 @@ def infer_ordering_edges(
 @dataclass(frozen=True)
 class ChildSignature:
     """A child flow's compile-time SIGNATURE: declared input decls + the single
-    codomain `Shape` (the value the child returns; `None` when it declares no outputs).
+    codomain `Type` (the value the child returns; `None` when it declares no outputs).
 
     `inputs` are the child's `read_flow_inputs(...)` `InputDecl`s (the name/arity check
     reads their names + `.required`/`.default`). `output` is the child's single value:
-    one declared output -> that output's Shape; >=2 -> a closed-record Shape keyed by
+    one declared output -> that output's Type; >=2 -> a closed-record Type keyed by
     name (the same arity rule `terminal_output` assembles: one value out)."""
 
     inputs: list[InputDecl]
-    output: Optional[Shape]
+    output: Optional[Type]
 
 
 # resolver(flow_id, flow_version) -> LoadedFlow (the load-time child seam; duck-typed
@@ -583,9 +583,9 @@ ChildResolver = Callable[[str, Optional[str]], Any]
 
 
 def _output_value_shape(
-    from_: Any, producers: dict[str, Shape], flow_input_shapes: dict[str, Shape]
-) -> Optional[Shape]:
-    """Resolve ONE flow-output binding `from_` to the Shape of the value it carries.
+    from_: Any, producers: dict[str, Type], flow_input_shapes: dict[str, Type]
+) -> Optional[Type]:
+    """Resolve ONE flow-output binding `from_` to the Type of the value it carries.
 
     Singular only: `${<id>.output[.…]}` for a node value, `${input.<name>}`
     for a flow input. A coalesce / literal / embedded ref / opaque producer / `${system.X}`
@@ -620,19 +620,19 @@ def child_signature(loaded: Any) -> ChildSignature:
     """A loaded child `LoadedFlow` -> its compile-time `ChildSignature`.
 
     Duck-typed on `loaded.input` (the `InputDecl`s) + `loaded.compiled` (`.nodes`/`.outputs`)
-    so `build` need not import `loader` (which imports `build`). The codomain `Shape`
+    so `build` need not import `loader` (which imports `build`). The codomain `Type`
     follows `terminal_output`'s arity rule over the flow outputs: one output -> its value
-    Shape; >=2 -> a closed record keyed by name (every output is a field; an output whose
-    value Shape can't be resolved is present but opaque)."""
-    producers: dict[str, Shape] = {
+    Type; >=2 -> a closed record keyed by name (every output is a field; an output whose
+    value Type can't be resolved is present but opaque)."""
+    producers: dict[str, Type] = {
         nid: node.output_shape
         for nid, node in loaded.compiled.nodes.items()
         if node.output_shape is not None
     }
-    flow_input_shapes = {d.name: d.shape for d in loaded.input}
+    flow_input_shapes = {d.name: d.type for d in loaded.input}
     outs = list(loaded.compiled.outputs)
     if not outs:
-        output: Optional[Shape] = None
+        output: Optional[Type] = None
     elif len(outs) == 1:
         output = _output_value_shape(outs[0].from_, producers, flow_input_shapes)
     else:
@@ -641,12 +641,12 @@ def child_signature(loaded: Any) -> ChildSignature:
             for o in outs
         }
         # Every declared output is a record field (a closed record keyed by name); an
-        # output whose value Shape didn't resolve is kept but opaque (its `fields=None`
+        # output whose value Type didn't resolve is kept but opaque (its `fields=None`
         # leaves a deeper dotted walk lenient) and is NOT in `required`.
-        output = Shape(
-            seg_type=ValueKind.OBJECT,
+        output = Type(
+            kind=ValueKind.OBJECT,
             fields={
-                k: (v if v is not None else Shape.scalar(ValueKind.NONE))
+                k: (v if v is not None else Type.scalar(ValueKind.NONE))
                 for k, v in fields.items()
             },
             required=frozenset(k for k, v in fields.items() if v is not None),
@@ -654,16 +654,16 @@ def child_signature(loaded: Any) -> ChildSignature:
     return ChildSignature(inputs=list(loaded.input), output=output)
 
 
-def _list_of(element: Shape) -> Shape:
-    """`element` -> a `list[element]` Shape (the MAP codomain). Mirrors `resolve_shape`'s
+def _list_of(element: Type) -> Type:
+    """`element` -> a `list[element]` Type (the MAP codomain). Mirrors `resolve_type`'s
     list-seg rule: a record/variant element -> LIST_OBJECT/LIST_STRING; else by scalar."""
     if element.tags is not None:
         list_seg = ValueKind.LIST_STRING
     elif element.fields is not None:
         list_seg = ValueKind.LIST_OBJECT
     else:
-        list_seg = _LIST_SEG_FOR_ELEMENT.get(element.seg_type, ValueKind.LIST_ANY)
-    return Shape(seg_type=list_seg, element=element)
+        list_seg = _LIST_SEG_FOR_ELEMENT.get(element.kind, ValueKind.LIST_ANY)
+    return Type(kind=list_seg, element=element)
 
 
 def _check_child_bindings(
@@ -763,8 +763,8 @@ def build_call_node(desc: CallDescriptor, resolver: ChildResolver) -> tuple[Node
     return node, wiring
 
 
-def _shape_field_names(shape: Optional[Shape]) -> Optional[set[str]]:
-    """The per-field NAMES of a record `Shape`, or `None` when `shape` is not a
+def _shape_field_names(shape: Optional[Type]) -> Optional[set[str]]:
+    """The per-field NAMES of a record `Type`, or `None` when `shape` is not a
     closed record (no `fields:` — a scalar/list/opaque codomain). Used for the
     body-output field-NAME-set half of the loop's `'a -> 'a` contract."""
     if shape is None or shape.fields is None:
@@ -782,7 +782,7 @@ def build_loop_node(desc: LoopDescriptor, resolver: ChildResolver) -> tuple[Node
     `ChildSignature`, bakes the compiled child + input decls, stamps `output_shape` (the body
     codomain, which IS the carried record shape), and enforces the FIELD-NAME half of the
     contract + slice legality (`while:` present, `max:` present). The deep TYPE-level half
-    (body output Shape == carried record Shape) is the loader pass `check_loop_shape_contract`,
+    (body output Type == carried record Type) is the loader pass `check_loop_shape_contract`,
     which needs the assembled parent producers/flow-input shapes.
     """
     child = _resolve_child(desc.id, desc.call, resolver)
@@ -905,16 +905,16 @@ def build_loop_node(desc: LoopDescriptor, resolver: ChildResolver) -> tuple[Node
 
 def check_ref_map_types(
     nodes: dict,
-    producers: dict[str, Shape],
-    flow_input_shapes: dict[str, Shape],
+    producers: dict[str, Type],
+    flow_input_shapes: dict[str, Type],
     flow_wiring: dict[str, dict[str, Any]],
     node_lines: Optional[dict] = None,
 ) -> None:
     """e06 — cross-flow type check for every `call` binding (a loader post-build pass).
 
-    Each binding's SOURCE `Shape` (resolved from its `${<id>.output}`/`${input.X}` ref over
+    Each binding's SOURCE `Type` (resolved from its `${<id>.output}`/`${input.X}` ref over
     the PARENT producers + flow-input shapes — read from the flow-owned `wiring`) must be
-    structurally compatible with the CHILD input's declared `Shape` (`shapes_compatible`,
+    structurally compatible with the CHILD input's declared `Type` (`shapes_compatible`,
     C-EQUIV). A `${item}`/coalesce/literal/opaque source — or an opaque/absent child input
     (incl. the reserved `over` key) — stays lenient (skipped). Loud + located at the
     node's `.yaml` line. Iterates the WIRING (not the params) so a mis-named binding still
@@ -929,7 +929,7 @@ def check_ref_map_types(
         child_decls = {d.name: d for d in node.child_inputs}
         for param, src in flow_wiring.get(nid, {}).items():
             decl = child_decls.get(param)
-            if decl is None or decl.shape is None:
+            if decl is None or decl.type is None:
                 continue  # `over`/name-caught-in-build/opaque child input -> lenient
             source = _output_value_shape(src, producers, flow_input_shapes)
             if source is None:
@@ -943,22 +943,22 @@ def check_ref_map_types(
             # non-null guarantee (a `|` coalesce of refs stays strict).
             if (
                 source.nullable
-                and not decl.shape.nullable
+                and not decl.type.nullable
                 and not binding_co_skips(src)
             ):
                 source = replace(source, nullable=False)
-            if not shapes_compatible(source, decl.shape):
+            if not shapes_compatible(source, decl.type):
                 raise LoadError(
                     f"call node {nid!r}: binding {param!r} — child expects "
-                    f"{decl.shape.seg_type.value!r}, source is {source.seg_type.value!r}",
+                    f"{decl.type.kind.value!r}, source is {source.kind.value!r}",
                     line=(node_lines or {}).get(nid),
                 )
 
 
 def check_loop_shape_contract(
     nodes: dict,
-    producers: dict[str, Shape],
-    flow_input_shapes: dict[str, Shape],
+    producers: dict[str, Type],
+    flow_input_shapes: dict[str, Type],
     flow_wiring: dict[str, dict[str, Any]],
     node_lines: Optional[dict] = None,
 ) -> None:
@@ -966,11 +966,11 @@ def check_loop_shape_contract(
 
     `build_loop_node` checked only the field-NAME sets (it lacks the resolved carried-record
     Shapes — the seed sources' types depend on the parent producers/flow inputs assembled
-    LATER). This pass, run after `check_ref_map_types`, resolves each carried field's Shape
+    LATER). This pass, run after `check_ref_map_types`, resolves each carried field's Type
     from its bound seed source (`${<id>.output}`/`${input.X}` over the parent producers +
     flow-input shapes, exactly as `check_ref_map_types` via `_output_value_shape`) and checks
     it is structurally compatible (`shapes_compatible`, C-EQUIV) with the body OUTPUT's
-    same-named field Shape (the body `output_shape`). A literal/coalesce/opaque seed source,
+    same-named field Type (the body `output_shape`). A literal/coalesce/opaque seed source,
     or an opaque body output field, stays lenient (skipped). Loud + located at the loop
     node's `.yaml` line on a same-names/different-TYPES mismatch."""
     for nid, node in nodes.items():
@@ -991,8 +991,8 @@ def check_loop_shape_contract(
             if not shapes_compatible(source, body_field):
                 raise LoadError(
                     f"loop node {nid!r}: carried field {field_name!r} — body output is "
-                    f"{body_field.seg_type.value!r}, carried source is "
-                    f"{source.seg_type.value!r} (the body must return the same 'a it reads)",
+                    f"{body_field.kind.value!r}, carried source is "
+                    f"{source.kind.value!r} (the body must return the same 'a it reads)",
                     line=(node_lines or {}).get(nid),
                 )
 

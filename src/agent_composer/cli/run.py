@@ -435,9 +435,9 @@ _FORMAT_EXAMPLE: Dict[Any, str] = {
 
 def _format_hint(shape: Any) -> Optional[str]:
     """An `e.g. <value>` example for an input whose string format isn't obvious, or
-    `None` when none is needed. Keyed off the shape's scalar `seg_type`, so it fires for
+    `None` when none is needed. Keyed off the shape's scalar `kind`, so it fires for
     `Optional[date]` too (the resolved shape stays `DATE`, just nullable)."""
-    example = _FORMAT_EXAMPLE.get(getattr(shape, "seg_type", None))
+    example = _FORMAT_EXAMPLE.get(getattr(shape, "kind", None))
     return f"e.g. {example}" if example else None
 
 
@@ -454,9 +454,9 @@ def _input_label(decl: Any) -> str:
         `window (int) [default: 30]`                         (optional, has a default)
     """
     parts = [decl.name]
-    if getattr(decl, "type", None):
-        parts.append(f"({decl.type})")
-    hint = _format_hint(decl.shape)
+    if getattr(decl, "type_str", None):
+        parts.append(f"({decl.type_str})")
+    hint = _format_hint(decl.type)
     if decl.required:
         parts.append("*")
         if hint:
@@ -507,8 +507,8 @@ def _prompt_missing(decls: List[Any], have: Dict[str, Any]) -> Optional[Dict[str
         if decl.name in have:
             continue
         label = _input_label(decl)
-        shape = decl.shape
-        if shape.seg_type == ValueKind.BOOLEAN:
+        shape = decl.type
+        if shape.kind == ValueKind.BOOLEAN:
             value = questionary.confirm(
                 label, default=bool(decl.default), qmark="?", style=style
             ).ask()

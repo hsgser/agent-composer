@@ -182,34 +182,34 @@ def test_plain_string_not_inferred_as_datetime():
     assert build_value("2026-06-12T14:30:00+00:00").kind == ValueKind.STRING
 
 
-# --- structural Shape (records / variants / typed lists) -------------------- #
+# --- structural Type (records / variants / typed lists) -------------------- #
 
 
 def test_shape_back_compat_segmenttype_still_accepted():
-    from agent_composer.state.segments import Shape
+    from agent_composer.state.segments import Type
 
-    assert isinstance(build_value_as(Shape.scalar(ValueKind.STRING), "x"), StringValue)
+    assert isinstance(build_value_as(Type.scalar(ValueKind.STRING), "x"), StringValue)
     # passing a bare ValueKind still works (back-compat)
     assert build_value_as(ValueKind.NUMBER, 3).value == 3.0
 
 
 def test_shape_variant_membership():
-    from agent_composer.state.segments import Shape
+    from agent_composer.state.segments import Type
 
-    action = Shape(seg_type=ValueKind.STRING, tags=frozenset({"Approve", "Reject", "Defer"}))
+    action = Type(kind=ValueKind.STRING, tags=frozenset({"Approve", "Reject", "Defer"}))
     assert build_value_as(action, "Approve").value == "Approve"
     with pytest.raises(TypeCheckError):
         build_value_as(action, "approve")
 
 
 def test_shape_record_fields():
-    from agent_composer.state.segments import Shape
+    from agent_composer.state.segments import Type
 
-    rating = Shape(
-        seg_type=ValueKind.OBJECT,
+    rating = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "value": Shape.scalar(ValueKind.NUMBER),
-            "confidence": Shape.scalar(ValueKind.NUMBER),
+            "value": Type.scalar(ValueKind.NUMBER),
+            "confidence": Type.scalar(ValueKind.NUMBER),
         },
         required=frozenset({"value", "confidence"}),
     )
@@ -223,13 +223,13 @@ def test_shape_record_fields():
 
 
 def test_shape_nullable_field_accepts_none_and_absent():
-    from agent_composer.state.segments import Shape
+    from agent_composer.state.segments import Type
 
-    sig = Shape(
-        seg_type=ValueKind.OBJECT,
+    sig = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "score": Shape.scalar(ValueKind.NUMBER),
-            "note": Shape(seg_type=ValueKind.STRING, nullable=True),
+            "score": Type.scalar(ValueKind.NUMBER),
+            "note": Type(kind=ValueKind.STRING, nullable=True),
         },
         required=frozenset({"score"}),  # note is Optional -> not required
     )
@@ -245,14 +245,14 @@ def test_shape_nullable_field_accepts_none_and_absent():
 
 
 def test_shape_list_of_record():
-    from agent_composer.state.segments import ListObjectValue, Shape
+    from agent_composer.state.segments import ListObjectValue, Type
 
-    rating = Shape(
-        seg_type=ValueKind.OBJECT,
-        fields={"value": Shape.scalar(ValueKind.NUMBER)},
+    rating = Type(
+        kind=ValueKind.OBJECT,
+        fields={"value": Type.scalar(ValueKind.NUMBER)},
         required=frozenset({"value"}),
     )
-    lst = Shape(seg_type=ValueKind.LIST_OBJECT, element=rating)
+    lst = Type(kind=ValueKind.LIST_OBJECT, element=rating)
     seg = build_value_as(lst, [{"value": 1.0}, {"value": 2.0}])
     assert isinstance(seg, ListObjectValue) and len(seg.value) == 2
     with pytest.raises(TypeCheckError):

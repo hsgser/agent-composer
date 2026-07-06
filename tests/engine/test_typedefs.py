@@ -6,11 +6,11 @@ from agent_composer.state.segments import TypeCheckError, ValueKind
 from agent_composer.state.types import (
     AliasDef,
     RecordDef,
-    RefType,
+    RefExpr,
     VariantDef,
     read_typedefs,
-    resolve_shape,
-    shape_for,
+    resolve_type,
+    type_for,
 )
 
 
@@ -29,7 +29,7 @@ def test_record_enum_alias_build():
 
 def test_alias_composes_alias():
     reg = read_typedefs({"Topic": "str", "Bundle": "list[Topic]"})
-    assert shape_for("Bundle", reg).seg_type == ValueKind.LIST_STRING
+    assert type_for("Bundle", reg).kind == ValueKind.LIST_STRING
 
 
 def test_record_resolves_with_enum_and_optional():
@@ -37,7 +37,7 @@ def test_record_resolves_with_enum_and_optional():
         "Category": "Literal[pro, con]",
         "Rating": {"category": "Category", "score": "float", "note": "Optional[str]"},
     })
-    sh = shape_for("Rating", reg)
+    sh = type_for("Rating", reg)
     assert sh.required == frozenset({"category", "score"})  # note (Optional) is not required
     assert sh.fields["category"].tags == frozenset({"pro", "con"})
     assert sh.fields["note"].nullable is True
@@ -64,10 +64,10 @@ def test_alias_cycle_rejected_eagerly():
 
 def test_recursive_record_rejected_lazily():
     # read_typedefs keeps record field types raw, so the build is fine; the cycle is
-    # caught lazily at resolve via resolve_shape's `_seen` guard.
+    # caught lazily at resolve via resolve_type's `_seen` guard.
     reg = read_typedefs({"R": {"x": "R"}})
     with pytest.raises(TypeCheckError):
-        resolve_shape(RefType("R"), reg)
+        resolve_type(RefExpr("R"), reg)
 
 
 def test_shadow_name_rejected():

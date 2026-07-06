@@ -6,11 +6,11 @@ a monkeypatch of the gate.
 """
 
 from agent_composer.nodes.agent.structured import generate_structured
-from agent_composer.state.segments import Shape, ValueKind
+from agent_composer.state.segments import Type, ValueKind
 
 
 def test_no_native_support_uses_prompt_injection():
-    shape = Shape.scalar(ValueKind.INTEGER)
+    shape = Type.scalar(ValueKind.INTEGER)
 
     class _NoNative:
         def invoke(self, msgs):
@@ -32,7 +32,7 @@ def test_no_native_support_uses_prompt_injection():
 def test_fallback_tolerates_json_code_fence():
     # Models often wrap JSON in a ```json … ``` fence despite the "no code fences"
     # instruction; the fallback strips it rather than burning a retry.
-    shape = Shape.scalar(ValueKind.INTEGER)
+    shape = Type.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Fenced:
@@ -51,7 +51,7 @@ def test_fallback_tolerates_json_code_fence():
 
 def test_fallback_tolerates_bare_code_fence():
     # A bare ``` … ``` fence (no language tag) is stripped just the same.
-    shape = Shape.scalar(ValueKind.INTEGER)
+    shape = Type.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Fenced:
@@ -69,7 +69,7 @@ def test_fallback_tolerates_bare_code_fence():
 
 
 def test_fallback_retries_on_unparseable_then_succeeds():
-    shape = Shape.scalar(ValueKind.INTEGER)
+    shape = Type.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Flaky:

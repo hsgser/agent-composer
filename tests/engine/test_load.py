@@ -125,17 +125,17 @@ def test_seed13_nested_record_output_and_dict_input():
     plan = loaded.compiled.nodes["plan"]
     assert isinstance(plan, CodeNode)
     shape = plan.output_shape
-    assert shape.seg_type == ValueKind.OBJECT
+    assert shape.kind == ValueKind.OBJECT
     # summary is a nested record; meta is nested again (two levels deep).
     summary = shape.fields["summary"]
-    assert summary.seg_type == ValueKind.OBJECT
+    assert summary.kind == ValueKind.OBJECT
     meta = summary.fields["meta"]
-    assert meta.seg_type == ValueKind.OBJECT
+    assert meta.kind == ValueKind.OBJECT
     assert set(meta.fields) == {"as_of", "dry_run"}
-    # the record-typed `config:` flow input resolves to a record Shape.
+    # the record-typed `config:` flow input resolves to a record Type.
     config = next(d for d in loaded.input if d.name == "config")
-    assert config.shape.seg_type == ValueKind.OBJECT
-    assert set(config.shape.fields) == {"regroup", "bands"}
+    assert config.type.kind == ValueKind.OBJECT
+    assert set(config.type.fields) == {"regroup", "bands"}
 
 
 # --------------------------------------------------------------------------- #
@@ -148,7 +148,7 @@ def test_seed11_anchored_nodes_built():
     for nid in ("pro", "con", "judge"):
         node = flow.nodes[nid]
         assert isinstance(node, AgentNode)
-        assert node.output_shape.seg_type == ValueKind.STRING  # from the anchor
+        assert node.output_shape.kind == ValueKind.STRING  # from the anchor
         assert node.llm_config is not None  # llm_config merged in from the anchor
 
 
@@ -193,11 +193,11 @@ def test_seed18_synth_carries_view_record():
     flow = _load("18").compiled
     synth = flow.nodes["synth"]
     shape = synth.output_shape
-    assert shape.seg_type == ValueKind.OBJECT
+    assert shape.kind == ValueKind.OBJECT
     assert set(shape.fields) == {"stance", "claim", "confidence"}
-    # stance is the Stance enum -> its Shape carries the tags.
+    # stance is the Stance enum -> its Type carries the tags.
     assert shape.fields["stance"].tags == {"positive", "negative", "neutral"}
-    assert shape.fields["confidence"].seg_type == ValueKind.NUMBER
+    assert shape.fields["confidence"].kind == ValueKind.NUMBER
 
 
 def test_seed18_route_desugars_case_on_with_else():

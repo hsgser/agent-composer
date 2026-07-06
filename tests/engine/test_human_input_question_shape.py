@@ -5,13 +5,13 @@ from agent_composer.nodes.agent.structured import shape_to_schema
 
 def test_question_list_shape_structure():
     sh = question_list_shape()
-    assert sh.seg_type == ValueKind.LIST_OBJECT
+    assert sh.kind == ValueKind.LIST_OBJECT
     q = sh.element
-    assert q.seg_type == ValueKind.OBJECT
+    assert q.kind == ValueKind.OBJECT
     assert {"question", "header", "options", "multi_select"} <= set(q.fields)
     assert {"question", "header"} <= q.required
     opt = q.fields["options"]
-    assert opt.seg_type == ValueKind.LIST_OBJECT
+    assert opt.kind == ValueKind.LIST_OBJECT
     assert {"label", "description"} <= set(opt.element.fields)
 
 

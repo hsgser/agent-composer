@@ -45,7 +45,7 @@ def test_rens_internal_computed_whole_span_renamespaces_all_leaves():
 import pytest
 from agent_composer.events import RunSucceeded
 from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput, NodeState, START_ID, END_ID
-from agent_composer.compose.shapes import InputDecl, read_shape
+from agent_composer.compose.shapes import InputDecl, read_type
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
@@ -53,7 +53,7 @@ from tests.engine._fakes import FuncNode, derive_wiring
 
 
 def _idecl(name: str, type_: str = "str") -> InputDecl:
-    return InputDecl(name, type_, None, True, read_shape(type_, {}))
+    return InputDecl(name, type_, None, True, read_type(type_, {}))
 
 
 def _with_boundary(nodes: dict, edges: list, outputs: list, input_decls=()) -> tuple[dict, list, dict]:

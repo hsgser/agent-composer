@@ -73,10 +73,10 @@ class StartNode(Node):
         # e08: enforce each value against its declared shape; raise the byte-stable
         # located message (preserved from run.py:101). A raise -> NodeFailed at the engine boundary.
         for decl in self.input_decls:
-            if decl.shape is None or decl.name not in coerced or coerced[decl.name] is None:
+            if decl.type is None or decl.name not in coerced or coerced[decl.name] is None:
                 continue
             try:
-                build_value_as(decl.shape, coerced[decl.name])
+                build_value_as(decl.type, coerced[decl.name])
             except TypeCheckError as exc:
                 # Surface the precise reason (`<value> does not match declared type
                 # <scalar>`) and name which input it was; the bare wrapper's

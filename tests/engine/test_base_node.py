@@ -9,7 +9,7 @@ from agent_composer.events import (
     StreamChunk,
 )
 from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import ValueKind, Shape
+from agent_composer.state.segments import ValueKind, Type
 from tests.engine._fakes import (
     BranchNode,
     FailNode,
@@ -79,6 +79,6 @@ def test_node_does_not_write_pool():
 
 def test_node_carries_declared_output_shape():
     assert FuncNode("n", lambda p: {}).output_shape is None
-    shape = Shape.scalar(ValueKind.NUMBER)
+    shape = Type.scalar(ValueKind.NUMBER)
     n = FuncNode("n", lambda p: {}, output_shape=shape)
     assert n.output_shape == shape

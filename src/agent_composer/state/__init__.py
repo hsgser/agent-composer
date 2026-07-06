@@ -9,21 +9,17 @@ from agent_composer.state.segments import (
     TypedValue,
     TypeCheckError,
     ValueKind,
-    Shape,
+    Type,
     build_value,
     build_value_as,
 )
 from agent_composer.state.types import (
-    ListType,
     RecordDef,
-    RefType,
-    ScalarType,
-    Type,
     TypeRegistry,
     VariantDef,
     parse_type,
-    resolve_shape,
-    shape_for,
+    resolve_type,
+    type_for,
 )
 
 __all__ = [
@@ -31,14 +27,10 @@ __all__ = [
     "DateValue",
     "DateTimeValue",
     "FileRef",
-    "ListType",
     "RecordDef",
-    "RefType",
-    "ScalarType",
     "TypedValue",
     "TypeCheckError",
     "ValueKind",
-    "Shape",
     "Type",
     "TypeRegistry",
     "TypedVariablePool",
@@ -46,6 +38,6 @@ __all__ = [
     "build_value",
     "build_value_as",
     "parse_type",
-    "resolve_shape",
-    "shape_for",
+    "resolve_type",
+    "type_for",
 ]

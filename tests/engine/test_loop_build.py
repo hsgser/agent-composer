@@ -7,7 +7,7 @@ needed), stamps `output_shape`, and enforces the two halves of the shape contrac
 - FIELD-NAME-set (in `build_loop_node`): body output field NAMES == carried keys,
   body input NAMES subset of carried keys — a located `LoadError` on a name mismatch.
 - FULL TYPE equality (in the loader post-build pass `check_loop_shape_contract`):
-  body output Shape == carried record Shape per field — a located `LoadError` on a
+  body output Type == carried record Type per field — a located `LoadError` on a
   same-names/different-TYPES mismatch (needs the assembled producers/flow-input shapes).
 """
 
@@ -90,7 +90,7 @@ output: ${chat_loop.output}
 # carried `n` is seeded from `${input.n0}` (an int flow input) -> a same-names/
 # different-TYPES mismatch, caught in the loader post-build pass
 # check_loop_shape_contract. (The carried field must be seeded from a ref with a
-# resolvable Shape — a bare literal stays lenient/opaque in the type pass.)
+# resolvable Type — a bare literal stays lenient/opaque in the type pass.)
 BAD_TYPES = """
 id: loop-bad-types
 name: loop_bad_types

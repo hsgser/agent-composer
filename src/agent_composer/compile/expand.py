@@ -321,7 +321,7 @@ def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: 
     and the edge agree on `hi_id`. Returns a `Flow` (`start_id = hi_id`, `end_id = resume_id`). Pure
     — the dispatcher performs the impure append/register/seed.
 
-    `output_shape`/`retries` carry the SPAWNER's declared output Shape and self-correction cap
+    `output_shape`/`retries` carry the SPAWNER's declared output Type and self-correction cap
     onto the resume node so a resumed agent with a non-text `output:` still emits the declared
     shape on its final turn (the dispatcher reads them off `flow.nodes[spawner_id]`; they are
     not serialized — restore re-grows from the compiled spawner). For a multi-pause chain each
@@ -347,7 +347,7 @@ def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: 
         mode=resume_desc.get("mode", "tool_calling"),
         retries=retries,
     )
-    # The Resume entry's declared output Shape is set as node DATA (AgentNode.__init__ takes no
+    # The Resume entry's declared output Type is set as node DATA (AgentNode.__init__ takes no
     # output_shape param — the compiler stamps it; here the dispatcher supplies the spawner's).
     resume_node.output_shape = output_shape
 
@@ -387,7 +387,7 @@ def agent_segment_subgraph(pair, callsite: str, *, output_shape=None, retries: i
     off the previous segment's baked `commit_as`). The builder is pure and cannot see the prior
     segment, so it bakes the local callsite and lets the engine chain the origin.
 
-    `output_shape`/`retries` carry the SPAWNER's declared output Shape + self-correction cap onto
+    `output_shape`/`retries` carry the SPAWNER's declared output Type + self-correction cap onto
     the resume node (see `clone_continuation_pair`), so a resumed agent with a non-text `output:`
     still emits the declared shape on its final turn and the shape propagates segment to segment."""
     cloned = clone_continuation_pair(pair, callsite=callsite, output_shape=output_shape, retries=retries)

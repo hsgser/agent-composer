@@ -49,7 +49,7 @@ from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
 from agent_composer.nodes.wait import WaitNode
-from agent_composer.state.segments import ValueKind, Shape
+from agent_composer.state.segments import ValueKind, Type
 from agent_composer.compose.errors import LoadError
 
 # Heads forbidden in a strict prompt (always trigger the bespoke hint).
@@ -171,7 +171,7 @@ def check_case_handles(nodes: dict[str, Node], edges: list[Edge]) -> None:
 #
 # The analogue of `compile.validation._collect_reference_errors`, walking the BUILT
 # flow instead of a `FlowSpec`: it CALLS the leaf checkers (`_classify_path`) directly
-# (supplying the `valid_targets`/`flow_inputs` sets + the `producers` Shape-map), only
+# (supplying the `valid_targets`/`flow_inputs` sets + the `producers` Type-map), only
 # reimplementing the per-node walk glue. Every located problem accumulates; one
 # `LoadError` is raised carrying them all.
 # --------------------------------------------------------------------------- #
@@ -194,7 +194,7 @@ def _output_bindings(outputs: Any) -> list[Any]:
 def validate_references(
     nodes: dict[str, Node],
     flow_inputs: "set[str]",
-    producers: dict[str, Shape],
+    producers: dict[str, Type],
     outputs: Any,
     flow_wiring: dict[str, dict[str, Any]],
     *,
@@ -436,7 +436,7 @@ def validate_node_asserts(
                     reads_output = True
                     if len(segs) > 1:
                         sh = node.output_shape
-                        if sh is not None and sh.seg_type != ValueKind.OBJECT:
+                        if sh is not None and sh.kind != ValueKind.OBJECT:
                             errors.append((
                                 f"node {nid!r} assert: ${{{ref}}} — the node output is not a "
                                 f"record, so it has no field {'.'.join(segs[1:])!r}", line))

@@ -75,7 +75,7 @@ class NodeExecutionError(RuntimeError):
     """A node emitted NodeFailed and no error strategy recovered it (abort).
 
     `locator` is an optional `SourceSpan` pinning the failure to a YAML line — set at
-    the typed write boundary (a value that fails its node's declared `output:` Shape)
+    the typed write boundary (a value that fails its node's declared `output:` Type)
     so the CLI boxes the `output:` field rather than printing a plain message.
     """
 
@@ -853,7 +853,7 @@ class FlowEngine:
         # `loop_alias` dict lookups.
         target = event.commit_as or node_id
         # Commit the value under `target` (the spawner id on a redirect, else `node_id`) with the
-        # target's declared Shape (same TypeCheckError -> NodeExecutionError guard the tail uses),
+        # target's declared Type (same TypeCheckError -> NodeExecutionError guard the tail uses),
         # then advance the target's out-edges. For a redirect the filler's own pool.set is SKIPPED;
         # `finish_executing` still runs on the FILLER `node_id` (the node that actually ran).
         #

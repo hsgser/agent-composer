@@ -87,10 +87,10 @@ def test_declared_type_drift_raises():
 
 
 def test_pool_set_accepts_shape_and_enforces():
-    from agent_composer.state.segments import Shape
+    from agent_composer.state.segments import Type
 
     pool = TypedVariablePool()
-    action = Shape(seg_type=ValueKind.STRING, tags=frozenset({"Approve", "Reject"}))
+    action = Type(kind=ValueKind.STRING, tags=frozenset({"Approve", "Reject"}))
     pool.set("n", "Approve", declared=action)
     assert pool.get("n") == "Approve"
     with pytest.raises(TypeCheckError):

@@ -5,9 +5,9 @@ codomain, and name/arity-checks bindings. (End-to-end RUN lives in test_ref_run.
 test_map.py; the cross-flow type check e06 in test_errors.py.) These assert:
 
 - seed 03 (`research-one`) loads as a child flow (its `LoadedFlow` exposes a
-  resolvable child SIGNATURE — declared `InputDecl`s + the single codomain `Shape`);
+  resolvable child SIGNATURE — declared `InputDecl`s + the single codomain `Type`);
 - seed 04 (a plain `call` over 03) loads+compiles; the built `CallNode` (REF)
-  `output_shape` re-exports the child's single codomain `Shape` (a `{report, asof}` record)
+  `output_shape` re-exports the child's single codomain `Type` (a `{report, asof}` record)
   via the test-local child resolver;
 - seed 05 (a `map` over 03) loads+compiles; the built `MapNode` (`kind: map`)
   `output_shape == list[<child codomain>]` (a `LIST_OBJECT` of the record) and `parallel=True`;
@@ -63,12 +63,12 @@ def test_seed03_loads_as_child_flow():
     assert names == {"topic", "as_of"}
     # the single codomain value: a {report, asof} record (>=2 outputs -> closed record).
     assert sig.output is not None
-    assert sig.output.seg_type == ValueKind.OBJECT
+    assert sig.output.kind == ValueKind.OBJECT
     assert set(sig.output.fields) == {"report", "asof"}
 
 
 # --------------------------------------------------------------------------- #
-# seed 04 — REF loads + the REF node re-exports the child's codomain Shape
+# seed 04 — REF loads + the REF node re-exports the child's codomain Type
 # --------------------------------------------------------------------------- #
 
 
@@ -83,7 +83,7 @@ def test_seed04_ref_loads_and_reexports_child_output():
     # output_shape re-exports the child's single codomain (the {report, asof} record).
     shape = research.output_shape
     assert shape is not None
-    assert shape.seg_type == ValueKind.OBJECT
+    assert shape.kind == ValueKind.OBJECT
     assert set(shape.fields) == {"report", "asof"}
     # the REF sources live on flow.wiring; the node carries only the param names.
     assert loaded.compiled.wiring["research"] == {"topic": "${input.topic}"}
@@ -117,8 +117,8 @@ def test_seed05_map_loads_with_list_output_and_parallel():
     # output_shape = list[<child codomain>] -> a LIST_OBJECT (element = the record).
     shape = research_each.output_shape
     assert shape is not None
-    assert shape.seg_type == ValueKind.LIST_OBJECT
-    assert shape.element.seg_type == ValueKind.OBJECT
+    assert shape.kind == ValueKind.LIST_OBJECT
+    assert shape.element.kind == ValueKind.OBJECT
     assert set(shape.element.fields) == {"report", "asof"}
     # the MAP sources (incl the reserved `over`, over-first) live on flow.wiring; the node
     # carries only the per-element param names (`over:` is the iteration source, not a param).

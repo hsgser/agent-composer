@@ -16,7 +16,7 @@ from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
 from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import ValueKind, Shape
+from agent_composer.state.segments import ValueKind, Type
 from tests.engine._fakes import (
     BranchNode,
     FailNode,
@@ -377,7 +377,7 @@ def test_pause_suspends_run_with_reason():
 
 def test_output_enforced_rejects_type_mismatch():
     g = _graph(
-        [FuncNode("a", lambda p: "oops", output_shape=Shape.scalar(ValueKind.NUMBER))],
+        [FuncNode("a", lambda p: "oops", output_shape=Type.scalar(ValueKind.NUMBER))],
         [(START_ID, "a"), ("a", END_ID)],
     )
     events = _run(FlowEngine(g))
@@ -387,7 +387,7 @@ def test_output_enforced_rejects_type_mismatch():
 def test_output_enforced_coerces_and_types_storage():
     pool = TypedVariablePool()
     g = _graph(
-        [FuncNode("a", lambda p: 3, output_shape=Shape.scalar(ValueKind.NUMBER))],
+        [FuncNode("a", lambda p: 3, output_shape=Type.scalar(ValueKind.NUMBER))],
         [(START_ID, "a"), ("a", END_ID)],
     )
     events = _run(FlowEngine(g, pool))
@@ -397,12 +397,12 @@ def test_output_enforced_coerces_and_types_storage():
 
 
 def test_multi_output_record_is_a_closed_shape():
-    # >=2 declared outputs -> a CLOSED record Shape ("several outputs = one object"):
+    # >=2 declared outputs -> a CLOSED record Type ("several outputs = one object"):
     # all fields required, no extras. A node returning a MISSING or an EXTRA field fails
     # at the write boundary (NodeExecutionError -> RunFailed); the exact object stores whole.
-    rec = Shape(
-        seg_type=ValueKind.OBJECT,
-        fields={"a": Shape.scalar(ValueKind.STRING), "b": Shape.scalar(ValueKind.STRING)},
+    rec = Type(
+        kind=ValueKind.OBJECT,
+        fields={"a": Type.scalar(ValueKind.STRING), "b": Type.scalar(ValueKind.STRING)},
         required=frozenset({"a", "b"}),
     )
     g_missing = _graph([FuncNode("n", lambda p: {"a": "x"}, output_shape=rec)], [(START_ID, "n"), ("n", END_ID)])

@@ -1,9 +1,9 @@
-"""The D2 reader: a Compose `outputs:`/`inputs:` source node -> one runtime `Shape`.
+"""The D2 reader: a Compose `outputs:`/`inputs:` source node -> one runtime `Type`.
 
 A node here is a leaf type string (`"float"`, `"list[str]"`, a registry name), a
 map of field -> node (a record, nested natively), or a list of single-key maps
 (D2's list-of-fields style). Resolution of leaf strings and nested records is the
-state layer's job (`shape_for` recurses over records/lists/Optional); this reader
+state layer's job (`type_for` recurses over records/lists/Optional); this reader
 is the thin composition that walks the YAML shape and wraps any type error loudly.
 """
 
@@ -12,25 +12,25 @@ from typing import Any, Optional
 
 import yaml
 
-from agent_composer.state import TypeCheckError, Shape, shape_for
+from agent_composer.state import TypeCheckError, Type, type_for
 from agent_composer.state.segments import ValueKind
-from agent_composer.state.types import ScalarType, TypeRegistry, parse_type
+from agent_composer.state.types import ScalarExpr, TypeRegistry, parse_type
 
 from agent_composer.compose.errors import LoadError
 
 
-def read_shape(node, registry: TypeRegistry) -> Shape:
-    """Read a Compose source node into one runtime `Shape` (recursively)."""
+def read_type(node, registry: TypeRegistry) -> Type:
+    """Read a Compose source node into one runtime `Type` (recursively)."""
     if isinstance(node, str):
         try:
-            return shape_for(node, registry)
+            return type_for(node, registry)
         except TypeCheckError as exc:
             raise LoadError(f"bad type expression {node!r}: {exc}") from exc
 
     if isinstance(node, dict):
-        fields = {k: read_shape(v, registry) for k, v in node.items()}
-        return Shape(
-            seg_type=ValueKind.OBJECT,
+        fields = {k: read_type(v, registry) for k, v in node.items()}
+        return Type(
+            kind=ValueKind.OBJECT,
             fields=fields,
             required=frozenset(k for k, sh in fields.items() if not sh.nullable),
         )
@@ -43,7 +43,7 @@ def read_shape(node, registry: TypeRegistry) -> Shape:
                     f"a list of fields must hold single-key maps, got {elem!r}"
                 )
             merged.update(elem)
-        return read_shape(merged, registry)
+        return read_type(merged, registry)
 
     raise LoadError(f"cannot read shape from {node!r} (type {type(node).__name__})")
 
@@ -53,21 +53,22 @@ def read_shape(node, registry: TypeRegistry) -> Shape:
 
 @dataclass(frozen=True)
 class InputDecl:
-    """One flow-input parameter: the seeding pipeline's `IOField` duck-type + a `Shape`.
+    """One flow-input parameter: the seeding pipeline's `IOField` duck-type + a `Type`.
 
-    `.name`/`.type`/`.default` are what `state.seeding` (coerce_inputs / apply_defaults)
-    reads — so `.type` carries the canonical Python-surface name (`str`/`int`/`float`/
-    `bool`/...), which `coerce_param` matches to coerce a passed string (`"30"` -> `30`).
-    `.shape` is the resolved runtime `Shape` (via `read_shape`) used for ref checks; a
-    non-scalar `.type` is passed through unchanged (lists/records aren't coerced by
+    `.type_str` is the raw author declaration — a `str` (the `TYPE [= default]` form) for
+    a scalar/list, or a `dict` (record field map) for a record input. For a scalar it
+    carries the canonical Python-surface name (`str`/`int`/`float`/`bool`/...), which
+    `coerce_param` matches to coerce a passed string (`"30"` -> `30`); a non-scalar
+    `.type_str` is passed through unchanged (lists/records aren't coerced by
     `coerce_param` anyway).
+    `.type` is the resolved runtime `Type` (via `read_type`) used for ref checks.
     """
 
     name: str
-    type: str
+    type_str: str
     default: Any
     required: bool
-    shape: Shape
+    type: Type
 
 
 def _split_default(spec: str) -> tuple[str, Optional[str]]:
@@ -102,14 +103,14 @@ def read_flow_inputs(mapping, registry: TypeRegistry) -> list[InputDecl]:
     """Read a Compose `inputs:` mapping into the seeding pipeline's `InputDecl`s.
 
     A `str` value is the `TYPE [= default]` / `Optional[X]` form; a `dict` value is a
-    record type (resolved via `read_shape`, no default — decision D-DEFAULTS dropped the
+    record type (resolved via `read_type`, no default — decision D-DEFAULTS dropped the
     `{type:, default:}` escape-hatch map).
     """
     decls: list[InputDecl] = []
     for name, value in (mapping or {}).items():
         if isinstance(value, str):
             type_part, default_part = _split_default(value)
-            shape = read_shape(type_part, registry)
+            shape = read_type(type_part, registry)
             default: Any = None
             if default_part is not None and default_part != "":
                 try:
@@ -122,11 +123,11 @@ def read_flow_inputs(mapping, registry: TypeRegistry) -> list[InputDecl]:
                 parsed = parse_type(type_part)
             except TypeCheckError as exc:
                 raise LoadError(f"input {name!r}: {exc}") from exc
-            engine_type = parsed.name if isinstance(parsed, ScalarType) else type_part
+            engine_type = parsed.name if isinstance(parsed, ScalarExpr) else type_part
             required = not shape.nullable and default is None
             decls.append(InputDecl(name, engine_type, default, required, shape))
         elif isinstance(value, dict):
-            shape = read_shape(value, registry)
+            shape = read_type(value, registry)
             decls.append(InputDecl(name, value, None, True, shape))
         else:
             raise LoadError(

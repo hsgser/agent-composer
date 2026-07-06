@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Optional, Union
 from agent_composer.expr import ExpressionError
 from agent_composer.expr.expressions import evaluate_when_record
 from agent_composer.nodes.binding import ParamDecl
-from agent_composer.state.segments import Shape
+from agent_composer.state.segments import Type
 
 if TYPE_CHECKING:
     # Import-cycle guard: `compile.model` imports `nodes.base`, so `Flow` is only pulled in for
@@ -128,8 +128,8 @@ class Node(ABC):
             The node's unique id within its (possibly namespaced) flow.
         title (`str`, *optional*):
             A human-friendly display title, or `None`.
-        output_shape (`Shape`, *optional*):
-            The declared output Shape (one value); `None` leaves the write unenforced.
+        output_shape (`Type`, *optional*):
+            The declared output Type (one value); `None` leaves the write unenforced.
         params (`list[ParamDecl]`, *optional*):
             The node-side declared params (no source — the flow owns the wiring); `None`
             for a node that declares no inputs.
@@ -194,13 +194,13 @@ class Node(ABC):
         node_id: str,
         *,
         title: Optional[str] = None,
-        output_shape: Optional[Shape] = None,
+        output_shape: Optional[Type] = None,
     ) -> None:
         self.id = node_id
         self.title = title
-        # The node's declared output Shape (one value). Threaded by the compiler;
+        # The node's declared output Type (one value). Threaded by the compiler;
         # None for fakes / nodes that declare none (then the write is unenforced).
-        self.output_shape: Optional[Shape] = output_shape
+        self.output_shape: Optional[Type] = output_shape
         # The node-side signature (the node/flow split): declared params with NO source — the flow owns
         # the wiring in `CompiledFlow.wiring[node_id][param]`. Stamped by the compiler
         # (`build_*`/case desugar); the engine's `eval_node` binds via `params` + `flow.wiring`.

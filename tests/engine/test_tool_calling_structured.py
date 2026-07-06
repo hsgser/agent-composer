@@ -5,7 +5,7 @@ import agent_composer.tools as tools_mod
 from agent_composer.llm_clients import LLMConfig
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import Shape, ValueKind
+from agent_composer.state.segments import Type, ValueKind
 
 from langchain_core.messages import AIMessage
 
@@ -66,11 +66,11 @@ def test_tool_calling_final_answer_is_structured(monkeypatch):
     monkeypatch.setattr(llm_clients_mod, "model_from_config", lambda cfg: chat)
 
     node = AgentNode("n", prompt="hi", tools=["value"], llm_config=LLMConfig(), mode="tool_calling")
-    node.output_shape = Shape(
-        seg_type=ValueKind.OBJECT,
+    node.output_shape = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "name": Shape.scalar(ValueKind.STRING),
-            "score": Shape.scalar(ValueKind.INTEGER),
+            "name": Type.scalar(ValueKind.STRING),
+            "score": Type.scalar(ValueKind.INTEGER),
         },
         required=frozenset({"name", "score"}),
     )

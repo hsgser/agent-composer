@@ -2,7 +2,7 @@
 
 Reads Compose-shaped YAML flows into the engine's runtime model. The source side
 of a node's `outputs:` / a flow's `inputs:` is read directly into one recursive
-`Shape` (see `shapes.read_shape`) rather than a flat `list[IOField]`; nested records
+`Type` (see `shapes.read_type`) rather than a flat `list[IOField]`; nested records
 are native.
 
 Imports flow DOWN only: this package imports `state` / `expr` / `nodes`; nothing
@@ -44,7 +44,7 @@ from agent_composer.compose.parser import (
     parse_file,
     section_lines,
 )
-from agent_composer.compose.shapes import InputDecl, read_flow_inputs, read_shape
+from agent_composer.compose.shapes import InputDecl, read_flow_inputs, read_type
 from agent_composer.compose.validate import (
     check_case_handles,
     reject_cycles,
@@ -67,7 +67,7 @@ __all__ = [
     "CallDescriptor",
     "InputDecl",
     "read_flow_inputs",
-    "read_shape",
+    "read_type",
     "build_leaf_node",
     "build_call_node",
     "child_signature",

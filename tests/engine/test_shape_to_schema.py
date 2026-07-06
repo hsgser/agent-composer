@@ -1,33 +1,33 @@
-"""`shape_to_schema` — derive a pydantic model from a declared output `Shape`."""
+"""`shape_to_schema` — derive a pydantic model from a declared output `Type`."""
 
-from agent_composer.state.segments import Shape, ValueKind
+from agent_composer.state.segments import Type, ValueKind
 from agent_composer.nodes.agent.structured import shape_to_schema
 
 
 def test_bare_str_returns_none():
     # scalar str stays today's text passthrough — no schema
-    assert shape_to_schema(Shape.scalar(ValueKind.STRING)) is None
+    assert shape_to_schema(Type.scalar(ValueKind.STRING)) is None
 
 
 def test_variant_str_returns_none():
     # a Literal[...] variant stays text passthrough too (the model answers with one tag)
-    shape = Shape(seg_type=ValueKind.STRING, tags=frozenset({"a", "b"}))
+    shape = Type(kind=ValueKind.STRING, tags=frozenset({"a", "b"}))
     assert shape_to_schema(shape) is None
 
 
 def test_scalar_int_gets_schema():
-    model = shape_to_schema(Shape.scalar(ValueKind.INTEGER))
+    model = shape_to_schema(Type.scalar(ValueKind.INTEGER))
     assert model is not None
     inst = model.model_validate({"value": 7})  # single-field wrapper named "value"
     assert inst.value == 7
 
 
 def test_record_shape():
-    shape = Shape(
-        seg_type=ValueKind.OBJECT,
+    shape = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "name": Shape.scalar(ValueKind.STRING),
-            "score": Shape.scalar(ValueKind.NUMBER),
+            "name": Type.scalar(ValueKind.STRING),
+            "score": Type.scalar(ValueKind.NUMBER),
         },
         required=frozenset({"name"}),
     )
@@ -37,12 +37,12 @@ def test_record_shape():
 
 
 def test_list_of_records():
-    elem = Shape(
-        seg_type=ValueKind.OBJECT,
-        fields={"x": Shape.scalar(ValueKind.INTEGER)},
+    elem = Type(
+        kind=ValueKind.OBJECT,
+        fields={"x": Type.scalar(ValueKind.INTEGER)},
         required=frozenset({"x"}),
     )
-    shape = Shape(seg_type=ValueKind.LIST_OBJECT, element=elem)
+    shape = Type(kind=ValueKind.LIST_OBJECT, element=elem)
     model = shape_to_schema(shape)
     inst = model.model_validate({"items": [{"x": 1}, {"x": 2}]})
     assert [i.x for i in inst.items] == [1, 2]
