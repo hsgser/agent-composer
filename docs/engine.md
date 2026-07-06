@@ -5,7 +5,7 @@
 > node-owned traits/hooks, never on a node's `NodeKind`. For the node side of the same contract,
 > see [Nodes](nodes.md).
 
-## What the engine is (for a reader who has never seen this project)
+## What the engine is?
 
 An Agent Composer **flow** is a small program drawn as a graph. Each box in the graph is a
 **node** — one step of work: "ask an LLM a question", "run a Python function", "loop until good

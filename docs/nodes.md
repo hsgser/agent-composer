@@ -4,7 +4,7 @@
 > static traits/hooks; the engine core reads only those and the returned `Outcome`, never the node's
 > kind. For the other half of the contract (how the engine drives nodes), see [The Engine](engine.md).
 
-## What a node is (for a reader who has never seen this project)
+## What a node is?
 
 A flow is a graph of steps. **A node is one step.** "Ask an LLM", "run a Python function",
 "repeat until good enough" — each is a node.
