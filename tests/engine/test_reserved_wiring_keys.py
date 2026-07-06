@@ -1,0 +1,16 @@
+"""`NodeBase.reserved_wiring_keys()` — the static author-wiring keys a node owns
+beyond its declared `params` (MAP `over`, timed WAIT `until`). Load-time only (no pool);
+`check_wiring_parity` + MAP validation read it instead of dispatching on `node.kind`.
+"""
+
+from agent_composer.nodes.code.node import CodeNode
+from agent_composer.nodes.map.node import MapNode
+from agent_composer.nodes.wait.node import WaitNode
+
+
+def test_reserved_wiring_keys_by_kind():
+    assert MapNode("m", flow_id="c", child=None, child_inputs=[]).reserved_wiring_keys() == {"over"}
+    assert WaitNode("w", is_timed=True).reserved_wiring_keys() == {"until"}
+    assert WaitNode("w", is_timed=False).reserved_wiring_keys() == set()
+    # a plain leaf reserves nothing (CodeNode.__init__ is (node_id, *, ref: str) — ref needs a ':')
+    assert CodeNode("c", ref="mod:fn").reserved_wiring_keys() == set()

@@ -245,7 +245,14 @@ class Node(ABC):
         `TypedVariablePool` the seam reads sources from."""
         return {}
 
-    def iter_boundary_records(self, seed: Any) -> "list[tuple[dict, str]]":
+    def reserved_wiring_keys(self) -> set[str]:
+        """The reserved AUTHOR-wiring key names this node owns beyond its declared `params`
+        — the keys `check_wiring_parity` must allow, and validation treats specially.
+
+        These are the static NAMES of the same keys `bind_reserved` resolves at run (a timed
+        WAIT: `until`; a MAP: `over`), but returned with NO pool — load-time only. Default:
+        the empty set (an ordinary node reserves no keys)."""
+        return set()
         """The `(record, label)` pairs the engine's growth core boundary-checks EAGERLY, before it
         attaches the grow to the ledger (so a boundary failure leaves no orphan expansion).
 

@@ -94,6 +94,10 @@ class MapNode(Node):
             )
         return {"over": items}
 
+    def reserved_wiring_keys(self) -> set[str]:
+        """A MAP reserves `over` (its iteration-source author-wiring key)."""
+        return {"over"}
+
     def run(self, inputs: dict, *, bind_item: Optional[Callable[[Any], dict]] = None):
         if self.child is None:
             raise RuntimeError(f"MAP node {self.id!r}: child flow {self.flow_id!r} not baked")
