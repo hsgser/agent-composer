@@ -1,7 +1,7 @@
 from agent_composer.compile.model import END_ID, START_ID
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 def test_start_end_ids_are_owned_by_the_node_classes():
@@ -14,7 +14,7 @@ def test_start_end_ids_are_owned_by_the_node_classes():
 def test_pool_start_id_default_mirrors_startnode_id():
     # state/pool.py keeps a literal default (it is a leaf below nodes and cannot import the
     # node class); this pins it to StartNode.ID so the duplicated literal can never diverge.
-    assert TypedVariablePool().start_id == StartNode.ID
+    assert VariablePool().start_id == StartNode.ID
 
 
 def test_compiledflow_start_end_id_accessors():

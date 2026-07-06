@@ -1,17 +1,17 @@
 from agent_composer.compile.expand import clone_child
 from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput, Flow, START_ID, END_ID
 from agent_composer.compose.asserts import AssertSet
-from agent_composer.compose.shapes import InputDecl, read_shape
+from agent_composer.compose.types import InputDecl, read_type
 from agent_composer.events import NodeFailed, NodeSucceeded
 from agent_composer.nodes.base import NodeKind, Output
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 from tests.engine._fakes import FuncNode, drive, stamp_reads, derive_wiring
 
 
 def _decl(name: str, type_: str = "str") -> InputDecl:
-    return InputDecl(name, type_, None, True, read_shape(type_, {}))
+    return InputDecl(name, type_, None, True, read_type(type_, {}))
 
 
 def _child(outputs, *, tail_reads=None, asserts=None, inputs=("topic",)) -> CompiledFlow:
@@ -121,7 +121,7 @@ def _run_end(end, pool):
 def test_child_end_satisfied_pool_scoped_post_assert_succeeds():
     end = EndNode.record("each/__end__", output_names=["out"])
     end.post_asserts = ["${each/tail.output} != ''"]
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("each/tail", "ok")                 # the re-homed ref resolves POOL-scoped
     events = _run_end(stamp_reads(end, {"out": "${each/tail.output}"}), pool)
     assert any(isinstance(e, NodeSucceeded) for e in events)
@@ -131,7 +131,7 @@ def test_child_end_satisfied_pool_scoped_post_assert_succeeds():
 def test_child_end_violated_pool_scoped_post_assert_fails():
     end = EndNode.record("each/__end__", output_names=["out"])
     end.post_asserts = ["${each/tail.output} != ''"]
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set("each/tail", "")                    # violates the post-assert (empty string)
     events = _run_end(stamp_reads(end, {"out": "${each/tail.output}"}), pool)
     failed = [e for e in events if isinstance(e, NodeFailed)]

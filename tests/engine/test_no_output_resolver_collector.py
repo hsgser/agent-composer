@@ -14,7 +14,7 @@ import pytest
 from agent_composer.events import NodeFailed, NodeSucceeded
 from agent_composer.nodes.base import NodeKind
 from agent_composer.nodes.end import EndNode
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 from tests.engine._fakes import drive, stamp_reads
 
 
@@ -37,7 +37,7 @@ def test_child_end_pool_scoped_post_assert_fires_through_the_rekeyed_end_branch(
     end = EndNode.record("each/__end__", output_names=["out"])
     end.post_asserts = ["${each/tail.output} != ''"]
     assert end.kind == NodeKind.END
-    pool = TypedVariablePool()
+    pool = VariablePool()
 
     pool.set("each/tail", "ok")
     flow = type("F", (), {"wiring": {end.id: {}}})()

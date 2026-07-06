@@ -12,14 +12,14 @@ concerns the pure graph engine doesn't:
 
 `RunResult` (the surface-agnostic run outcome) lives here, beside `run_flow`. The
 seeding fns (`coerce_inputs`/`apply_defaults`/`seed_system_clock`) come from
-`state.seeding`; the run's clock is the `${system.today}`/`${system.now}` ambients
+`typesys.seeding`; the run's clock is the `${system.today}`/`${system.now}` ambients
 (a flow reads "as of" via `Optional[date]` + `:-`/`${system.today}`).
 
 Never raises on a flow failure — a failed/aborted run, or a false assert, comes back as
 a `RunResult` with `status != "succeeded"` (RunFailed is an engine EVENT, not an
 exception). Compile-time errors (a bad flow) are surfaced by `load_flow`, not here.
 
-Imports flow DOWN only: `runtime` (FlowEngine), `state` (the pool + seeding),
+Imports flow DOWN only: `runtime` (FlowEngine), `typesys` (the pool + seeding),
 `expr` (evaluate_when), `events`, and the sibling `loader` (LoadedFlow). Nothing
 imports back.
 """
@@ -33,8 +33,8 @@ from agent_composer.compile.llm_cascade import resolve_llm_cascade
 from agent_composer.events import RunAborted, RunFailed, RunPaused, RunSucceeded, SourceSpan
 from agent_composer.expr import first_failing_assert
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.seeding import (
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.seeding import (
     apply_defaults,
     coerce_inputs,
     default_run_id,
@@ -176,7 +176,7 @@ def run_flow(
     # layer (llm_config) is the outermost gap-fill layer of the cascade. See resolve_llm_cascade.
     resolve_llm_cascade(loaded.compiled, llm_config or {})
 
-    pool = TypedVariablePool()
+    pool = VariablePool()
     seed_system_clock(pool)  # ${system.today}/${system.now} — once per run
     # ${system.run_id} — host-injected, else a freshly minted id; child-inherited like the clock.
     pool.add_system("run_id", run_id if run_id is not None else default_run_id())
@@ -184,7 +184,7 @@ def run_flow(
     # The engine seeds store[START_ID] at run init (StartNode.run -> coerce/e08/defaults),
     # fires the boundary asserts pool-scoped (reading store[START_ID]), then advances START_ID. The
     # `inputs` namespace + run.py's add_inputs/e08/boundary-assert blocks are retired; the
-    # e08 SegmentError + the false-boundary-assert both come back as a RunFailed engine event.
+    # e08 TypeCheckError + the false-boundary-assert both come back as a RunFailed engine event.
     engine = FlowEngine(
         loaded.compiled, pool,
         num_workers=num_workers,

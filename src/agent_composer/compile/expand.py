@@ -308,7 +308,7 @@ def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) ->
 # --------------------------------------------------------------------------- #
 
 
-def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: int = 2) -> Flow:
+def clone_continuation_pair(pair, callsite: str, *, output_type=None, retries: int = 2) -> Flow:
     """Materialize the agent-pause continuation PAIR namespaced at `callsite`.
 
     `pair` is `[human_input_desc, resume_desc]` from `agent_step`'s continuation `Grow`. The
@@ -321,11 +321,11 @@ def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: 
     and the edge agree on `hi_id`. Returns a `Flow` (`start_id = hi_id`, `end_id = resume_id`). Pure
     — the dispatcher performs the impure append/register/seed.
 
-    `output_shape`/`retries` carry the SPAWNER's declared output Shape and self-correction cap
+    `output_type`/`retries` carry the SPAWNER's declared output Type and self-correction cap
     onto the resume node so a resumed agent with a non-text `output:` still emits the declared
-    shape on its final turn (the dispatcher reads them off `flow.nodes[spawner_id]`; they are
+    type on its final turn (the dispatcher reads them off `flow.nodes[spawner_id]`; they are
     not serialized — restore re-grows from the compiled spawner). For a multi-pause chain each
-    resume node becomes the next segment's spawner, so the shape propagates segment to segment."""
+    resume node becomes the next segment's spawner, so the type propagates segment to segment."""
     from agent_composer.nodes.agent.node import AgentNode, Resume
     from agent_composer.nodes.human_input import HumanInputNode
 
@@ -347,9 +347,9 @@ def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: 
         mode=resume_desc.get("mode", "tool_calling"),
         retries=retries,
     )
-    # The Resume entry's declared output Shape is set as node DATA (AgentNode.__init__ takes no
-    # output_shape param — the compiler stamps it; here the dispatcher supplies the spawner's).
-    resume_node.output_shape = output_shape
+    # The Resume entry's declared output Type is set as node DATA (AgentNode.__init__ takes no
+    # output_type param — the compiler stamps it; here the dispatcher supplies the spawner's).
+    resume_node.output_type = output_type
 
     # Rewrite the answer forward-ref to the NAMESPACED node-first ref.
     answer_ref = f"${{{hi_id}.output}}"
@@ -371,7 +371,7 @@ def clone_continuation_pair(pair, callsite: str, *, output_shape=None, retries: 
     )
 
 
-def agent_segment_subgraph(pair, callsite: str, *, output_shape=None, retries: int = 2) -> Flow:
+def agent_segment_subgraph(pair, callsite: str, *, output_type=None, retries: int = 2) -> Flow:
     """The pure AGENT-pause builder: the continuation fragment an AGENT grows into when it pauses.
 
     Wraps `clone_continuation_pair` (the deep-namespaced clone of the `[human_input, resume]` PAIR
@@ -387,10 +387,10 @@ def agent_segment_subgraph(pair, callsite: str, *, output_shape=None, retries: i
     off the previous segment's baked `commit_as`). The builder is pure and cannot see the prior
     segment, so it bakes the local callsite and lets the engine chain the origin.
 
-    `output_shape`/`retries` carry the SPAWNER's declared output Shape + self-correction cap onto
+    `output_type`/`retries` carry the SPAWNER's declared output Type + self-correction cap onto
     the resume node (see `clone_continuation_pair`), so a resumed agent with a non-text `output:`
-    still emits the declared shape on its final turn and the shape propagates segment to segment."""
-    cloned = clone_continuation_pair(pair, callsite=callsite, output_shape=output_shape, retries=retries)
+    still emits the declared type on its final turn and the type propagates segment to segment."""
+    cloned = clone_continuation_pair(pair, callsite=callsite, output_type=output_type, retries=retries)
     cloned.nodes[cloned.end_id].commit_as = callsite   # PROVISIONAL: the engine residual overrides it to the true origin
     return Flow(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring,
                 start_id=cloned.start_id, end_id=cloned.end_id)

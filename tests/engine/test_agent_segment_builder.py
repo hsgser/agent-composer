@@ -28,7 +28,7 @@ def _pair():
     return [hi_desc, resume_desc]
 
 
-def test_agent_segment_subgraph_matches_continuation_shape():
+def test_agent_segment_subgraph_matches_continuation_type():
     sg = agent_segment_subgraph(_pair(), callsite="a0")
 
     assert isinstance(sg, Flow)

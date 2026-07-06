@@ -52,9 +52,9 @@ from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.base import Grow
 from agent_composer.runtime.eval_node import eval_node
 from agent_composer.runtime.state_manager import StateManager
-from agent_composer.state import SegmentError
+from agent_composer.typesys import TypeCheckError
 from agent_composer.suspension.expansions import GrowRecord
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 
 DEFAULT_HANDLE = "default"
 
@@ -75,7 +75,7 @@ class NodeExecutionError(RuntimeError):
     """A node emitted NodeFailed and no error strategy recovered it (abort).
 
     `locator` is an optional `SourceSpan` pinning the failure to a YAML line — set at
-    the typed write boundary (a value that fails its node's declared `output:` Shape)
+    the typed write boundary (a value that fails its node's declared `output:` Type)
     so the CLI boxes the `output:` field rather than printing a plain message.
     """
 
@@ -115,7 +115,7 @@ class FlowEngine:
         flow (`CompiledFlow`):
             The compiled graph to execute. The engine mutates it in place when a spawner
             node (CALL/MAP) grows the graph at run time.
-        pool (`TypedVariablePool`, *optional*, defaults to `None`):
+        pool (`VariablePool`, *optional*, defaults to `None`):
             The variable pool to read/write. A fresh empty pool is created when `None`.
         num_workers (`int`, *optional*, defaults to `0`):
             `0` runs the deterministic inline drain on the caller's thread; `>=1` spawns
@@ -131,7 +131,7 @@ class FlowEngine:
     def __init__(
         self,
         flow: CompiledFlow,
-        pool: Optional[TypedVariablePool] = None,
+        pool: Optional[VariablePool] = None,
         *,
         num_workers: int = 0,
         run_inputs: Optional[dict] = None,
@@ -139,7 +139,7 @@ class FlowEngine:
         llm=None,
     ) -> None:
         self.flow = flow
-        self.pool = pool if pool is not None else TypedVariablePool()
+        self.pool = pool if pool is not None else VariablePool()
         self.sm = StateManager(flow)
         self.num_workers = max(0, num_workers)
         # The top-level START_ID is seeded at run init by invoking StartNode.run(run_inputs)
@@ -201,7 +201,7 @@ class FlowEngine:
         yield RunStarted()
         # Init: seed store[START_ID] (StartNode.run ONCE, not scheduled), fire the
         # top-level boundary asserts pool-scoped, then advance START_ID's out-edges. A failure here
-        # (e08 shape / boundary assert) yields RunFailed before any body node ("no node ran").
+        # (e08 type / boundary assert) yields RunFailed before any body node ("no node ran").
         failure = self._seed_start_and_advance()
         if failure is not None:
             yield failure
@@ -258,7 +258,7 @@ class FlowEngine:
         (coerce + e08 + defaults), commit store[START_ID] directly — WITHOUT enqueuing START_ID and
         WITHOUT a NodeSucceeded — then fire the flow's boundary asserts pool-scoped (reading the
         just-committed store[START_ID]), then mark START_ID done + advance its out-edges. Returns a
-        RunFailed on an e08 shape failure or a false boundary assert (fail-fast before any body
+        RunFailed on an e08 type failure or a false boundary assert (fail-fast before any body
         node; "no node ran" holds), else None. Direct-FlowEngine tests that hand-seed
         store[START_ID] pass no `run_inputs` — START_ID is then taken from the pre-seeded store."""
         from agent_composer.expr import first_failing_assert
@@ -266,13 +266,13 @@ class FlowEngine:
         start_id = self.flow.start_id
         if start_id in self.flow.nodes:
             if self.run_inputs is not None:
-                # seed via StartNode.run, funneling an e08 SegmentError -> RunFailed.
+                # seed via StartNode.run, funneling an e08 TypeCheckError -> RunFailed.
                 try:
                     out = self.flow.nodes[start_id].run(dict(self.run_inputs))
-                except SegmentError as exc:
+                except TypeCheckError as exc:
                     # e08 forwards the StartNode's `input_decl` locator (the failing input's
                     # declaration line) so the CLI boxes it precisely.
-                    return RunFailed(error=str(exc), error_type="SegmentError",
+                    return RunFailed(error=str(exc), error_type="TypeCheckError",
                                      locator=getattr(exc, "locator", None))
                 self.pool.set(start_id, out.value)
             # boundary asserts: pool-scoped, reading store[START_ID]; byte-stable "assert failed".
@@ -454,13 +454,13 @@ class FlowEngine:
         if isinstance(command, DeliverAnswerCommand):
             # Deliver-as-Output: write the answer as the parked leaf's value and fire
             # its existing out-edges. The node is resolved against the LIVE graph, so a
-            # runtime-namespaced id resolves. Wrapped in the SAME SegmentError -> NodeExecutionError
+            # runtime-namespaced id resolves. Wrapped in the SAME TypeCheckError -> NodeExecutionError
             # guard _on_success uses, so a type-invalid answer FAILS the run (it does not crash
-            # resume). A WAIT release delivers value=None (timed WAIT output_shape is None).
+            # resume). A WAIT release delivers value=None (timed WAIT output_type is None).
             node = self.flow.nodes[command.node_id]
             try:
-                self.pool.set(command.node_id, command.value, declared=node.output_shape)
-            except SegmentError as exc:
+                self.pool.set(command.node_id, command.value, declared=node.output_type)
+            except TypeCheckError as exc:
                 self.sm.finish_executing(command.node_id)
                 raise NodeExecutionError(
                     command.node_id, str(exc), type(exc).__name__,
@@ -827,7 +827,7 @@ class FlowEngine:
         the eval seam turns it into a located NodeFailed). A node with no boundary records (AGENT,
         LOOP) or no boundary asserts is a no-op."""
         from agent_composer.expr import first_failing_assert
-        from agent_composer.state.seeding import apply_defaults, coerce_inputs
+        from agent_composer.typesys.seeding import apply_defaults, coerce_inputs
 
         spawner = self.flow.nodes[spawner_id]
         records = spawner.iter_boundary_records(seed)
@@ -839,7 +839,7 @@ class FlowEngine:
             return
         decls = spawner.child_inputs
         for record, label in records:
-            temp = TypedVariablePool()
+            temp = VariablePool()
             temp.set(START_ID, apply_defaults(decls, coerce_inputs(decls, dict(record))))
             temp.system = dict(self.pool.system)
             bad = first_failing_assert(boundary_asserts, temp)
@@ -853,7 +853,7 @@ class FlowEngine:
         # `loop_alias` dict lookups.
         target = event.commit_as or node_id
         # Commit the value under `target` (the spawner id on a redirect, else `node_id`) with the
-        # target's declared Shape (same SegmentError -> NodeExecutionError guard the tail uses),
+        # target's declared Type (same TypeCheckError -> NodeExecutionError guard the tail uses),
         # then advance the target's out-edges. For a redirect the filler's own pool.set is SKIPPED;
         # `finish_executing` still runs on the FILLER `node_id` (the node that actually ran).
         #
@@ -864,8 +864,8 @@ class FlowEngine:
         # need a kind-aware special-case here, which the kind-agnostic commit path deliberately avoids.
         target_node = self.flow.nodes[target]
         try:
-            self.pool.set(target, event.output, declared=target_node.output_shape)
-        except SegmentError as exc:
+            self.pool.set(target, event.output, declared=target_node.output_type)
+        except TypeCheckError as exc:
             self.sm.finish_executing(node_id)
             raise NodeExecutionError(
                 node_id, str(exc), type(exc).__name__,

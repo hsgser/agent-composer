@@ -1,19 +1,19 @@
-"""Structured AGENT output — derive a pydantic schema from a declared `output:` Shape and
+"""Structured AGENT output — derive a pydantic schema from a declared `output:` Type and
 generate a value that conforms to it.
 
-An AGENT declares `output:` as a typed `Shape`. For a bare `str` (or a `Literal[...]`
-variant) the agent stays a text producer — `shape_to_schema` returns `None` and the mode
-takes the plain-text path. For any richer shape (a record, a scalar `int`/`float`/`bool`, a
-list) `shape_to_schema` builds a `pydantic.BaseModel` the mode hands to
+An AGENT declares `output:` as a typed `Type`. For a bare `str` (or a `Literal[...]`
+variant) the agent stays a text producer — `type_to_schema` returns `None` and the mode
+takes the plain-text path. For any richer type (a record, a scalar `int`/`float`/`bool`, a
+list) `type_to_schema` builds a `pydantic.BaseModel` the mode hands to
 `with_structured_output`, so the model emits a value the engine's write boundary
-(`pool.set(..., declared=output_shape)`) accepts.
+(`pool.set(..., declared=output_type)`) accepts.
 
 Scalars and lists can't be a top-level pydantic model field on their own, so they are wrapped
 in a single-field model (`{"value": <scalar>}` / `{"items": [<element>]}`); `_unwrap` strips
 the wrapper back to the bare value after generation. A record maps one model field per
 declared field and passes through as the dumped dict.
 
-Layer: nodes — imports `state` (Shape/SegmentType) + `pydantic`; no engine/runtime imports.
+Layer: nodes — imports `typesys` (Type/ValueKind) + `pydantic`; no engine/runtime imports.
 """
 
 from __future__ import annotations
@@ -24,50 +24,50 @@ from typing import Any, List, Literal, Optional
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, create_model
 
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.typesys.values import Type, ValueKind
 
-# SegmentType -> python type for a scalar slot. DATE/DATETIME persist as ISO strings.
-_SCALAR_PY: dict[SegmentType, type] = {
-    SegmentType.STRING: str,
-    SegmentType.INTEGER: int,
-    SegmentType.NUMBER: float,
-    SegmentType.BOOLEAN: bool,
-    SegmentType.DATE: str,
-    SegmentType.DATETIME: str,
+# ValueKind -> python type for a scalar slot. DATE/DATETIME persist as ISO strings.
+_SCALAR_PY: dict[ValueKind, type] = {
+    ValueKind.STRING: str,
+    ValueKind.INTEGER: int,
+    ValueKind.NUMBER: float,
+    ValueKind.BOOLEAN: bool,
+    ValueKind.DATE: str,
+    ValueKind.DATETIME: str,
 }
 
 
-def _py_type(shape: Shape) -> Any:
-    """The python annotation for a value of `shape` as a pydantic field type.
+def _py_type(typ: Type) -> Any:
+    """The python annotation for a value of `typ` as a pydantic field type.
 
     A `STRING` with `tags` is a `Literal[...]` variant; a nested `OBJECT` with `fields`
     becomes its own submodel; a `LIST_*` becomes `list[<element type>]`. Raises `ValueError`
-    for a type with no structured mapping (`NONE`, `FILE`) so a new SegmentType is loud.
+    for a type with no structured mapping (`NONE`, `FILE`) so a new ValueKind is loud.
     """
-    seg = shape.seg_type
-    if seg == SegmentType.STRING and shape.tags:
-        return Literal[tuple(sorted(shape.tags))]  # type: ignore[valid-type]
+    seg = typ.kind
+    if seg == ValueKind.STRING and typ.tags:
+        return Literal[tuple(sorted(typ.tags))]  # type: ignore[valid-type]
     if seg in _SCALAR_PY:
         return _SCALAR_PY[seg]
-    if seg == SegmentType.OBJECT:
-        return _record_model(shape) if shape.fields else dict
-    if seg == SegmentType.LIST_ANY:
+    if seg == ValueKind.OBJECT:
+        return _record_model(typ) if typ.fields else dict
+    if seg == ValueKind.LIST_ANY:
         return list
     if seg.is_list():
-        elem = shape.element
+        elem = typ.element
         if elem is not None:
             return List[_py_type(elem)]  # type: ignore[misc]
-        scalar = seg.element_type
+        scalar = seg.element_kind
         return List[_SCALAR_PY[scalar]] if scalar in _SCALAR_PY else list  # type: ignore[misc]
-    raise ValueError(f"shape_to_schema: no structured mapping for segment type {seg!r}")
+    raise ValueError(f"type_to_schema: no structured mapping for segment type {seg!r}")
 
 
-def _record_model(shape: Shape) -> type[BaseModel]:
-    """Build a pydantic model from an `OBJECT` Shape: one field per `fields` entry, required
+def _record_model(typ: Type) -> type[BaseModel]:
+    """Build a pydantic model from an `OBJECT` Type: one field per `fields` entry, required
     iff named in `required` (others default to `None`); `nullable` widens a field to Optional."""
-    required = shape.required or frozenset()
+    required = typ.required or frozenset()
     spec: dict[str, Any] = {}
-    for name, sub in (shape.fields or {}).items():
+    for name, sub in (typ.fields or {}).items():
         ann = _py_type(sub)
         if name in required and not sub.nullable:
             spec[name] = (ann, ...)
@@ -76,33 +76,33 @@ def _record_model(shape: Shape) -> type[BaseModel]:
     return create_model("Record", **spec)
 
 
-def shape_to_schema(shape: Shape) -> Optional[type[BaseModel]]:
-    """Derive a pydantic model for `shape`, or `None` when the agent should stay a text
+def type_to_schema(typ: Type) -> Optional[type[BaseModel]]:
+    """Derive a pydantic model for `typ`, or `None` when the agent should stay a text
     producer (a bare `str` or a `Literal[...]` variant — today's passthrough).
 
     A record (`OBJECT` with `fields`) maps directly to a model. A scalar or a list can't be a
     standalone model, so it is wrapped in a single-field model (`value` / `items`) that
     `_unwrap` later strips.
     """
-    seg = shape.seg_type
-    if seg == SegmentType.STRING:
+    seg = typ.kind
+    if seg == ValueKind.STRING:
         return None  # bare str OR a Literal variant — keep the text path
-    if seg == SegmentType.OBJECT and shape.fields:
-        return _record_model(shape)
-    if seg.is_list() or seg == SegmentType.LIST_ANY:
-        return create_model("ListWrapper", items=(_py_type(shape), ...))
+    if seg == ValueKind.OBJECT and typ.fields:
+        return _record_model(typ)
+    if seg.is_list() or seg == ValueKind.LIST_ANY:
+        return create_model("ListWrapper", items=(_py_type(typ), ...))
     # any other scalar (int/float/bool/date/datetime) or freeform object -> value wrapper
-    return create_model("ScalarWrapper", value=(_py_type(shape), ...))
+    return create_model("ScalarWrapper", value=(_py_type(typ), ...))
 
 
-def _unwrap(obj: BaseModel, shape: Shape) -> Any:
-    """Strip the single-field wrapper `shape_to_schema` adds for a scalar/list, returning the
+def _unwrap(obj: BaseModel, typ: Type) -> Any:
+    """Strip the single-field wrapper `type_to_schema` adds for a scalar/list, returning the
     bare value the write boundary expects. A record is returned as its dumped dict."""
     data = obj.model_dump()
-    seg = shape.seg_type
-    if seg == SegmentType.OBJECT and shape.fields:
+    seg = typ.kind
+    if seg == ValueKind.OBJECT and typ.fields:
         return data
-    if seg.is_list() or seg == SegmentType.LIST_ANY:
+    if seg.is_list() or seg == ValueKind.LIST_ANY:
         return data["items"]
     return data["value"]
 
@@ -157,14 +157,14 @@ def _strip_code_fence(text: str) -> str:
 def generate_structured(
     model: Any,
     messages: list,
-    shape: Shape,
+    typ: Type,
     *,
     max_retries: int = 2,
     llm_config: dict | None = None,
 ) -> Any:
-    """Generate a value conforming to `shape`, retrying on provider deviation up to a cap.
+    """Generate a value conforming to `typ`, retrying on provider deviation up to a cap.
 
-    Derives the pydantic schema from `shape` and picks a generation path by capability gate
+    Derives the pydantic schema from `typ` and picks a generation path by capability gate
     (`_supports_native_structured` on the node's effective `llm_config`):
 
     - **native** — bind the schema via `with_structured_output` and invoke.
@@ -175,14 +175,14 @@ def generate_structured(
     `HumanMessage` naming the error and retries, up to `max_retries` extra attempts
     (`max_retries + 1` total invocations). The last error is re-raised once the cap is spent.
     """
-    schema = shape_to_schema(shape)
+    schema = type_to_schema(typ)
     if _supports_native_structured(llm_config or {}):
-        return _generate_native(model, messages, shape, schema, max_retries)
-    return _generate_fallback(model, messages, shape, schema, max_retries)
+        return _generate_native(model, messages, typ, schema, max_retries)
+    return _generate_fallback(model, messages, typ, schema, max_retries)
 
 
 def _generate_native(
-    model: Any, messages: list, shape: Shape, schema: type[BaseModel], max_retries: int
+    model: Any, messages: list, typ: Type, schema: type[BaseModel], max_retries: int
 ) -> Any:
     """Native path: `with_structured_output(schema)` + capped self-correction retry."""
     msgs = list(messages)
@@ -190,7 +190,7 @@ def _generate_native(
     for _ in range(max_retries + 1):
         try:
             obj = model.with_structured_output(schema).invoke(msgs)
-            return _unwrap(obj, shape)
+            return _unwrap(obj, typ)
         except Exception as err:  # provider deviated from the schema; correct and retry
             last_err = err
             msgs = msgs + [
@@ -205,7 +205,7 @@ def _generate_native(
 
 
 def _generate_fallback(
-    model: Any, messages: list, shape: Shape, schema: type[BaseModel], max_retries: int
+    model: Any, messages: list, typ: Type, schema: type[BaseModel], max_retries: int
 ) -> Any:
     """Prompt-injection path for a provider with no native structured output: ask for JSON
     matching the schema, parse + validate the free-text reply, capped self-correction retry.
@@ -223,7 +223,7 @@ def _generate_fallback(
         try:
             text = _text_of(model.invoke(msgs))
             obj = schema.model_validate(json.loads(_strip_code_fence(text)))
-            return _unwrap(obj, shape)
+            return _unwrap(obj, typ)
         except Exception as err:  # unparseable / non-conforming; correct and retry
             last_err = err
             msgs = msgs + [

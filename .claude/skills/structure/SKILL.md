@@ -41,8 +41,8 @@ Never imports: <the higher-level packages that import IT — name them so the
 ```
 
 This is not boilerplate. "Knows / Never imports" is the dependency direction
-written down where it gets read. When you later wonder "can `state` import
-`runtime`?", the answer is already in `state/__init__.py`. See
+written down where it gets read. When you later wonder "can `typesys` import
+`runtime`?", the answer is already in `typesys/__init__.py`. See
 [`src/agent_composer/__init__.py`](../../../src/agent_composer/__init__.py) for the
 worked top-level charter with the full layer diagram.
 
@@ -57,12 +57,12 @@ Before adding a package, place it on the dependency ladder. The engine reads
 (leaf → root):
 
 ```
-events  <-  state  <-  nodes  <-  compile  <-  compose  <-  runtime  ->  suspension
+events  <-  typesys  <-  nodes  <-  compile  <-  compose  <-  runtime  ->  suspension
                         ^   ^
             expr  ──────┘   └──────  llm_clients     (both leaves, imported by nodes upward)
 ```
 
-A leaf package (`events`, `state`, `expr`, `llm_clients`) imports nothing else in
+A leaf package (`events`, `typesys`, `expr`, `llm_clients`) imports nothing else in
 the layer. A root package (`runtime`) may import everything below it. **Arrows
 never reverse.** When you add a package, name what it sits *above* and what it
 sits *below*, and record that in its charter's "Knows / Never imports".

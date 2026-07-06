@@ -49,7 +49,7 @@ from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
 from agent_composer.nodes.wait import WaitNode
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.typesys.values import ValueKind, Type
 from agent_composer.compose.errors import LoadError
 
 # Heads forbidden in a strict prompt (always trigger the bespoke hint).
@@ -171,7 +171,7 @@ def check_case_handles(nodes: dict[str, Node], edges: list[Edge]) -> None:
 #
 # The analogue of `compile.validation._collect_reference_errors`, walking the BUILT
 # flow instead of a `FlowSpec`: it CALLS the leaf checkers (`_classify_path`) directly
-# (supplying the `valid_targets`/`flow_inputs` sets + the `producers` Shape-map), only
+# (supplying the `valid_targets`/`flow_inputs` sets + the `producers` Type-map), only
 # reimplementing the per-node walk glue. Every located problem accumulates; one
 # `LoadError` is raised carrying them all.
 # --------------------------------------------------------------------------- #
@@ -194,7 +194,7 @@ def _output_bindings(outputs: Any) -> list[Any]:
 def validate_references(
     nodes: dict[str, Node],
     flow_inputs: "set[str]",
-    producers: dict[str, Shape],
+    producers: dict[str, Type],
     outputs: Any,
     flow_wiring: dict[str, dict[str, Any]],
     *,
@@ -206,7 +206,7 @@ def validate_references(
     `nodes` is the built node map — leaf runtime `Node`s AND desugared `CaseNode`s
     (their `.inputs` carry the `__rN`/`__on` SOURCES, the reconciled `case` data refs).
     `flow_inputs` is the `read_flow_inputs(...)` decl names (the `${input.X}` set);
-    `producers` maps node id -> its `output_shape` (drives the e03 dotted-field walk;
+    `producers` maps node id -> its `output_type` (drives the e03 dotted-field walk;
     only resolvable/checked producers belong here — an opaque/None producer stays
     lenient). `outputs` is the raw flow `outputs:` section.
 
@@ -222,7 +222,7 @@ def validate_references(
     lines = node_lines or {}
     valid_targets = set(nodes)
     # Only resolvable producers participate in the dotted walk (opaque -> lenient).
-    producer_shapes = {nid: sh for nid, sh in producers.items() if sh is not None}
+    producer_types = {nid: sh for nid, sh in producers.items() if sh is not None}
     # (message, line) pairs — line locates the offending `.yaml` line where known.
     errors: list[tuple[str, "int | None"]] = []
 
@@ -241,7 +241,7 @@ def validate_references(
             return
         for path in paths:
             err = _classify_path(
-                path, valid_targets, flow_inputs, extra_heads, producer_shapes
+                path, valid_targets, flow_inputs, extra_heads, producer_types
             )
             if err is not None:
                 errors.append((f"{where}: {err}", line))
@@ -379,7 +379,7 @@ def validate_node_asserts(
     """Validate + classify + stamp each node's `asserts:` — the per-node contract.
 
     A node assert is node-LOCAL: a bare `${name}` is one of the node's declared inputs;
-    `${output}`/`${output.field}` is the node's own output (dotted-walked vs `output_shape`).
+    `${output}`/`${output.field}` is the node's own output (dotted-walked vs `output_type`).
     Rejected (located `LoadError`): a pool head (`${outputs/inputs/system/item.X}`), an inline
     `${call}`, `${output.field}` on a non-record output, a declared input named `output`, and
     any node assert on a mapped call (a `MapNode`, `kind: map` — the per-node hook has no `${item}` scope).
@@ -435,8 +435,8 @@ def validate_node_asserts(
                 if head == "output":
                     reads_output = True
                     if len(segs) > 1:
-                        sh = node.output_shape
-                        if sh is not None and sh.seg_type != SegmentType.OBJECT:
+                        sh = node.output_type
+                        if sh is not None and sh.kind != ValueKind.OBJECT:
                             errors.append((
                                 f"node {nid!r} assert: ${{{ref}}} — the node output is not a "
                                 f"record, so it has no field {'.'.join(segs[1:])!r}", line))

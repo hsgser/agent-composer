@@ -5,15 +5,15 @@ NO source); the flow owns the sources in `CompiledFlow.wiring[node_id][param]`. 
 joins each `ParamDecl` to its `wiring[name]` source (an `expr.template` value — a whole `${...}`
 resolved against the pool with type preserved, an embedded `${...}` stringified, or a literal),
 building the `{name: value}` record the engine's `eval_node` hands the node instead of the pool.
-Type-checking reuses the `shape_for` / `build_segment_with_type` helpers and stays lenient
+Type-checking reuses the `type_for` / `build_value_as` helpers and stays lenient
 on record / variant types that can't resolve against the empty registry.
 
 A MAP body binds a per-element `item` scope: `${item}` / `${item.path}` resolve from the current
 element passed via the `item=` kwarg (a body-local scope, NOT a pool head). The default (`item`
 unset) is the ordinary non-MAP bind path.
 
-Imports `expr` (eval_binding / resolve_reference) + `state` (shape_for /
-build_segment_with_type); both sit below/beside `nodes` in the layer ladder.
+Imports `expr` (eval_binding / resolve_reference) + `typesys` (type_for /
+build_value_as); both sit below/beside `nodes` in the layer ladder.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ from agent_composer.expr import (
     eval_binding,
     resolve_reference,
 )
-from agent_composer.state import SegmentError, Shape, build_segment_with_type, shape_for
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys import TypeCheckError, Type, build_value_as, type_for
+from agent_composer.typesys.pool import VariablePool
 
 
 class BindingError(ValueError):
@@ -54,24 +54,24 @@ class ParamDecl:
     Attributes:
         name (`str`):
             The input name (the key the bound record is keyed by).
-        type (`str`, *optional*, defaults to `None`):
+        type_str (`str`, *optional*, defaults to `None`):
             The declared type name; `None` is an UNTYPED param (e.g. TOOL args).
         required (`bool`, *optional*, defaults to `False`):
             Whether an omitted input is an error. In practice only START params set this.
         default (`Any`, *optional*, defaults to `None`):
             The value filled for an OMITTED input. In practice only START params set this.
-        shape (`Shape`, *optional*, defaults to `None`):
-            The compile-stamped resolved type used to shape-check the bound value.
+        type (`Type`, *optional*, defaults to `None`):
+            The compile-stamped resolved type used to type-check the bound value.
     """
 
     name: str
-    type: Optional[str] = None
+    type_str: Optional[str] = None
     required: bool = False
     default: Any = None
-    shape: Optional[Shape] = None
+    type: Optional[Type] = None
 
 
-def _resolve_source(source: Any, pool: TypedVariablePool, item: Any = None) -> Any:
+def _resolve_source(source: Any, pool: VariablePool, item: Any = None) -> Any:
     """Resolve a binding's `source` to a value via the `expr.template` language.
 
     A value that is exactly one `${...}` yields the **typed** value of that reference
@@ -95,14 +95,14 @@ def _resolve_source(source: Any, pool: TypedVariablePool, item: Any = None) -> A
 def bind_params(
     params: list[ParamDecl],
     wiring: dict[str, Any],
-    pool: TypedVariablePool,
+    pool: VariablePool,
     *,
     item: Any = None,
 ) -> dict[str, Any]:
     """Resolve each declared `ParamDecl` into a typed record — the engine's read boundary.
 
     Joins each param to its source from the flow-owned `wiring` dict (`wiring[name] -> source`):
-    coalesce / default / required / shape-check / deep-copy / `item` scope. An OMITTED input (no
+    coalesce / default / required / type-check / deep-copy / `item` scope. An OMITTED input (no
     wiring edge) fills its declared default or fails when required; a caller's explicit null
     SHADOWS the child default (`f(x=None)` semantics).
 
@@ -111,7 +111,7 @@ def bind_params(
             The node-side declared signature to bind.
         wiring (`dict`):
             The flow-owned `name -> source` map for this node.
-        pool (`TypedVariablePool`):
+        pool (`VariablePool`):
             The pool each `${...}` source resolves against.
         item (`Any`, *optional*, defaults to `None`):
             The current element for a MAP body's `${item}` scope; `None` is the non-MAP path.
@@ -142,16 +142,16 @@ def bind_params(
                 else:
                     record[p.name] = None
                     continue
-            shape = p.shape
-            if shape is None and p.type is not None:
+            typ = p.type
+            if typ is None and p.type_str is not None:
                 try:
-                    shape = shape_for(p.type, {})
-                except SegmentError:
-                    shape = None
-            if shape is not None:
+                    typ = type_for(p.type_str, {})
+                except TypeCheckError:
+                    typ = None
+            if typ is not None:
                 try:
-                    value = build_segment_with_type(shape, value).to_object()
-                except SegmentError as exc:
+                    value = build_value_as(typ, value).to_object()
+                except TypeCheckError as exc:
                     raise BindingError(f"input {p.name!r}: {exc}") from exc
             record[p.name] = copy.deepcopy(value)
         except BindingError as exc:

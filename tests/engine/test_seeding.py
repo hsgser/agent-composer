@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import DateSegment, DateTimeSegment
-from agent_composer.state.seeding import (
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import DateValue, DateTimeValue
+from agent_composer.typesys.seeding import (
     default_run_id,
     now_utc,
     seed_system_clock,
@@ -20,10 +20,10 @@ def test_now_utc_is_iso_datetime():
 
 
 def test_seed_system_clock_seeds_typed_today_and_now():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     seed_system_clock(pool)
-    assert isinstance(pool.system["today"], DateSegment)
-    assert isinstance(pool.system["now"], DateTimeSegment)
+    assert isinstance(pool.system["today"], DateValue)
+    assert isinstance(pool.system["now"], DateTimeValue)
     assert pool.system["today"].value == today_utc()
     assert pool.resolve("system", ["today"]) == today_utc()
     assert "T" in pool.resolve("system", ["now"])

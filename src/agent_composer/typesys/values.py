@@ -1,0 +1,480 @@
+"""Typed runtime value system.
+
+Every value flowing through a flow run is wrapped in a `TypedValue`: a frozen,
+self-describing container carrying its `ValueKind`. The tag is what makes the
+variable pool serialize losslessly — on a JSON round-trip the discriminated
+`AnyValue` union decodes each value back into the right subclass, so an int
+stays an int and a float stays a float regardless of JSON's number ambiguity.
+That losslessness is the primitive durable checkpoint/resume depends on.
+
+Trimmed from graphon's `variables/` to the load-bearing core: scalars, lists,
+object — plus a reserved `FILE` placeholder that is never auto-inferred and not
+yet exposed to flow authors (so adding real file handling later is additive,
+not a schema migration).
+
+This module has no package-internal dependencies on purpose; it is the leaf.
+"""
+
+from dataclasses import dataclass
+from datetime import date as _date
+from datetime import datetime as _datetime
+from enum import Enum
+from typing import Annotated, Any, Literal, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+
+
+class TypeCheckError(ValueError):
+    """A value cannot be wrapped in a TypedValue, or violates a declared type."""
+
+
+# --------------------------------------------------------------------------- #
+# Type vocabulary
+# --------------------------------------------------------------------------- #
+
+
+class ValueKind(str, Enum):
+    """Closed type vocabulary for runtime values.
+
+    `.value` IS the one Python-surface vocabulary: it is simultaneously the serialized
+    discriminator tag, the author-written `type:` token, and the displayed name (so there
+    is no second "engine name" to translate — `str`, never `string`).
+    """
+
+    NONE = "None"
+    STRING = "str"
+    INTEGER = "int"
+    NUMBER = "float"
+    DATE = "date"  # ISO-8601 calendar date, stored as str; never auto-inferred
+    DATETIME = "datetime"  # ISO-8601 datetime, stored as str; never auto-inferred
+    BOOLEAN = "bool"
+    OBJECT = "object"
+    FILE = "file"  # reserved: never auto-inferred, not authorable yet
+
+    LIST_ANY = "list[Any]"
+    LIST_STRING = "list[str]"
+    LIST_INTEGER = "list[int]"
+    LIST_NUMBER = "list[float]"
+    LIST_BOOLEAN = "list[bool]"
+    LIST_OBJECT = "list[object]"
+
+    def is_list(self) -> bool:
+        return self in _LIST_ELEMENT_KIND
+
+    @property
+    def element_kind(self) -> Optional["ValueKind"]:
+        """Scalar element type for a list type (`None` for `LIST_ANY`/scalars)."""
+        return _LIST_ELEMENT_KIND.get(self)
+
+
+# --------------------------------------------------------------------------- #
+# Reserved FILE placeholder
+# --------------------------------------------------------------------------- #
+
+
+class FileRef(BaseModel):
+    """A minimal, opaque file reference — reserved placeholder.
+
+    Carries only what is needed to round-trip through a checkpoint. Storage,
+    transfer, size and markdown rendering are deliberately absent until file
+    handling is actually built.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    uri: str
+    mime: Optional[str] = None
+    name: Optional[str] = None
+
+
+# --------------------------------------------------------------------------- #
+# TypedValue subclasses (one per type, each pinning a Literal discriminator)
+# --------------------------------------------------------------------------- #
+
+
+class TypedValue(BaseModel):
+    """Abstract base. Use a concrete subclass; construct via `build_value`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: ValueKind
+    value: Any
+
+    def to_object(self) -> Any:
+        """The plain Python value (what expressions and node code see)."""
+        return self.value
+
+    @property
+    def text(self) -> str:
+        return "" if self.value is None else str(self.value)
+
+
+class NoneValue(TypedValue):
+    kind: Literal[ValueKind.NONE] = ValueKind.NONE
+    value: None = None
+
+    @property
+    def text(self) -> str:
+        return ""
+
+
+class StringValue(TypedValue):
+    kind: Literal[ValueKind.STRING] = ValueKind.STRING
+    value: str
+
+
+class IntegerValue(TypedValue):
+    kind: Literal[ValueKind.INTEGER] = ValueKind.INTEGER
+    value: int
+
+
+class NumberValue(TypedValue):
+    kind: Literal[ValueKind.NUMBER] = ValueKind.NUMBER
+    value: float
+
+
+class DateValue(TypedValue):
+    kind: Literal[ValueKind.DATE] = ValueKind.DATE
+    value: str  # ISO-8601 "YYYY-MM-DD"
+
+    @field_validator("value")
+    @classmethod
+    def _iso(cls, v: str) -> str:
+        _date.fromisoformat(v)  # raises ValueError if not a valid ISO date
+        return v
+
+
+class DateTimeValue(TypedValue):
+    kind: Literal[ValueKind.DATETIME] = ValueKind.DATETIME
+    value: str  # ISO-8601 "YYYY-MM-DDTHH:MM:SS[+HH:MM]"
+
+    @field_validator("value")
+    @classmethod
+    def _iso(cls, v: str) -> str:
+        # A bare date ("2026-06-12") parses as midnight; require a time component so
+        # datetime stays distinct from date.
+        if "T" not in v and " " not in v:
+            raise ValueError("datetime must include a time component")
+        _datetime.fromisoformat(v)  # raises ValueError if not a valid ISO datetime
+        return v
+
+
+class BooleanValue(TypedValue):
+    kind: Literal[ValueKind.BOOLEAN] = ValueKind.BOOLEAN
+    value: bool
+
+
+class ObjectValue(TypedValue):
+    kind: Literal[ValueKind.OBJECT] = ValueKind.OBJECT
+    value: dict[str, Any]
+
+
+class FileValue(TypedValue):
+    kind: Literal[ValueKind.FILE] = ValueKind.FILE
+    value: FileRef
+
+
+class ListAnyValue(TypedValue):
+    kind: Literal[ValueKind.LIST_ANY] = ValueKind.LIST_ANY
+    value: list[Any]
+
+
+class ListStringValue(TypedValue):
+    kind: Literal[ValueKind.LIST_STRING] = ValueKind.LIST_STRING
+    value: list[str]
+
+
+class ListIntegerValue(TypedValue):
+    kind: Literal[ValueKind.LIST_INTEGER] = ValueKind.LIST_INTEGER
+    value: list[int]
+
+
+class ListNumberValue(TypedValue):
+    kind: Literal[ValueKind.LIST_NUMBER] = ValueKind.LIST_NUMBER
+    value: list[float]
+
+
+class ListBooleanValue(TypedValue):
+    kind: Literal[ValueKind.LIST_BOOLEAN] = ValueKind.LIST_BOOLEAN
+    value: list[bool]
+
+
+class ListObjectValue(TypedValue):
+    kind: Literal[ValueKind.LIST_OBJECT] = ValueKind.LIST_OBJECT
+    value: list[dict[str, Any]]
+
+
+# Discriminated union — `kind` selects the subclass on validate, which is
+# what gives lossless decode of an arbitrary persisted typed value.
+AnyValue = Annotated[
+    Union[
+        NoneValue,
+        StringValue,
+        IntegerValue,
+        NumberValue,
+        DateValue,
+        DateTimeValue,
+        BooleanValue,
+        ObjectValue,
+        FileValue,
+        ListAnyValue,
+        ListStringValue,
+        ListIntegerValue,
+        ListNumberValue,
+        ListBooleanValue,
+        ListObjectValue,
+    ],
+    Field(discriminator="kind"),
+]
+
+# Module-level adapter so callers can round-trip a bare typed value losslessly.
+ANY_VALUE_ADAPTER: TypeAdapter = TypeAdapter(AnyValue)
+
+
+# --------------------------------------------------------------------------- #
+# Lookup tables
+# --------------------------------------------------------------------------- #
+
+_LIST_ELEMENT_KIND: dict[ValueKind, Optional[ValueKind]] = {
+    ValueKind.LIST_ANY: None,
+    ValueKind.LIST_STRING: ValueKind.STRING,
+    ValueKind.LIST_INTEGER: ValueKind.INTEGER,
+    ValueKind.LIST_NUMBER: ValueKind.NUMBER,
+    ValueKind.LIST_BOOLEAN: ValueKind.BOOLEAN,
+    ValueKind.LIST_OBJECT: ValueKind.OBJECT,
+}
+
+_SCALAR_VALUE_CLASS: dict[ValueKind, type[TypedValue]] = {
+    ValueKind.NONE: NoneValue,
+    ValueKind.STRING: StringValue,
+    ValueKind.INTEGER: IntegerValue,
+    ValueKind.NUMBER: NumberValue,
+    ValueKind.DATE: DateValue,
+    ValueKind.DATETIME: DateTimeValue,
+    ValueKind.BOOLEAN: BooleanValue,
+    ValueKind.OBJECT: ObjectValue,
+    ValueKind.FILE: FileValue,
+}
+
+_LIST_VALUE_CLASS: dict[ValueKind, type[TypedValue]] = {
+    ValueKind.LIST_ANY: ListAnyValue,
+    ValueKind.LIST_STRING: ListStringValue,
+    ValueKind.LIST_INTEGER: ListIntegerValue,
+    ValueKind.LIST_NUMBER: ListNumberValue,
+    ValueKind.LIST_BOOLEAN: ListBooleanValue,
+    ValueKind.LIST_OBJECT: ListObjectValue,
+}
+
+# --------------------------------------------------------------------------- #
+# Structural type (records / variants / typed lists)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class Type:
+    """Resolved runtime structure of a declared Type — drives the write-boundary check.
+
+    `kind` is the storage tag (what the value persists as). The optional fields
+    refine validation beyond the bare tag:
+      - record:  kind=OBJECT,   fields={name: Type}, required={names}
+      - variant: kind=STRING,   tags={labels}
+      - list:    kind=LIST_*,   element=<element Type>
+    A plain scalar / flat list uses only `kind` (see `Type.scalar`).
+    """
+
+    kind: ValueKind
+    fields: Optional[dict[str, "Type"]] = None
+    required: Optional[frozenset[str]] = None
+    tags: Optional[frozenset[str]] = None
+    element: Optional["Type"] = None
+    nullable: bool = False  # an Optional[X] slot — accepts None (present-None or absent)
+
+    @classmethod
+    def scalar(cls, seg: ValueKind) -> "Type":
+        return cls(kind=seg)
+
+
+# --------------------------------------------------------------------------- #
+# Scalar type checks / coercion
+# --------------------------------------------------------------------------- #
+
+
+def _infer_scalar_type(value: Any) -> Optional[ValueKind]:
+    # bool before int — bool is a subclass of int in Python.
+    if value is None:
+        return ValueKind.NONE
+    if isinstance(value, bool):
+        return ValueKind.BOOLEAN
+    if isinstance(value, int):
+        return ValueKind.INTEGER
+    if isinstance(value, float):
+        return ValueKind.NUMBER
+    if isinstance(value, str):
+        return ValueKind.STRING
+    if isinstance(value, FileRef):
+        return ValueKind.FILE
+    if isinstance(value, dict):
+        return ValueKind.OBJECT
+    return None
+
+
+def _scalar_matches(declared: ValueKind, value: Any) -> bool:
+    if declared == ValueKind.NONE:
+        return value is None
+    if declared == ValueKind.STRING:
+        return isinstance(value, str)
+    if declared == ValueKind.BOOLEAN:
+        return isinstance(value, bool)
+    if declared == ValueKind.INTEGER:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if declared == ValueKind.NUMBER:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if declared == ValueKind.DATE:
+        if not isinstance(value, str):
+            return False
+        try:
+            _date.fromisoformat(value)
+            return True
+        except ValueError:
+            return False
+    if declared == ValueKind.DATETIME:
+        if not isinstance(value, str):
+            return False
+        # a bare date is not a datetime — require an explicit time component
+        if "T" not in value and " " not in value:
+            return False
+        try:
+            _datetime.fromisoformat(value)
+            return True
+        except ValueError:
+            return False
+    if declared == ValueKind.OBJECT:
+        return isinstance(value, dict)
+    if declared == ValueKind.FILE:
+        return isinstance(value, FileRef)
+    return False
+
+
+def _coerce_scalar(declared: ValueKind, value: Any) -> Any:
+    # Only widening: an int may fill a NUMBER slot as a float.
+    if declared == ValueKind.NUMBER and isinstance(value, int) and not isinstance(value, bool):
+        return float(value)
+    return value
+
+
+# --------------------------------------------------------------------------- #
+# Constructors
+# --------------------------------------------------------------------------- #
+
+
+def build_value(value: Any) -> TypedValue:
+    """Wrap a raw Python value in the natural TypedValue, inferring its type.
+
+    `FILE` is never inferred from a dict/str — only an explicit `FileRef`
+    produces a `FileValue`. An empty list infers as `LIST_ANY`.
+    """
+    if isinstance(value, TypedValue):
+        return value  # idempotent
+
+    scalar = _infer_scalar_type(value)
+    if scalar is not None:
+        return _SCALAR_VALUE_CLASS[scalar](value=value)
+
+    if isinstance(value, (list, tuple)):
+        return _infer_list(list(value))
+
+    raise TypeCheckError(f"cannot wrap value of type {type(value).__name__!r}")
+
+
+def _infer_list(items: list[Any]) -> TypedValue:
+    if not items:
+        return ListAnyValue(value=[])
+    element_types = {_infer_scalar_type(x) for x in items}
+    if None in element_types:
+        return ListAnyValue(value=items)
+    if element_types == {ValueKind.STRING}:
+        return ListStringValue(value=items)
+    if element_types == {ValueKind.BOOLEAN}:
+        return ListBooleanValue(value=items)
+    if element_types == {ValueKind.INTEGER}:
+        return ListIntegerValue(value=items)
+    if element_types <= {ValueKind.INTEGER, ValueKind.NUMBER}:
+        return ListNumberValue(value=[float(x) for x in items])
+    if element_types == {ValueKind.OBJECT}:
+        return ListObjectValue(value=items)
+    return ListAnyValue(value=items)
+
+
+def build_value_as(declared: "ValueKind | Type", value: Any) -> TypedValue:
+    """Wrap `value` as a TypedValue matching `declared`, raising on a type mismatch.
+
+    Accepts either a bare `ValueKind` (scalar / flat list — preserved behavior)
+    or a structural `Type` (records, variants, typed/element lists). This is the
+    write-boundary check the variable pool uses against each declared output type,
+    so a node returning the wrong type fails loudly at the write rather than
+    silently downstream.
+    """
+    typ = Type.scalar(declared) if isinstance(declared, ValueKind) else declared
+    if isinstance(value, TypedValue):
+        value = value.to_object()
+    return _build_for_type(typ, value)
+
+
+def _build_for_type(typ: Type, value: Any) -> TypedValue:
+    # nullable (Optional[X]) — a None value is accepted as NoneValue
+    if value is None and typ.nullable:
+        return NoneValue()
+
+    # variant — a tag-constrained string
+    if typ.tags is not None:
+        if not isinstance(value, str) or value not in typ.tags:
+            raise TypeCheckError(f"{value!r} is not a member of variant {sorted(typ.tags)}")
+        return StringValue(value=value)
+
+    # record — an object with declared field types (closed: all required, no unknowns)
+    if typ.fields is not None:
+        if not isinstance(value, dict):
+            raise TypeCheckError(f"{value!r} is not an object for a record type")
+        required = typ.required or frozenset()
+        missing = required - value.keys()
+        if missing:
+            raise TypeCheckError(f"record missing required fields: {sorted(missing)}")
+        unknown = value.keys() - typ.fields.keys()
+        if unknown:
+            raise TypeCheckError(f"record has unknown fields: {sorted(unknown)}")
+        for fname, fval in value.items():
+            _build_for_type(typ.fields[fname], fval)  # validates each field, raises on mismatch
+        return ObjectValue(value=value)
+
+    # list with a known element typ (incl. List[record])
+    if typ.kind.is_list() and typ.element is not None:
+        if not isinstance(value, (list, tuple)):
+            raise TypeCheckError(
+                f"{value!r} is not a list for declared {typ.kind.value}"
+            )
+        items = [_build_for_type(typ.element, item).to_object() for item in value]
+        return _LIST_VALUE_CLASS[typ.kind](value=items)
+
+    # plain scalar / flat list — the original behavior
+    return _build_scalar_or_list(typ.kind, value)
+
+
+def _build_scalar_or_list(declared: ValueKind, value: Any) -> TypedValue:
+    if declared.is_list():
+        if not isinstance(value, (list, tuple)):
+            raise TypeCheckError(f"{value!r} is not a list for declared {declared.value}")
+        items = list(value)
+        element = declared.element_kind
+        if element is not None:
+            for item in items:
+                if not _scalar_matches(element, item):
+                    raise TypeCheckError(
+                        f"list element {item!r} is not {element.value} "
+                        f"(declared {declared.value})"
+                    )
+            items = [_coerce_scalar(element, item) for item in items]
+        return _LIST_VALUE_CLASS[declared](value=items)
+
+    if not _scalar_matches(declared, value):
+        raise TypeCheckError(f"{value!r} does not match declared type {declared.value}")
+    return _SCALAR_VALUE_CLASS[declared](value=_coerce_scalar(declared, value))

@@ -2,10 +2,10 @@
 
 import pytest
 
-from agent_composer.state.segments import SegmentType
-from agent_composer.state.seeding import apply_defaults, coerce_inputs
+from agent_composer.typesys.values import ValueKind
+from agent_composer.typesys.seeding import apply_defaults, coerce_inputs
 from agent_composer.compose import LoadError
-from agent_composer.compose.shapes import InputDecl, read_flow_inputs
+from agent_composer.compose.types import InputDecl, read_flow_inputs
 
 
 def _by_name(decls):
@@ -17,14 +17,14 @@ def test_required_scalar():
     d = decls["topic"]
     assert d.required is True
     assert d.default is None
-    assert d.type == "str"
-    assert d.shape.seg_type == SegmentType.STRING
+    assert d.type_str == "str"
+    assert d.type.kind == ValueKind.STRING
 
 
 def test_int_with_default_and_coercion():
     decls = read_flow_inputs({"window": "int = 30"}, {})
     d = _by_name(decls)["window"]
-    assert d.type == "int"
+    assert d.type_str == "int"
     assert d.default == 30 and isinstance(d.default, int)
     assert d.required is False
     # coerce_inputs must coerce a passed numeric STRING through the canonical name
@@ -34,27 +34,27 @@ def test_int_with_default_and_coercion():
 
 def test_optional_nullable():
     d = _by_name(read_flow_inputs({"as_of": "Optional[date]"}, {}))["as_of"]
-    assert d.shape.nullable is True
+    assert d.type.nullable is True
     assert d.required is False
     assert d.default is None
 
 
 def test_float_default():
     d = _by_name(read_flow_inputs({"budget": "float = 1000.0"}, {}))["budget"]
-    assert d.type == "float"
+    assert d.type_str == "float"
     assert d.default == 1000.0 and isinstance(d.default, float)
 
 
 def test_list_default():
     d = _by_name(read_flow_inputs({"bundle": 'list[str] = ["ACME"]'}, {}))["bundle"]
-    assert d.shape.seg_type == SegmentType.LIST_STRING
+    assert d.type.kind == ValueKind.LIST_STRING
     assert d.default == ["ACME"]
     assert d.required is False
 
 
 def test_bare_word_string_default():
     d = _by_name(read_flow_inputs({"style": "str = relevance"}, {}))["style"]
-    assert d.type == "str"
+    assert d.type_str == "str"
     assert d.default == "relevance"
     assert d.required is False
 
@@ -66,12 +66,12 @@ def test_record_typed_dict_value():
             {},
         )
     )["config"]
-    assert d.shape.seg_type == SegmentType.OBJECT
-    assert d.shape.fields["regroup"].seg_type == SegmentType.BOOLEAN
-    bands = d.shape.fields["bands"]
-    assert bands.seg_type == SegmentType.OBJECT
-    assert bands.fields["lower"].seg_type == SegmentType.NUMBER
-    assert bands.fields["upper"].seg_type == SegmentType.NUMBER
+    assert d.type.kind == ValueKind.OBJECT
+    assert d.type.fields["regroup"].kind == ValueKind.BOOLEAN
+    bands = d.type.fields["bands"]
+    assert bands.kind == ValueKind.OBJECT
+    assert bands.fields["lower"].kind == ValueKind.NUMBER
+    assert bands.fields["upper"].kind == ValueKind.NUMBER
     assert d.default is None
     assert d.required is True
 

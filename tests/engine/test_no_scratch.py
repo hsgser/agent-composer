@@ -10,11 +10,11 @@ import importlib
 import inspect
 import pkgutil
 
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 def test_pool_has_no_scratch():
-    p = TypedVariablePool()
+    p = VariablePool()
     assert not hasattr(p, "scratch")
     assert not hasattr(p, "scratch_get") and not hasattr(p, "scratch_set")
 

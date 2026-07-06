@@ -8,7 +8,7 @@ the engine's authoring constraints (1..4 questions, unique headers).
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.typesys.values import Type, ValueKind
 
 
 class OptionSpec(BaseModel):
@@ -97,10 +97,10 @@ def parse_questions(raw) -> list[QuestionSpec]:
     return questions
 
 
-def question_list_shape() -> Shape:
-    """Build the typed `Shape` a synthesized compose-agent generates questions against.
+def question_list_type() -> Type:
+    """Build the typed `Type` a synthesized compose-agent generates questions against.
 
-    Mirrors `QuestionSpec`/`OptionSpec` in the engine's Shape vocabulary so the
+    Mirrors `QuestionSpec`/`OptionSpec` in the engine's Type vocabulary so the
     structured-output model emits a `list` of question records:
 
         LIST_OBJECT element = OBJECT{
@@ -114,25 +114,25 @@ def question_list_shape() -> Shape:
     it (rather than dropping the helper text).
 
     Returns:
-        `Shape`:
+        `Type`:
             A `LIST_OBJECT` shape whose `element` is the question record above.
     """
-    option_record = Shape(
-        seg_type=SegmentType.OBJECT,
+    option_record = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "label": Shape.scalar(SegmentType.STRING),
-            "description": Shape.scalar(SegmentType.STRING),
+            "label": Type.scalar(ValueKind.STRING),
+            "description": Type.scalar(ValueKind.STRING),
         },
         required=frozenset({"label", "description"}),
     )
-    question_record = Shape(
-        seg_type=SegmentType.OBJECT,
+    question_record = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "question": Shape.scalar(SegmentType.STRING),
-            "header": Shape.scalar(SegmentType.STRING),
-            "options": Shape(seg_type=SegmentType.LIST_OBJECT, element=option_record),
-            "multi_select": Shape.scalar(SegmentType.BOOLEAN),
+            "question": Type.scalar(ValueKind.STRING),
+            "header": Type.scalar(ValueKind.STRING),
+            "options": Type(kind=ValueKind.LIST_OBJECT, element=option_record),
+            "multi_select": Type.scalar(ValueKind.BOOLEAN),
         },
         required=frozenset({"question", "header"}),
     )
-    return Shape(seg_type=SegmentType.LIST_OBJECT, element=question_record)
+    return Type(kind=ValueKind.LIST_OBJECT, element=question_record)

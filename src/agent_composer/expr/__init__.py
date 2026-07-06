@@ -14,7 +14,7 @@ The engine is three layers, all pool-agnostic (they take a `resolve` callable):
 Flow invocation is NO LONGER a `${...}` construct — it is the compile-time
 whole-value `call(...)` directive (in `compose.calls`), not part of this engine.
 
-Knows about:   `state` (the pool, in `expressions`).
+Knows about:   `typesys` (the pool, in `expressions`).
 Never imports: `nodes`, `compile`, `runtime`, `suspension` (they import IT).
 """
 

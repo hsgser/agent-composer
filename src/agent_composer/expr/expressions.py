@@ -1,7 +1,7 @@
 """`${...}` reference resolution + the `when:` boolean expression evaluator.
 
 Ported from the legacy engine's lark grammar, with one change: variable
-resolution now goes through `TypedVariablePool.resolve`, so it reads typed
+resolution now goes through `VariablePool.resolve`, so it reads typed
 segments (and can traverse into object outputs — `${x.output.output.ratio}` —
 which the old dict-of-str pool could not).
 
@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from lark import Token, Tree
 
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 
 
 class ExpressionError(ValueError):
@@ -32,7 +32,7 @@ _VAR_RE = re.compile(r"\$\{([^}]+)\}")
 _NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
 
-def resolve_reference(path: str, pool: TypedVariablePool) -> Any:
+def resolve_reference(path: str, pool: VariablePool) -> Any:
     """Resolve a `${path}` reference against the pool (missing -> None)."""
     parts = [p for p in path.strip().split(".")]
     if not parts or any(not p for p in parts):
@@ -57,7 +57,7 @@ def _resolve_in_record(path: str, record: dict) -> Any:
     return value
 
 
-def render_template(text: str, pool: TypedVariablePool) -> str:
+def render_template(text: str, pool: VariablePool) -> str:
     """Substitute every `${ref}` in `text` with its resolved value (str), against
     the whole pool (`node`/`system` namespaces).
 
@@ -212,7 +212,7 @@ def _evaluate(expression: str, resolve: Callable[[str], Any]) -> bool:
     return bool(eval_expr(tree, resolve, mode=ResolveMode.CONDITION_FALSY))
 
 
-def evaluate_when(expression: str, pool: TypedVariablePool) -> bool:
+def evaluate_when(expression: str, pool: VariablePool) -> bool:
     """
     Evaluate a `when:` boolean expression against the variable pool.
 
@@ -231,7 +231,7 @@ def evaluate_when(expression: str, pool: TypedVariablePool) -> bool:
         expression (`str`):
             The `when:` source — any expression the unified grammar accepts, in any of the
             three brace spellings above.
-        pool (`TypedVariablePool`):
+        pool (`VariablePool`):
             The variable pool each reference resolves against (`node`/`system` namespaces).
             A reference that resolves to `None` participates as a falsy value.
 
@@ -252,7 +252,7 @@ def evaluate_when(expression: str, pool: TypedVariablePool) -> bool:
     return _evaluate(expression, lambda path: resolve_reference(path, pool))
 
 
-def first_failing_assert(exprs, pool: TypedVariablePool):
+def first_failing_assert(exprs, pool: VariablePool):
     """The first assert expression in `exprs` that is false against `pool`, else None.
 
     The shared enforcement primitive for a flow's `asserts:` (boundary or post): `run_flow`

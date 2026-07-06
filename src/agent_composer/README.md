@@ -25,7 +25,7 @@ shape of it:
 ## Layout
 
 ```
-state/        typed value system (segments) + variable pool              [leaf, no deps]
+typesys/      typed value system (values) + variable pool                 [leaf, no deps]
 events.py     run + node event vocabulary
 expr/         one ${...} expression grammar: parse -> AST -> evaluate / ref-walk on the pool
 nodes/        Node contract (base) + per-kind implementations
@@ -33,7 +33,7 @@ nodes/        Node contract (base) + per-kind implementations
                loop, human_input, wait)
 compile/      compiled IR (CompiledFlow) + representation-neutral validation
 compose/      the Compose-YAML loader: text -> CompiledFlow
-              (parser/shapes/build/cases/validate/asserts/loader/run)
+              (parser/types/build/cases/validate/asserts/loader/run)
 runtime/      state_manager, single-threaded engine, parallel worker pool
 suspension/   pause reasons, commands, checkpoint
 llm_clients/  provider clients (lazy-imported) + LLMConfig + model_from_config
@@ -42,6 +42,6 @@ cli/          the `ac` command-line entry point
 _settings.py  env-based default provider/model
 ```
 
-Import direction (acyclic): `events <- state <- nodes <- compile <- compose`,
-with `compile`/`state`/`nodes`/`expr` feeding `compose` (the front-end that reads
+Import direction (acyclic): `events <- typesys <- nodes <- compile <- compose`,
+with `compile`/`typesys`/`nodes`/`expr` feeding `compose` (the front-end that reads
 YAML into the IR), `expr` feeding nodes, and `suspension` feeding runtime.

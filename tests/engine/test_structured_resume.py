@@ -1,8 +1,8 @@
 """Structured AGENT output survives an `ask_user` pause/resume.
 
 A `tool_calling` agent that declares a non-text `output:` AND pauses on `ask_user` must
-still emit the declared shape on its resumed final-answer turn — the continuation node must
-carry the spawner's `output_shape` (and `retries`), or the resumed answer is plain text and
+still emit the declared type on its resumed final-answer turn — the continuation node must
+carry the spawner's `output_type` (and `retries`), or the resumed answer is plain text and
 the write boundary rejects it.
 """
 
@@ -19,7 +19,7 @@ from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.typesys.values import Type, ValueKind
 from agent_composer.suspension.pause import HumanInputRequired
 
 
@@ -56,12 +56,12 @@ class _StructuredAskChat:
         return _Bound()
 
 
-def _record_shape():
-    return Shape(
-        seg_type=SegmentType.OBJECT,
+def _record_type():
+    return Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "name": Shape.scalar(SegmentType.STRING),
-            "score": Shape.scalar(SegmentType.INTEGER),
+            "name": Type.scalar(ValueKind.STRING),
+            "score": Type.scalar(ValueKind.INTEGER),
         },
         required=frozenset({"name", "score"}),
     )
@@ -74,7 +74,7 @@ def test_structured_output_survives_ask_user_resume(monkeypatch):
     node = AgentNode(
         "agent", prompt="go", controls=["ask_user"], llm_config=LLMConfig(), mode="tool_calling"
     )
-    node.output_shape = _record_shape()
+    node.output_type = _record_type()
     graph = CompiledFlow.from_parts(
         {
             "agent": node,

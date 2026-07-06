@@ -30,7 +30,7 @@ NOT a binding (it reads already-bound declared inputs, mints no edge), but it is
 
 Knows about: `expr.expressions` (peer — `_parse_literal`, `ExpressionError`) and
 `expr.builtins` (the prompt `TEMPLATE_FNS` registry).
-Never imports: `nodes`, `compile`, `runtime`, `state` (pool-agnostic via `resolve`).
+Never imports: `nodes`, `compile`, `runtime`, `typesys` (pool-agnostic via `resolve`).
 """
 
 from __future__ import annotations
@@ -671,7 +671,7 @@ def _reject_unknown_prompt_builtin(tree: Tree | Token) -> None:
 # `"stance (positive|negative|neutral)"` safe. Only span interiors go through
 # `parse_expr`. `$$` -> a literal `$` everywhere (the universal-escape decision).
 #
-# The `Segment` types (`Literal` / `Span`) carry a `parse_expr` Lark tree per span —
+# The `TypedValue` types (`Literal` / `Span`) carry a `parse_expr` Lark tree per span —
 # there is ONE grammar for a span interior, shared with conditions and prompts.
 # --------------------------------------------------------------------------- #
 
@@ -693,13 +693,13 @@ class Span:
     tree: Tree | Token
 
 
-# A template Segment is a literal run OR a parsed `${...}` span.
-Segment = Union[Literal, Span]
+# A template TypedValue is a literal run OR a parsed `${...}` span.
+TypedValue = Union[Literal, Span]
 
 
-def scan_template(text: str) -> list[Segment]:
+def scan_template(text: str) -> list[TypedValue]:
     """
-    Scan a template string into a list of `Segment`s — literal runs + `${...}` spans.
+    Scan a template string into a list of `TypedValue`s — literal runs + `${...}` spans.
 
     Splits `text` on `${...}` spans, parsing ONLY each span's interior via
     `expr.grammar.parse_expr`. Literal text between spans is kept RAW (with `$$`
@@ -712,7 +712,7 @@ def scan_template(text: str) -> list[Segment]:
             The template source: literal text interspersed with `${...}` spans.
 
     Returns:
-        `list[Segment]`:
+        `list[TypedValue]`:
             The ordered segments — a [`Literal`][agent_composer.expr.template.Literal]
             per literal run and a [`Span`][agent_composer.expr.template.Span] per
             `${...}` (interior already parsed). Adjacent literal runs are never
@@ -780,7 +780,7 @@ def eval_template(
     no segments at all) returns `""`.
 
     Args:
-        segments (`list[Segment]`):
+        segments (`list[TypedValue]`):
             The scan from [`scan_template`][agent_composer.expr.template.scan_template].
         resolve (`Callable[[str], Any]`):
             Resolves a reference path to its value (pool-agnostic seam); a path it
@@ -823,7 +823,7 @@ def template_refs(segments: list) -> list[str]:
     ref-walk caller (`expr_refs_of`, `prompt_refs`) sees.
 
     Args:
-        segments (`list[Segment]`):
+        segments (`list[TypedValue]`):
             The scan from [`scan_template`][agent_composer.expr.template.scan_template].
 
     Returns:

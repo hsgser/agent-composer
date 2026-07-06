@@ -1,18 +1,18 @@
 import pytest
 
 from agent_composer.compile.model import START_ID
-from agent_composer.compose.shapes import InputDecl
+from agent_composer.compose.types import InputDecl
 from agent_composer.nodes.base import NodeKind, Output
 from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.eval_node import eval_node
-from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import ValueKind, Type
 
 
-def _decl(name, type_, default=None, required=False, shape=None):
+def _decl(name, type_, default=None, required=False, typ=None):
     return InputDecl(name, type_, default, required,
-                     shape or Shape.scalar(SegmentType.STRING))
+                     typ or Type.scalar(ValueKind.STRING))
 
 
 def test_start_kind_and_params_are_input_names():
@@ -29,18 +29,18 @@ def test_start_run_coerces_defaults_into_a_record():
     node = StartNode("__start__", input_decls=[
         _decl("topic", "str"),
         _decl("window", "int", default="30",
-              shape=Shape.scalar(SegmentType.INTEGER)),
-        _decl("offset", "int", shape=Shape.scalar(SegmentType.INTEGER)),
+              typ=Type.scalar(ValueKind.INTEGER)),
+        _decl("offset", "int", typ=Type.scalar(ValueKind.INTEGER)),
     ])
     out = node.run({"topic": "ACME", "offset": "7"})
     assert isinstance(out, Output)
     assert out.value == {"topic": "ACME", "offset": 7, "window": 30}  # OBJECT keyed by input name
 
 
-def test_start_e08_shape_mismatch_raises_located_message():
-    # a value violating the declared shape raises the byte-stable located string.
+def test_start_e08_type_mismatch_raises_located_message():
+    # a value violating the declared type raises the byte-stable located string.
     node = StartNode("__start__", input_decls=[
-        _decl("n", "int", required=True, shape=Shape.scalar(SegmentType.INTEGER)),
+        _decl("n", "int", required=True, typ=Type.scalar(ValueKind.INTEGER)),
     ])
     with pytest.raises(Exception, match=r"input `n` — .*does not match declared type int"):
         node.run({"n": ["not", "an", "int"]})
@@ -53,7 +53,7 @@ def test_start_through_eval_node_binds_from_wiring():
 
     from agent_composer.events import NodeSucceeded
     node = StartNode("__start__", input_decls=[_decl("topic", "str")])
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topic": "ACME"})  # the seed-stand-in source the wiring points at
     flow = SimpleNamespace(wiring={"__start__": {"topic": "${input.topic}"}})
     events = list(eval_node(node, flow, pool))
@@ -71,9 +71,9 @@ def test_start_through_eval_node_fills_omitted_default():
     from agent_composer.events import NodeSucceeded
     node = StartNode("__start__", input_decls=[
         _decl("topic", "str"),
-        _decl("window", "int", default="30", shape=Shape.scalar(SegmentType.INTEGER)),
+        _decl("window", "int", default="30", typ=Type.scalar(ValueKind.INTEGER)),
     ])
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topic": "ACME"})
     # wiring binds ONLY topic — `window` has NO edge (the parent omitted it).
     flow = SimpleNamespace(wiring={"__start__": {"topic": "${input.topic}"}})
@@ -89,9 +89,9 @@ def test_start_through_eval_node_required_unbound_fails():
 
     from agent_composer.events import NodeFailed
     node = StartNode("__start__", input_decls=[
-        _decl("n", "int", required=True, shape=Shape.scalar(SegmentType.INTEGER)),
+        _decl("n", "int", required=True, typ=Type.scalar(ValueKind.INTEGER)),
     ])
-    pool = TypedVariablePool()
+    pool = VariablePool()
     flow = SimpleNamespace(wiring={"__start__": {}})  # nothing bound
     events = list(eval_node(node, flow, pool))
     assert any(isinstance(e, NodeFailed) for e in events)

@@ -1,8 +1,8 @@
-"""`plain` mode — native structured output when the node declares a non-text shape."""
+"""`plain` mode — native structured output when the node declares a non-text type."""
 
 from agent_composer.nodes.agent.modes.common import AgentRunContext
 from agent_composer.nodes.agent.modes.plain import plain
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.typesys.values import Type, ValueKind
 
 
 class _StructuredModel:
@@ -19,20 +19,20 @@ class _StructuredModel:
         return _Bound()
 
     def invoke(self, msgs):
-        raise AssertionError("should use with_structured_output for a declared shape")
+        raise AssertionError("should use with_structured_output for a declared type")
 
 
 def test_plain_uses_structured_output_for_record():
-    shape = Shape(
-        seg_type=SegmentType.OBJECT,
+    typ = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "name": Shape.scalar(SegmentType.STRING),
-            "score": Shape.scalar(SegmentType.INTEGER),
+            "name": Type.scalar(ValueKind.STRING),
+            "score": Type.scalar(ValueKind.INTEGER),
         },
         required=frozenset({"name", "score"}),
     )
     model = _StructuredModel()
-    ctx = AgentRunContext(node_id="a", prompt="x", model=model, output_shape=shape)
+    ctx = AgentRunContext(node_id="a", prompt="x", model=model, output_type=typ)
     out = plain(ctx)
     assert out.value == {"name": "Ada", "score": 9}  # a plain dict, not a pydantic obj
 
@@ -48,6 +48,6 @@ class _TextModel:
 def test_plain_bare_str_text_passthrough():
     ctx = AgentRunContext(
         node_id="a", prompt="x", model=_TextModel(),
-        output_shape=Shape.scalar(SegmentType.STRING),
+        output_type=Type.scalar(ValueKind.STRING),
     )
     assert plain(ctx).value == "hello"  # unchanged behavior

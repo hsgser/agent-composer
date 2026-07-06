@@ -5,12 +5,12 @@ codomain, and name/arity-checks bindings. (End-to-end RUN lives in test_ref_run.
 test_map.py; the cross-flow type check e06 in test_errors.py.) These assert:
 
 - seed 03 (`research-one`) loads as a child flow (its `LoadedFlow` exposes a
-  resolvable child SIGNATURE — declared `InputDecl`s + the single codomain `Shape`);
+  resolvable child SIGNATURE — declared `InputDecl`s + the single codomain `Type`);
 - seed 04 (a plain `call` over 03) loads+compiles; the built `CallNode` (REF)
-  `output_shape` re-exports the child's single codomain `Shape` (a `{report, asof}` record)
+  `output_type` re-exports the child's single codomain `Type` (a `{report, asof}` record)
   via the test-local child resolver;
 - seed 05 (a `map` over 03) loads+compiles; the built `MapNode` (`kind: map`)
-  `output_shape == list[<child codomain>]` (a `LIST_OBJECT` of the record) and `parallel=True`;
+  `output_type == list[<child codomain>]` (a `LIST_OBJECT` of the record) and `parallel=True`;
 - a `call` binding to a non-declared callable input → loud `LoadError`;
 - a `map` whose callable has no codomain (≠1 declared output value) → loud `LoadError`;
 - a flow with a `call` but no resolver → loud `LoadError`.
@@ -22,7 +22,7 @@ import pytest
 
 from agent_composer.nodes.call import CallNode   # nodes/call/__init__.py
 from agent_composer.nodes.map import MapNode
-from agent_composer.state.segments import SegmentType
+from agent_composer.typesys.values import ValueKind
 from agent_composer.compose import LoadedFlow, LoadError, load_flow
 from agent_composer.compose.build import ChildSignature, child_signature
 
@@ -63,12 +63,12 @@ def test_seed03_loads_as_child_flow():
     assert names == {"topic", "as_of"}
     # the single codomain value: a {report, asof} record (>=2 outputs -> closed record).
     assert sig.output is not None
-    assert sig.output.seg_type == SegmentType.OBJECT
+    assert sig.output.kind == ValueKind.OBJECT
     assert set(sig.output.fields) == {"report", "asof"}
 
 
 # --------------------------------------------------------------------------- #
-# seed 04 — REF loads + the REF node re-exports the child's codomain Shape
+# seed 04 — REF loads + the REF node re-exports the child's codomain Type
 # --------------------------------------------------------------------------- #
 
 
@@ -80,11 +80,11 @@ def test_seed04_ref_loads_and_reexports_child_output():
     assert not hasattr(research, "over")               # REF carries no over/parallel
     assert not hasattr(research, "parallel")
     assert research.flow_id == "research-one"
-    # output_shape re-exports the child's single codomain (the {report, asof} record).
-    shape = research.output_shape
-    assert shape is not None
-    assert shape.seg_type == SegmentType.OBJECT
-    assert set(shape.fields) == {"report", "asof"}
+    # output_type re-exports the child's single codomain (the {report, asof} record).
+    typ = research.output_type
+    assert typ is not None
+    assert typ.kind == ValueKind.OBJECT
+    assert set(typ.fields) == {"report", "asof"}
     # the REF sources live on flow.wiring; the node carries only the param names.
     assert loaded.compiled.wiring["research"] == {"topic": "${input.topic}"}
     assert [p.name for p in research.params] == ["topic"]
@@ -92,7 +92,7 @@ def test_seed04_ref_loads_and_reexports_child_output():
 
 def test_seed04_downstream_dotted_ref_validates_against_child_record():
     # `take` reads ${research.output.report}/${research.output.asof}; the REF node's
-    # stamped output_shape (a CHECKED record) lets the dotted-field walk pass (not loud).
+    # stamped output_type (a CHECKED record) lets the dotted-field walk pass (not loud).
     loaded = load_flow(_text("04-call.yaml"), search_paths=[_SEEDS])
     assert loaded.compiled.wiring["take"] == {
         "brief": "${research.output.report}",
@@ -101,7 +101,7 @@ def test_seed04_downstream_dotted_ref_validates_against_child_record():
 
 
 # --------------------------------------------------------------------------- #
-# seed 05 — MAP loads + output_shape == list[<child codomain>], parallel=True
+# seed 05 — MAP loads + output_type == list[<child codomain>], parallel=True
 # --------------------------------------------------------------------------- #
 
 
@@ -114,12 +114,12 @@ def test_seed05_map_loads_with_list_output_and_parallel():
     assert research_each.flow_id == "research-one"
     assert research_each.parallel is True
     assert research_each.title == "Research each topic"  # node_name -> title
-    # output_shape = list[<child codomain>] -> a LIST_OBJECT (element = the record).
-    shape = research_each.output_shape
-    assert shape is not None
-    assert shape.seg_type == SegmentType.LIST_OBJECT
-    assert shape.element.seg_type == SegmentType.OBJECT
-    assert set(shape.element.fields) == {"report", "asof"}
+    # output_type = list[<child codomain>] -> a LIST_OBJECT (element = the record).
+    typ = research_each.output_type
+    assert typ is not None
+    assert typ.kind == ValueKind.LIST_OBJECT
+    assert typ.element.kind == ValueKind.OBJECT
+    assert set(typ.element.fields) == {"report", "asof"}
     # the MAP sources (incl the reserved `over`, over-first) live on flow.wiring; the node
     # carries only the per-element param names (`over:` is the iteration source, not a param).
     assert loaded.compiled.wiring["research_each"] == {

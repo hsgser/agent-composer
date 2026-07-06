@@ -193,7 +193,7 @@ class AgentNode(Node):
             controls=list(self.controls),
             model=self._build_model(llm),
             llm_config=self.llm_config,
-            output_shape=self.output_shape,
+            output_type=self.output_type,
             retries=self.retries,
         )
 
@@ -237,7 +237,7 @@ class AgentNode(Node):
         `agent_segment_subgraph` builder — no LLM turn re-run. The seed is re-validated through the
         `AgentSegment` schema so the re-entry frame keeps its round-trip validation. For a K-pause
         chain each segment's resume terminal becomes the next segment's spawner, so `callsite`/
-        `output_shape` come off THIS node (the previous segment's terminal on segment 2+)."""
+        `output_type` come off THIS node (the previous segment's terminal on segment 2+)."""
         from agent_composer.compile.expand import agent_segment_subgraph
         from agent_composer.suspension.expansions import AgentSegment
 
@@ -245,6 +245,6 @@ class AgentNode(Node):
         return agent_segment_subgraph(
             [seg.hi_desc, seg.resume_desc],
             callsite=self.id,
-            output_shape=self.output_shape,
+            output_type=self.output_type,
             retries=self.retries,
         )

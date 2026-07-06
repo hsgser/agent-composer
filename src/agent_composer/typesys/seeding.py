@@ -8,7 +8,7 @@ the inherited `pool.system` (`${system.today}`/`${system.now}`) — there is no 
 
 Lives in the engine layer so the nodes can import it without an import-direction
 inversion. It is spec-free at runtime — it duck-types the declared-input decls
-(`.name`/`.type`/`.default`); the `InputDecl` it operates on is the Compose loader's.
+(`.name`/`.type_str`/`.default`); the `InputDecl` it operates on is the Compose loader's.
 """
 
 from __future__ import annotations
@@ -18,11 +18,11 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:  # pragma: no cover - typing only (keeps state import-clean)
-    from agent_composer.state.pool import TypedVariablePool
+    from agent_composer.typesys.pool import VariablePool
 
 
 def coerce_param(field: Any, value: Any) -> Any:
-    """Coerce a raw (usually string) input to the flow input's declared `type`.
+    """Coerce a raw (usually string) input to the flow input's declared `type_str`.
 
     Only the unambiguous scalar types are coerced; string/topics/object pass
     through as-entered. Invalid numbers/bools fall back to the raw value rather
@@ -32,11 +32,11 @@ def coerce_param(field: Any, value: Any) -> Any:
         return value
     raw = value.strip()
     try:
-        if field.type == "int":
+        if field.type_str == "int":
             return int(raw)
-        if field.type == "float":
+        if field.type_str == "float":
             return float(raw)
-        if field.type == "bool":
+        if field.type_str == "bool":
             return raw.lower() in ("1", "true", "yes", "y", "on")
     except ValueError:
         return value
@@ -91,7 +91,7 @@ def default_run_id() -> str:
     return uuid.uuid4().hex
 
 
-def seed_system_clock(pool: "TypedVariablePool") -> None:
+def seed_system_clock(pool: "VariablePool") -> None:
     """Seed the host-ambient clock into the pool's `system` namespace, once per run.
 
     `${system.today}` is a `date`; `${system.now}` a `datetime`. Computed once here and
@@ -99,7 +99,7 @@ def seed_system_clock(pool: "TypedVariablePool") -> None:
     and MAP element observes one consistent clock. The clock is the only seam through
     which a flow may read "now" (the engine never resolves date words).
     """
-    from agent_composer.state.segments import DateSegment, DateTimeSegment
+    from agent_composer.typesys.values import DateValue, DateTimeValue
 
-    pool.system["today"] = DateSegment(value=today_utc())
-    pool.system["now"] = DateTimeSegment(value=now_utc())
+    pool.system["today"] = DateValue(value=today_utc())
+    pool.system["now"] = DateTimeValue(value=now_utc())

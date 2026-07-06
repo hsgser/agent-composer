@@ -1,6 +1,6 @@
-"""TypedVariablePool — the runtime state primitive for a flow run.
+"""VariablePool — the runtime state primitive for a flow run.
 
-A node produces exactly ONE value: `store[node_id]` is a single typed `Segment`
+A node produces exactly ONE value: `store[node_id]` is a single typed `TypedValue`
 (scalar, object, or list) — "multiple outputs" are fields of one object. `${input.X}`
 resolves to `store[<start_id>].X` — the synthesized START_ID node's committed bound-input
 record IS the flow's run-arguments object (the standalone `inputs` namespace is
@@ -14,7 +14,7 @@ Two responsibilities:
   are typed objects (not stringified), `${x.output.ratio}` traverses into an
   object output; `${x.output}` is the node's whole value.
 - `dumps()/loads()` serialize the whole pool losslessly (the discriminated
-  `AnySegment` union round-trips each value's exact type), which is the state
+  `AnyValue` union round-trips each value's exact type), which is the state
   half of a durable checkpoint.
 """
 
@@ -22,17 +22,17 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_composer.state.segments import (
-    AnySegment,
-    Segment,
-    SegmentType,
-    Shape,
-    build_segment,
-    build_segment_with_type,
+from agent_composer.typesys.values import (
+    AnyValue,
+    TypedValue,
+    ValueKind,
+    Type,
+    build_value,
+    build_value_as,
 )
 
 
-class TypedVariablePool(BaseModel):
+class VariablePool(BaseModel):
     """
     The runtime variable store for one flow run.
 
@@ -42,10 +42,10 @@ class TypedVariablePool(BaseModel):
     serializes losslessly for a durable checkpoint.
 
     Attributes:
-        store (`dict[str, AnySegment]`):
+        store (`dict[str, AnyValue]`):
             Map of node id to that node's single produced value, as a discriminated
-            `Segment`. Read via `${<id>.output[.path]}`.
-        system (`dict[str, AnySegment]`):
+            `TypedValue`. Read via `${<id>.output[.path]}`.
+        system (`dict[str, AnyValue]`):
             Host-injected ambient namespace (run id / clock / tenant); reserved and
             run-global. Read via `${system.<key>}`.
         start_id (`str`, *optional*, defaults to `"__start__"`):
@@ -57,14 +57,14 @@ class TypedVariablePool(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # node_id -> the node's single produced value (${<id>.output[.path]})
-    store: dict[str, AnySegment] = Field(default_factory=dict)
+    store: dict[str, AnyValue] = Field(default_factory=dict)
     # ${system.<key>}  — host-injected ambient (run id / clock / tenant); reserved
-    system: dict[str, AnySegment] = Field(default_factory=dict)
+    system: dict[str, AnyValue] = Field(default_factory=dict)
     # The enclosing flow's START_ID node id: `${input.X}` ≡ `store[start_id].X`. The
     # engine sets this per-flow (and seeds store[start_id] with the bound input record); the
     # default below is the top-level convention used by standalone/no-engine pools. The literal
-    # MIRRORS `StartNode.ID` but is NOT imported from it: `state` is a leaf below `nodes`, so it
-    # cannot import the node class. A consistency test pins `TypedVariablePool().start_id ==
+    # MIRRORS `StartNode.ID` but is NOT imported from it: `typesys` is a leaf below `nodes`, so it
+    # cannot import the node class. A consistency test pins `VariablePool().start_id ==
     # StartNode.ID` so the two can never silently diverge.
     start_id: str = "__start__"
 
@@ -74,22 +74,22 @@ class TypedVariablePool(BaseModel):
         self,
         node_id: str,
         value: Any,
-        declared: Optional[Union[SegmentType, Shape]] = None,
+        declared: Optional[Union[ValueKind, Type]] = None,
     ) -> None:
-        """Store a node's single produced value. `declared` (a SegmentType or
-        structural Shape) enables the write-time type/shape check."""
+        """Store a node's single produced value. `declared` (a ValueKind or
+        structural Type) enables the write-time type check."""
         self.store[node_id] = (
-            build_segment_with_type(declared, value)
+            build_value_as(declared, value)
             if declared is not None
-            else build_segment(value)
+            else build_value(value)
         )
 
     def add_system(self, key: str, value: Any) -> None:
-        self.system[key] = build_segment(value)
+        self.system[key] = build_value(value)
 
     # --- reads -------------------------------------------------------------- #
 
-    def get_segment(self, node_id: str) -> Optional[Segment]:
+    def get_value(self, node_id: str) -> Optional[TypedValue]:
         return self.store.get(node_id)
 
     def get(self, node_id: str, default: Any = None) -> Any:
@@ -133,8 +133,8 @@ class TypedVariablePool(BaseModel):
         return None
 
     @staticmethod
-    def _traverse(seg: Optional[AnySegment], path: list[str]) -> Any:
-        """Object-walk a stored Segment along `path` (the `${<id>.output.a.b}` /
+    def _traverse(seg: Optional[AnyValue], path: list[str]) -> Any:
+        """Object-walk a stored TypedValue along `path` (the `${<id>.output.a.b}` /
         `${input.x.y}` dotted read); a missing step resolves to None (propagates falsy)."""
         if seg is None:
             return None
@@ -151,5 +151,5 @@ class TypedVariablePool(BaseModel):
         return self.model_dump_json()
 
     @classmethod
-    def loads(cls, blob: str) -> "TypedVariablePool":
+    def loads(cls, blob: str) -> "VariablePool":
         return cls.model_validate_json(blob)

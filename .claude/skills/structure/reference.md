@@ -19,18 +19,18 @@ __all__ = ["<PublicName>"]
 
 ## Real example (from this repo)
 
-`src/agent_composer/state/__init__.py` — the typed value system + variable pool,
+`src/agent_composer/typesys/__init__.py` — the typed value system + variable pool,
 the engine's leaf layer (it imports nothing else in the engine; `nodes`,
 `compile`, `compose`, and `runtime` import *it*, never the reverse):
 
 ```python
-"""Typed runtime state: the segment value system + the variable pool."""
+"""Typed runtime state: the typed value system + the variable pool."""
 
-from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import Segment, build_segment
-# … (the full module re-exports the segment + type surface)
+from agent_composer.typesys.pool import VariablePool
+from agent_composer.typesys.values import TypedValue, build_value
+# … (the full module re-exports the typed value + type surface)
 
-__all__ = ["Segment", "TypedVariablePool", "build_segment"]
+__all__ = ["TypedValue", "VariablePool", "build_value"]
 ```
 
 The worked top-level charter — with the full leaf-to-root layer diagram and the

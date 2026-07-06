@@ -20,11 +20,11 @@ its single run; the engine delivers the answer — no re-run.
 from typing import Any, Optional
 
 from agent_composer.nodes.base import Node, NodeKind, Pause
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 from agent_composer.suspension.pause import EventAwaited, ScheduledPause
 
 
-def resolve_until(until_src: Any, pool: TypedVariablePool) -> str:
+def resolve_until(until_src: Any, pool: VariablePool) -> str:
     """Resolve a WAIT `until` source to an ISO timestamp string.
 
     A `${...}` binding (or a literal) is evaluated against the pool; `date`/`datetime` segments

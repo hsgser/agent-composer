@@ -1,6 +1,6 @@
 """Representation-neutral graph + reference leaf checkers.
 
-These operate on bare `Shape`/`Edge`/path-set inputs (never a `FlowSpec`), so the
+These operate on bare `Type`/`Edge`/path-set inputs (never a `FlowSpec`), so the
 Compose loader (`agent_composer.compose`) reuses them directly:
 
 - `_reject_cycles` — Kahn's-algorithm cycle check over a bare edge list + node-id set.
@@ -14,7 +14,7 @@ and re-raises as a located `LoadError`.
 
 
 from agent_composer.compile.model import END_ID, START_ID
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.typesys.values import ValueKind, Type
 
 _CLOSED_HEADS = ()              # `outputs` is no longer a head; node-first head dispatch
 _SYSTEM_AMBIENTS = ("today", "now", "run_id")  # the ONLY valid ${system.X} ambients
@@ -72,17 +72,17 @@ def _reject_cycles(edges: "list", node_ids: set[str]) -> None:
         raise FlowValidationError(f"flow has a cycle involving {stuck}; flows must be acyclic")
 
 
-def shapes_compatible(source: Shape, sink: Shape) -> bool:
+def types_compatible(source: Type, sink: Type) -> bool:
     """Structural compatibility (C-EQUIV) of a SOURCE value type with a SINK slot.
 
-    Same `seg_type` (with int->number widening, mirroring `_coerce_scalar`); records
+    Same `kind` (with int->number widening, mirroring `_coerce_scalar`); records
     match structurally (every field the sink REQUIRES is present + compatible); enums by
     tag-subset (source tags within the sink's accepted tags); a nullable source cannot
     fill a non-nullable sink."""
     if source.nullable and not sink.nullable:
         return False
-    if source.seg_type != sink.seg_type:
-        if not (sink.seg_type == SegmentType.NUMBER and source.seg_type == SegmentType.INTEGER):
+    if source.kind != sink.kind:
+        if not (sink.kind == ValueKind.NUMBER and source.kind == ValueKind.INTEGER):
             return False
     if sink.fields is not None:
         if source.fields is None:
@@ -90,8 +90,8 @@ def shapes_compatible(source: Shape, sink: Shape) -> bool:
         for fname in (sink.required or frozenset()):
             if fname not in source.fields:
                 return False
-        for fname, fshape in sink.fields.items():
-            if fname in source.fields and not shapes_compatible(source.fields[fname], fshape):
+        for fname, ftyp in sink.fields.items():
+            if fname in source.fields and not types_compatible(source.fields[fname], ftyp):
                 return False
     if sink.tags is not None and source.tags is not None:
         if not source.tags <= sink.tags:
@@ -99,18 +99,18 @@ def shapes_compatible(source: Shape, sink: Shape) -> bool:
     return True
 
 
-def _walk_record_fields(shape: "Shape | None", fields: list, path: str) -> "str | None":
-    """Walk a dotted field path into a producer's record `Shape` (the e03 mechanism).
+def _walk_record_fields(typ: "Type | None", fields: list, path: str) -> "str | None":
+    """Walk a dotted field path into a producer's record `Type` (the e03 mechanism).
 
-    Only a CHECKED record (`shape.fields` is not None) is walked; a scalar / opaque /
+    Only a CHECKED record (`typ.fields` is not None) is walked; a scalar / opaque /
     unresolved producer stays lenient (dotted access allowed, unchecked). An absent
     field on a checked record is a located compile error."""
     for f in fields:
-        if shape is None or shape.fields is None:
+        if typ is None or typ.fields is None:
             return None  # opaque / not a checked record -> lenient
-        if f not in shape.fields:
+        if f not in typ.fields:
             return f"reference ${{{path}}} reads unknown field {f!r} on record"
-        shape = shape.fields[f]
+        typ = typ.fields[f]
     return None
 
 
@@ -119,7 +119,7 @@ def _classify_path(
     valid_targets: set[str],
     flow_inputs: set[str],
     extra_heads: tuple = (),
-    producers: "dict[str, Shape] | None" = None,
+    producers: "dict[str, Type] | None" = None,
 ) -> "str | None":
     """Return an error message for a bad reference path, or None if acceptable.
 
@@ -169,6 +169,6 @@ def _classify_path(
                 f"reference ${{{path}}} on node {head!r} must be {head}.output[.field] "
                 f"(`.output` is the node-value selector)"
             )
-        # e03 dotted-field walk into the producer's record Shape, starting at parts[2:].
+        # e03 dotted-field walk into the producer's record Type, starting at parts[2:].
         return _walk_record_fields((producers or {}).get(head), parts[2:], path)
     return f"reference ${{{path}}} uses unknown namespace {head!r}"

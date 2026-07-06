@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from agent_composer.compile.model import END_ID, START_ID
-from agent_composer.state.types import read_typedefs
+from agent_composer.typesys.types import read_typedefs
 from agent_composer.compose import LoadError
 from agent_composer.compose.build import (
     build_leaf_node,

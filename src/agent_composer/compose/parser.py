@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agent_composer.compose.errors import LoadError
 from agent_composer.compile.model import END_ID, START_ID
-from agent_composer.state.segments import Shape
+from agent_composer.typesys.values import Type
 
 _STRICT = ConfigDict(extra="forbid")
 
@@ -273,7 +273,7 @@ def parse_file(text: str) -> ComposeFile:
 # `kind:` plus FLAT kind-fields — the surface flattens `inputs:`/`outputs:`
 # onto the node (vs the legacy spec's body wrappers, `spec/nodes.py`). These are
 # DESCRIPTORS: the validated parsed shape per kind. Building the runtime `Node`
-# (`output_shape` + `params` + flow `wiring`, `read_shape` over `outputs:`) happens
+# (`output_type` + `params` + flow `wiring`, `read_type` over `outputs:`) happens
 # later in the loader; here `inputs`/`outputs`/`args`/`cases` stay raw (binding strings / type nodes).
 #
 # Per-kind allowed fields mirror `spec/nodes.py:_validate_body_shape` in flat form
@@ -302,9 +302,9 @@ class AgentDescriptor:
     runs_after: list[str] = field(default_factory=list)
     # INTERNAL — never parsed from YAML (not in `_KIND_SPECS`), set only by the
     # adaptive_questions desugar pass. When present it overrides the type-string
-    # derived `output_shape` for a synthesized structured agent whose codomain is
-    # a code-built Shape (e.g. `question_list_shape()`) with no surface type-string.
-    output_shape_override: Optional[Shape] = None
+    # derived `output_type` for a synthesized structured agent whose codomain is
+    # a code-built Type (e.g. `question_list_type()`) with no surface type-string.
+    output_type_override: Optional[Type] = None
 
 
 @dataclass(frozen=True)

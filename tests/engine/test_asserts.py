@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.typesys.values import ValueKind, Type
 from agent_composer.compose.asserts import AssertSet, classify_asserts
 from agent_composer.compose.errors import LoadError
 
@@ -62,12 +62,12 @@ def test_seed10_arithmetic_and_in_forms_validate_to_boundary():
 def test_seed18_output_assert_classifies_post_terminal():
     # ${synth.output.confidence} >= 0 and ${synth.output.confidence} <= 1
     # synth produces a View record {stance, claim, confidence} -> the dotted ref validates.
-    view = Shape(
-        seg_type=SegmentType.OBJECT,
+    view = Type(
+        kind=ValueKind.OBJECT,
         fields={
-            "stance": Shape.scalar(SegmentType.STRING),
-            "claim": Shape.scalar(SegmentType.STRING),
-            "confidence": Shape.scalar(SegmentType.NUMBER),
+            "stance": Type.scalar(ValueKind.STRING),
+            "claim": Type.scalar(ValueKind.STRING),
+            "confidence": Type.scalar(ValueKind.NUMBER),
         },
         required=frozenset({"stance", "claim", "confidence"}),
     )
@@ -115,9 +115,9 @@ def test_three_spellings_of_boundary_assert_all_classify_boundary():
 
 
 def test_three_spellings_of_output_assert_all_classify_post():
-    view = Shape(
-        seg_type=SegmentType.OBJECT,
-        fields={"confidence": Shape.scalar(SegmentType.NUMBER)},
+    view = Type(
+        kind=ValueKind.OBJECT,
+        fields={"confidence": Type.scalar(ValueKind.NUMBER)},
         required=frozenset({"confidence"}),
     )
     for spelling in (
@@ -180,9 +180,9 @@ def test_dangling_output_node_ref_is_loud():
 
 
 def test_unknown_field_on_record_producer_is_loud():
-    view = Shape(
-        seg_type=SegmentType.OBJECT,
-        fields={"score": Shape.scalar(SegmentType.NUMBER)},
+    view = Type(
+        kind=ValueKind.OBJECT,
+        fields={"score": Type.scalar(ValueKind.NUMBER)},
         required=frozenset({"score"}),
     )
     with pytest.raises(LoadError) as exc:
@@ -230,7 +230,7 @@ def test_no_asserts_yields_empty_set():
 
 
 def test_mixed_asserts_split_correctly():
-    score = Shape.scalar(SegmentType.NUMBER)
+    score = Type.scalar(ValueKind.NUMBER)
     asserts = [
         "${input.weight} >= 0",            # boundary
         "${score.output} <= 1",          # post (outputs ref)

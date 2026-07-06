@@ -14,7 +14,7 @@ in-loader by the same `_assemble`) or, failing that, an external flow via the
 injected `child_resolver` (`(flow_id, version) -> LoadedFlow`). `_make_call_resolver`
 composes the two (and rejects recursive/mutual defs). `call` nodes are resolved-and-baked
 at load: the loader derives the callable's signature (a plain call re-exports the single
-codomain `Shape`; a mapped call stamps `list[<codomain>]`; bindings are name/arity- and
+codomain `Type`; a mapped call stamps `list[<codomain>]`; bindings are name/arity- and
 type-checked against it) AND bakes the callable's compiled flow onto the built
 `CallNode` so `run` drives the embedded child. A flow whose `call`s are all
 in-file defs loads resolver-free; a `call` to a non-def callable without a resolver is
@@ -26,7 +26,7 @@ bare whole-string binding (`${note.output}`) is one output named `result` (so
 `len(outputs) == 1` -> `terminal_output` returns the bare resolved value).
 
 Imports flow DOWN only: this module composes the compose package's own slices plus
-`state`/`compile.model`; nothing in the engine imports it back.
+`typesys`/`compile.model`; nothing in the engine imports it back.
 """
 
 from __future__ import annotations
@@ -37,15 +37,15 @@ from typing import Any, Optional
 
 from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput
 from agent_composer.nodes.base import Node
-from agent_composer.state.segments import SegmentError, Shape
-from agent_composer.state.types import read_typedefs
+from agent_composer.typesys.values import TypeCheckError, Type
+from agent_composer.typesys.types import read_typedefs
 from agent_composer.compose.asserts import AssertSet, classify_asserts
 from agent_composer.compose.build import (
     ChildResolver,
     build_call_node,
     build_leaf_node,
     build_loop_node,
-    check_loop_shape_contract,
+    check_loop_type_contract,
     check_ref_map_types,
     check_wiring_parity,
     infer_data_edges,
@@ -75,7 +75,7 @@ from agent_composer.compose.parser import (
     parse_file,
     section_lines,
 )
-from agent_composer.compose.shapes import InputDecl, read_flow_inputs
+from agent_composer.compose.types import InputDecl, read_flow_inputs
 from agent_composer.compose.validate import (
     check_case_handles,
     reject_cycles,
@@ -351,8 +351,8 @@ def _load_flow(text, child_resolver, search_paths, ctx: "_LoadCtx") -> LoadedFlo
 
     try:
         registry = read_typedefs(f.typedefs)
-    except SegmentError as exc:
-        # coarse: the state layer doesn't track source lines, so anchor at the
+    except TypeCheckError as exc:
+        # coarse: the typesys layer doesn't track source lines, so anchor at the
         # `typedefs:` section line (the box's context still shows the offending name).
         raise LoadError(
             f"bad typedefs: {exc}", line=section_lines(text).get("typedefs")
@@ -701,22 +701,22 @@ def _assemble(
                 raise
             leaf[nid] = node
             flow_wiring[nid] = wiring
-    # producers: each built node's declared output_shape (drives the case `on:` enum
+    # producers: each built node's declared output_type (drives the case `on:` enum
     # exhaustiveness + the e03 dotted-field walk in ref/assert validation).
-    producers: dict[str, Shape] = {
-        nid: node.output_shape
+    producers: dict[str, Type] = {
+        nid: node.output_type
         for nid, node in leaf.items()
-        if node.output_shape is not None
+        if node.output_type is not None
     }
 
-    # cross-flow type check: each `call` binding's source shape vs the callable
-    # input shape (needs producers, so it runs after all leaf/call nodes are built).
-    flow_input_shapes = {decl.name: decl.shape for decl in inputs}
-    check_ref_map_types(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
-    # loop `'a -> 'a` shape contract (types): each carried field's seed-source Shape vs the
-    # body output's same-named field Shape (needs producers, so it runs alongside the
+    # cross-flow type check: each `call` binding's source type vs the callable
+    # input type (needs producers, so it runs after all leaf/call nodes are built).
+    flow_input_types = {decl.name: decl.type for decl in inputs}
+    check_ref_map_types(leaf, producers, flow_input_types, flow_wiring, n_lines)
+    # loop `'a -> 'a` type contract (types): each carried field's seed-source Type vs the
+    # body output's same-named field Type (needs producers, so it runs alongside the
     # cross-flow call/map type check above).
-    check_loop_shape_contract(leaf, producers, flow_input_shapes, flow_wiring, n_lines)
+    check_loop_type_contract(leaf, producers, flow_input_types, flow_wiring, n_lines)
 
     # Desugar each `case` to an CaseNode + its data/control edges.
     desugars: dict[str, CaseDesugar] = {}

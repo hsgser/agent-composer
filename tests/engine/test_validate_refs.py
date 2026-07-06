@@ -8,7 +8,7 @@ single `LoadError`. Three loud mechanisms are pinned:
 
 - **e01** — a dangling flow-output ref (`${scor.output}` typo) -> loud.
 - **e03** — a dotted-field miss on an ANONYMOUS producer record (`{rating, rationale}`,
-  read natively via `read_shape`) -> loud (anonymous records ARE checked).
+  read natively via `read_type`) -> loud (anonymous records ARE checked).
 - **prompt** — an AGENT prompt interpolating `${X.output}`/`${input.X}` instead of a
   bare declared input -> loud.
 
@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.typesys.values import ValueKind, Type
 from agent_composer.compose.build import build_leaf_node, infer_data_edges
 from agent_composer.compose.cases import desugar_case, reconcile_case_edges
 from agent_composer.compose.errors import LoadError
@@ -33,7 +33,7 @@ from agent_composer.compose.parser import (
     parse_nodes,
     parse_file,
 )
-from agent_composer.compose.shapes import read_flow_inputs
+from agent_composer.compose.types import read_flow_inputs
 from agent_composer.compose.validate import validate_references
 from tests.engine._fakes import derive_wiring, stamp_reads
 
@@ -51,7 +51,7 @@ def _load(seed: str):
     }
     leaf = {nid: n for nid, (n, _) in built.items()}
     flow_wiring = {nid: w for nid, (_, w) in built.items()}
-    producers = {nid: n.output_shape for nid, n in leaf.items() if n.output_shape is not None}
+    producers = {nid: n.output_type for nid, n in leaf.items() if n.output_type is not None}
     desugars = {
         nid: desugar_case(d, producers)
         for nid, d in descriptors.items()
@@ -123,7 +123,7 @@ def test_e03_unknown_field_on_anon_record_is_loud():
 def test_prompt_l1_pool_ref_is_loud():
     # an AGENT prompt that interpolates ${X.output} (a pool ref) -> loud.
     node = AgentNode("bad", prompt="Summarize ${upstream.output} for the user.")
-    node.output_shape = Shape.scalar(SegmentType.STRING)
+    node.output_type = Type.scalar(ValueKind.STRING)
     stamp_reads(node, {})  # no declared inputs
     nodes = {"bad": node}
     flow_wiring = derive_wiring(nodes)
@@ -138,7 +138,7 @@ def test_prompt_l1_pool_ref_is_loud():
 
 def test_prompt_l1_declared_input_passes():
     node = AgentNode("ok", prompt="Summarize ${topic} for the user.")
-    node.output_shape = Shape.scalar(SegmentType.STRING)
+    node.output_type = Type.scalar(ValueKind.STRING)
     stamp_reads(node, {"topic": "${input.topic}"})  # stamps params + the fake wiring
     nodes = {"ok": node}
     flow_wiring = derive_wiring(nodes)

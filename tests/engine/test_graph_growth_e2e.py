@@ -33,7 +33,7 @@ from agent_composer.compile.model import START_ID
 from agent_composer.compose import LoadError, load_flow, resume_command, resume_flow, run_flow
 from agent_composer.nodes.base import NodeKind
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.pool import TypedVariablePool
+from agent_composer.typesys.pool import VariablePool
 from agent_composer.suspension.checkpoint import CHECKPOINT_VERSION, RunCheckpoint
 from agent_composer.events import RunSucceeded
 
@@ -95,7 +95,7 @@ def _run_map(topics):
     """Drive a MAP run via FlowEngine directly (run_flow only attaches .engine on pause),
     returning (engine, events) so a test can inspect the GROWN live graph."""
     parent = load_flow(_MAP, child_resolver=_resolver(**{"child-one": _CHILD}))
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topics": topics})
     eng = FlowEngine(parent.compiled, pool)
     events = list(eng.run())
@@ -113,7 +113,7 @@ def test_checkpoint_version_is_current():
 
 
 def test_scratch_is_eliminated_structurally():
-    pool = TypedVariablePool()
+    pool = VariablePool()
     assert not hasattr(pool, "scratch")
     assert not hasattr(pool, "scratch_set") and not hasattr(pool, "scratch_get")
     with pytest.raises(ModuleNotFoundError):
@@ -135,7 +135,7 @@ def test_no_node_attr_or_method_reads_scratch():
 
 def test_live_graph_grows_under_a_map_run():
     parent = load_flow(_MAP, child_resolver=_resolver(**{"child-one": _CHILD}))
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"topics": ["ACME", "BETA"]})
     eng = FlowEngine(parent.compiled, pool)
     before = len(eng.flow.nodes)
@@ -245,7 +245,7 @@ output: ${d.output}
 
 def test_checkpoint_roundtrip_non_paused():
     loaded = load_flow(_CODE_FLOW)
-    pool = TypedVariablePool()
+    pool = VariablePool()
     pool.set(START_ID, {"x": 5})
     eng = FlowEngine(loaded.compiled, pool)
     events = list(eng.run())

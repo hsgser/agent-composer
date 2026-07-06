@@ -42,7 +42,7 @@ def test_boundary_assert_sets_assert_locator():
 
 
 def test_code_wrong_type_output_sets_field_locator():
-    # A CODE node whose returned value fails its declared `output:` Shape is rejected at the
+    # A CODE node whose returned value fails its declared `output:` Type is rejected at the
     # typed write boundary. The failure surfaces as a node-less RunFailed; its locator points
     # at the node's `output:` field so the CLI boxes the declaration, not a plain message.
     text = (_ERRORS / "e21-code-wrong-type.yaml").read_text()
@@ -66,7 +66,7 @@ output: ${ask.output}
 
 
 def test_resume_wrong_type_answer_sets_field_locator():
-    # A delivered HUMAN_INPUT answer that fails the parked node's declared `output:` Shape is
+    # A delivered HUMAN_INPUT answer that fails the parked node's declared `output:` Type is
     # rejected at the resume write boundary. The RunFailed must still carry the `field` locator
     # (the resume() path forwards it identically to the run()/pooled paths).
     loaded = load_flow(_RESUME_WRONG_TYPE)
