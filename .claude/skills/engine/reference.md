@@ -117,7 +117,7 @@ model made enforceable.
 - **Privileges no output type or domain** — prefer the most general primitive that
   composes over a use-case-specific feature.
 - **Node never writes the pool** (purity); **typed, losslessly-serializable state**
-  (`Segment` / `TypedVariablePool` — the basis for checkpoints + `${...}` refs).
+  (`TypedValue` / `VariablePool` — the basis for checkpoints + `${...}` refs).
 - **Durable suspend/resume** — a node performs a pause; the run serializes to a
   `RunCheckpoint`; an external scheduler resumes (re-run-on-resume). The checkpoint
   carries `num_workers` (the drive mode), and both `run()` and `resume()` drive
@@ -140,20 +140,20 @@ model made enforceable.
   core dispatches on `Outcome` + node-owned traits/hooks, never on `node.kind` (ratchet: census 0).
   **single-writer** (workers are pure
   executors, the dispatcher is the only mutator); **single-process CLI target**.
-- **AGENT structured output** — a non-text `output:` Shape switches an agent from text
-  producer to structured generation: `shape_to_schema` (`nodes/agent/structured.py`)
+- **AGENT structured output** — a non-text `output:` Type switches an agent from text
+  producer to structured generation: `type_to_schema` (`nodes/agent/structured.py`)
   derives a pydantic schema, the mode generates a conforming value (native
   `with_structured_output`, or a JSON prompt-injection fallback gated by
   `supports_native_structured(provider, model)`), with `retries:`-capped self-correction.
   Three-part contract: **generate-tries** (the schema asks), **boundary-enforces**
-  (`pool.set(..., declared=output_shape)` validates — on both the primary path and a
+  (`pool.set(..., declared=output_type)` validates — on both the primary path and a
   resumed agent's `commit_as`-redirect path), **retry-catches** (a deviation is fed back and
   re-asked). A bare `str`/`Literal[...]` keeps the text path.
 
 ## Layer ladder (where code goes)
 
 ```
-events  <-  state  <-  nodes  <-  compile  <-  compose  <-  runtime  ->  suspension
+events  <-  typesys  <-  nodes  <-  compile  <-  compose  <-  runtime  ->  suspension
                         ^   ^
             expr  ──────┘   └──────  llm_clients     (both leaves, imported by nodes upward)
 ```
@@ -224,10 +224,10 @@ resolved to a line at the CLI boundary — never a text heuristic.
 - **Producers:** `BindingError` stamps a node-less `input` span (`bind_params` knows the
   param name, not the node); `eval_node`'s funnel fills the node id via `replace(loc,
   node=node.id)` and emits an `assert` span at each of its three node-assert yields;
-  `StartNode.run` stamps an `input_decl` span on the e08 `SegmentError`; the engine's
+  `StartNode.run` stamps an `input_decl` span on the e08 `TypeCheckError`; the engine's
   seed step and `run.py` stamp `assert` spans for boundary / post-terminal asserts; the
   engine's typed write boundary stamps a `field` span (`key="output"`) on the
-  `NodeExecutionError` it raises when a node's value fails its declared `output:` Shape.
+  `NodeExecutionError` it raises when a node's value fails its declared `output:` Type.
 - **Resolution:** the parser's sub-line maps (`node_input_lines`, `node_field_lines`,
   `assert_lines`, `input_decl_lines`) map a span to a 1-based line; the CLI's `_locate`
   + fallback chain (precise line → node-kind best field, e.g. a code node's `code:` →

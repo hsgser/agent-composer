@@ -6,11 +6,11 @@ basis for HUMAN_INPUT and WATCH nodes). See the project README for status.
 
 Layers, leaf-to-root (a package imports only DOWN/leftward — never up, never in a cycle):
 
-    events  <-  state  <-  nodes  <-  compile  <-  compose  <-  runtime  ->  suspension
+    events  <-  typesys  <-  nodes  <-  compile  <-  compose  <-  runtime  ->  suspension
                             ^  ^
                 expr  ──────┘  └──────  llm_clients      (both leaves, imported by nodes upward)
 
-Leaves import nothing else in the layer: `events`, `state` (the typed value pool), `expr`
+Leaves import nothing else in the layer: `events`, `typesys` (the typed value pool), `expr`
 (`${...}` evaluation), and `llm_clients` (provider client wrappers + `LLMConfig` — the AGENT
 node's model seam). `nodes` are the node kinds — the synthesized boundary kinds own their
 reserved ids (`StartNode.ID == "__start__"`, `EndNode.ID == "__end__"`). `compile` is the

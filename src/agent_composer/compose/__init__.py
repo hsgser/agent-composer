@@ -2,10 +2,10 @@
 
 Reads Compose-shaped YAML flows into the engine's runtime model. The source side
 of a node's `outputs:` / a flow's `inputs:` is read directly into one recursive
-`Type` (see `shapes.read_type`) rather than a flat `list[IOField]`; nested records
+`Type` (see `types.read_type`) rather than a flat `list[IOField]`; nested records
 are native.
 
-Imports flow DOWN only: this package imports `state` / `expr` / `nodes`; nothing
+Imports flow DOWN only: this package imports `typesys` / `expr` / `nodes`; nothing
 in the engine imports `compose`.
 """
 

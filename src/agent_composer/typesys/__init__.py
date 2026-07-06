@@ -1,4 +1,4 @@
-"""Typed runtime state: the segment value system + the variable pool."""
+"""Typed runtime state: the typed value system + the variable pool."""
 
 from agent_composer.typesys.pool import VariablePool
 from agent_composer.typesys.values import (

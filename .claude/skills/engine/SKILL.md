@@ -100,7 +100,7 @@ Most are just the functional model (above) made enforceable:
 - **Node never writes the pool** *(purity)* — it returns outputs; the engine binds
   them under `(node_id, key)`, like an immutable `let`. No node mutates shared state.
 - **Typed, losslessly-serializable state** *(the type system)* —
-  `Segment` / `TypedVariablePool`; the basis for durable checkpoints and `${...}`
+  `TypedValue` / `VariablePool`; the basis for durable checkpoints and `${...}`
   references.
 - **Durable suspend/resume** *(algebraic effects + handlers)* — a node *performs*
   a pause via `PauseRequested`; the run serializes to a `RunCheckpoint`; an
@@ -131,7 +131,7 @@ Most are just the functional model (above) made enforceable:
 ## 3. Plan
 Write a short plan: the **OCaml analogue** you're borrowing and its type; what you
 simplify/drop and why; where it lands in the layer map
-(`events ← state ← nodes ← compile ← compose`, with `expr` feeding nodes and
+(`events ← typesys ← nodes ← compile ← compose`, with `expr` feeding nodes and
 `suspension` feeding runtime); and the **seam** if it touches an external
 dependency. Flag any non-obvious choice and confirm before coding (CLAUDE.md "ask
 when uncertain").
@@ -146,5 +146,5 @@ the engine import-clean (no new heavy deps in the core). Update `docs/backlog/TO
 ### Package layout
 Follow the **`structure` skill** for where files and folders go — package charters
 in `__init__.py`, `common.py` vs `utils.py`, one-way imports, no cycles. The
-engine's layer ladder (`events ← state ← nodes ← compile ← compose`, with `expr`
+engine's layer ladder (`events ← typesys ← nodes ← compile ← compose`, with `expr`
 and `suspension` feeding in) is an instance of that framework.
