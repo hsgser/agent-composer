@@ -72,3 +72,16 @@ def run_flow(path: str, inputs_json: str = "{}") -> str:
     if result.status == "paused":
         return "PAUSED: this flow needs interactive input; cannot run inside chat."
     return f"FAILED: {result.error}"
+
+
+@register_tool("write_flow")
+def write_flow(path: str, content: str) -> str:
+    "Write a flow YAML file under the workspace. Validates it compiles BEFORE writing."
+    dest = _resolve(path)                        # raises on escape
+    try:
+        load_flow(content, search_paths=[_WORKSPACE])
+    except LoadError as err:
+        return f"INVALID (not written): {err}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(content)
+    return f"WROTE: {dest.relative_to(_WORKSPACE)}"

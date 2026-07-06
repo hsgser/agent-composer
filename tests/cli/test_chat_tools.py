@@ -31,3 +31,15 @@ def test_run_flow_tool(tmp_path):
     (tmp_path / "g.yaml").write_text(GOOD)
     out = T.run_flow("g.yaml", '{"x": "hi"}')
     assert "hi" in out
+
+
+def test_write_flow_validates_and_confines(tmp_path):
+    T.set_workspace(tmp_path)
+    assert "WROTE" in T.write_flow("new.yaml", GOOD)
+    assert (tmp_path / "new.yaml").exists()
+    # invalid content is refused before writing
+    assert "INVALID" in T.write_flow("bad.yaml", "id: b\nname: b\nnodes:\n  x: {kind: nope}\n")
+    assert not (tmp_path / "bad.yaml").exists()
+    # escape refused
+    with pytest.raises(ValueError):
+        T.write_flow("../evil.yaml", GOOD)
