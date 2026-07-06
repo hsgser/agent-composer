@@ -115,3 +115,45 @@ output: ${c.output}
     inner = loaded.compiled.nodes["c"].child.nodes["inner"]
     # second run dropped `model` (not in the new CLI layer); did not retain it from run 1
     assert inner.llm_config == {"provider": "google"}
+
+
+def test_cascade_reaches_loop_body_agents():
+    # A LOOP carries a static child body like CALL/MAP; its body agents must inherit the
+    # parent flow/CLI layers too (cascade recurses into any node with a static child flow).
+    text = """
+id: f
+name: f
+llm_config: {provider: anthropic}
+defs:
+  bump:
+    input:
+      n: int
+      exited: bool
+    nodes:
+      think: {kind: agent, prompt: hi}
+      step:
+        kind: code
+        code: tests.engine._compose_codefns:make_report
+        input:
+          n: ${input.n}
+          exited: ${input.exited}
+        output:
+          n: int
+          exited: bool
+    output: ${step.output}
+nodes:
+  chat_loop:
+    kind: loop
+    call: bump
+    input:
+      n: 0
+      exited: false
+    while: not ${exited}
+    max: 5
+output: ${chat_loop.output}
+"""
+    loaded = load_flow(text)
+    resolve_llm_cascade(loaded.compiled, {"model": "claude-opus-4-8"})
+    think = loaded.compiled.nodes["chat_loop"].child.nodes["think"]
+    # the body agent sets nothing -> fills from top flow (provider) + CLI (model)
+    assert think.llm_config == {"provider": "anthropic", "model": "claude-opus-4-8"}
