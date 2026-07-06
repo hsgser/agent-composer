@@ -1004,11 +1004,7 @@ def check_wiring_parity(
     eval_node seam pre-resolves) are never author wiring and do not appear here."""
     lines = node_lines or {}
     for nid, node in nodes.items():
-        expected = {p.name for p in (node.params or [])}
-        if node.kind == NodeKind.WAIT and getattr(node, "is_timed", False):
-            expected |= {"until"}
-        elif node.kind == NodeKind.MAP:
-            expected |= {"over"}
+        expected = {p.name for p in (node.params or [])} | node.reserved_wiring_keys()
         actual = set(flow_wiring.get(nid, {}))
         if actual != expected:
             raise LoadError(
