@@ -43,7 +43,7 @@ from agent_composer.nodes.start import StartNode
 from agent_composer.nodes.tool import ToolNode
 from agent_composer.nodes.wait import WaitNode
 from agent_composer.llm_clients import LLMConfig
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.state.segments import ValueKind, Shape
 from agent_composer.state.types import TypeRegistry
 from agent_composer.compose.errors import LoadError
 from agent_composer.compose.parser import (
@@ -63,12 +63,12 @@ from agent_composer.compose.shapes import InputDecl, read_shape
 # A list-shape helper: the LIST_OBJECT/LIST_* seg for an element Shape (mirrors
 # `state.types._LIST_SEG_FOR_ELEMENT` + the list-of-record / list-of-variant rule in
 # `resolve_shape`, applied to a precomputed element Shape rather than a Type).
-_LIST_SEG_FOR_ELEMENT: dict[SegmentType, SegmentType] = {
-    SegmentType.STRING: SegmentType.LIST_STRING,
-    SegmentType.INTEGER: SegmentType.LIST_INTEGER,
-    SegmentType.NUMBER: SegmentType.LIST_NUMBER,
-    SegmentType.BOOLEAN: SegmentType.LIST_BOOLEAN,
-    SegmentType.OBJECT: SegmentType.LIST_OBJECT,
+_LIST_SEG_FOR_ELEMENT: dict[ValueKind, ValueKind] = {
+    ValueKind.STRING: ValueKind.LIST_STRING,
+    ValueKind.INTEGER: ValueKind.LIST_INTEGER,
+    ValueKind.NUMBER: ValueKind.LIST_NUMBER,
+    ValueKind.BOOLEAN: ValueKind.LIST_BOOLEAN,
+    ValueKind.OBJECT: ValueKind.LIST_OBJECT,
 }
 
 
@@ -85,7 +85,7 @@ def _field_schema(name: str, shape: Shape, required: bool) -> dict[str, Any]:
         entry["enum"] = sorted(shape.tags)
     elif shape.element is not None and shape.element.tags:  # list[Literal[...]] -> element enum
         entry["enum"] = sorted(shape.element.tags)
-    if shape.seg_type == SegmentType.OBJECT and shape.fields:  # nested record -> sub-fields
+    if shape.seg_type == ValueKind.OBJECT and shape.fields:  # nested record -> sub-fields
         req = shape.required or frozenset()
         entry["fields"] = [_field_schema(k, f, k in req) for k, f in shape.fields.items()]
     return entry
@@ -99,7 +99,7 @@ def _answer_schema(shape: Optional[Shape]) -> list[dict[str, Any]]:
     expected answer type, and the pause reason self-describe."""
     if shape is None:
         return []
-    if shape.seg_type == SegmentType.OBJECT and shape.fields:
+    if shape.seg_type == ValueKind.OBJECT and shape.fields:
         required = shape.required or frozenset()
         return [_field_schema(k, f, k in required) for k, f in shape.fields.items()]
     return [_field_schema("answer", shape, not shape.nullable)]
@@ -253,7 +253,7 @@ def build_leaf_node(
             if node.output_shape is None and (
                 node.questions is not None or node.questions_input is not None
             ):
-                node.output_shape = Shape.scalar(SegmentType.OBJECT)
+                node.output_shape = Shape.scalar(ValueKind.OBJECT)
             node.answer_schema = _answer_schema(node.output_shape)
     return node, wiring
 
@@ -644,9 +644,9 @@ def child_signature(loaded: Any) -> ChildSignature:
         # output whose value Shape didn't resolve is kept but opaque (its `fields=None`
         # leaves a deeper dotted walk lenient) and is NOT in `required`.
         output = Shape(
-            seg_type=SegmentType.OBJECT,
+            seg_type=ValueKind.OBJECT,
             fields={
-                k: (v if v is not None else Shape.scalar(SegmentType.NONE))
+                k: (v if v is not None else Shape.scalar(ValueKind.NONE))
                 for k, v in fields.items()
             },
             required=frozenset(k for k, v in fields.items() if v is not None),
@@ -658,11 +658,11 @@ def _list_of(element: Shape) -> Shape:
     """`element` -> a `list[element]` Shape (the MAP codomain). Mirrors `resolve_shape`'s
     list-seg rule: a record/variant element -> LIST_OBJECT/LIST_STRING; else by scalar."""
     if element.tags is not None:
-        list_seg = SegmentType.LIST_STRING
+        list_seg = ValueKind.LIST_STRING
     elif element.fields is not None:
-        list_seg = SegmentType.LIST_OBJECT
+        list_seg = ValueKind.LIST_OBJECT
     else:
-        list_seg = _LIST_SEG_FOR_ELEMENT.get(element.seg_type, SegmentType.LIST_ANY)
+        list_seg = _LIST_SEG_FOR_ELEMENT.get(element.seg_type, ValueKind.LIST_ANY)
     return Shape(seg_type=list_seg, element=element)
 
 

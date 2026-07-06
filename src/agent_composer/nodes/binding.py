@@ -5,7 +5,7 @@ NO source); the flow owns the sources in `CompiledFlow.wiring[node_id][param]`. 
 joins each `ParamDecl` to its `wiring[name]` source (an `expr.template` value — a whole `${...}`
 resolved against the pool with type preserved, an embedded `${...}` stringified, or a literal),
 building the `{name: value}` record the engine's `eval_node` hands the node instead of the pool.
-Type-checking reuses the `shape_for` / `build_segment_with_type` helpers and stays lenient
+Type-checking reuses the `shape_for` / `build_value_as` helpers and stays lenient
 on record / variant types that can't resolve against the empty registry.
 
 A MAP body binds a per-element `item` scope: `${item}` / `${item.path}` resolve from the current
@@ -13,7 +13,7 @@ element passed via the `item=` kwarg (a body-local scope, NOT a pool head). The 
 unset) is the ordinary non-MAP bind path.
 
 Imports `expr` (eval_binding / resolve_reference) + `state` (shape_for /
-build_segment_with_type); both sit below/beside `nodes` in the layer ladder.
+build_value_as); both sit below/beside `nodes` in the layer ladder.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from agent_composer.expr import (
     eval_binding,
     resolve_reference,
 )
-from agent_composer.state import SegmentError, Shape, build_segment_with_type, shape_for
+from agent_composer.state import TypeCheckError, Shape, build_value_as, shape_for
 from agent_composer.state.pool import TypedVariablePool
 
 
@@ -146,12 +146,12 @@ def bind_params(
             if shape is None and p.type is not None:
                 try:
                     shape = shape_for(p.type, {})
-                except SegmentError:
+                except TypeCheckError:
                     shape = None
             if shape is not None:
                 try:
-                    value = build_segment_with_type(shape, value).to_object()
-                except SegmentError as exc:
+                    value = build_value_as(shape, value).to_object()
+                except TypeCheckError as exc:
                     raise BindingError(f"input {p.name!r}: {exc}") from exc
             record[p.name] = copy.deepcopy(value)
         except BindingError as exc:

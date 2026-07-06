@@ -52,7 +52,7 @@ from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.base import Grow
 from agent_composer.runtime.eval_node import eval_node
 from agent_composer.runtime.state_manager import StateManager
-from agent_composer.state import SegmentError
+from agent_composer.state import TypeCheckError
 from agent_composer.suspension.expansions import GrowRecord
 from agent_composer.state.pool import TypedVariablePool
 
@@ -266,13 +266,13 @@ class FlowEngine:
         start_id = self.flow.start_id
         if start_id in self.flow.nodes:
             if self.run_inputs is not None:
-                # seed via StartNode.run, funneling an e08 SegmentError -> RunFailed.
+                # seed via StartNode.run, funneling an e08 TypeCheckError -> RunFailed.
                 try:
                     out = self.flow.nodes[start_id].run(dict(self.run_inputs))
-                except SegmentError as exc:
+                except TypeCheckError as exc:
                     # e08 forwards the StartNode's `input_decl` locator (the failing input's
                     # declaration line) so the CLI boxes it precisely.
-                    return RunFailed(error=str(exc), error_type="SegmentError",
+                    return RunFailed(error=str(exc), error_type="TypeCheckError",
                                      locator=getattr(exc, "locator", None))
                 self.pool.set(start_id, out.value)
             # boundary asserts: pool-scoped, reading store[START_ID]; byte-stable "assert failed".
@@ -454,13 +454,13 @@ class FlowEngine:
         if isinstance(command, DeliverAnswerCommand):
             # Deliver-as-Output: write the answer as the parked leaf's value and fire
             # its existing out-edges. The node is resolved against the LIVE graph, so a
-            # runtime-namespaced id resolves. Wrapped in the SAME SegmentError -> NodeExecutionError
+            # runtime-namespaced id resolves. Wrapped in the SAME TypeCheckError -> NodeExecutionError
             # guard _on_success uses, so a type-invalid answer FAILS the run (it does not crash
             # resume). A WAIT release delivers value=None (timed WAIT output_shape is None).
             node = self.flow.nodes[command.node_id]
             try:
                 self.pool.set(command.node_id, command.value, declared=node.output_shape)
-            except SegmentError as exc:
+            except TypeCheckError as exc:
                 self.sm.finish_executing(command.node_id)
                 raise NodeExecutionError(
                     command.node_id, str(exc), type(exc).__name__,
@@ -853,7 +853,7 @@ class FlowEngine:
         # `loop_alias` dict lookups.
         target = event.commit_as or node_id
         # Commit the value under `target` (the spawner id on a redirect, else `node_id`) with the
-        # target's declared Shape (same SegmentError -> NodeExecutionError guard the tail uses),
+        # target's declared Shape (same TypeCheckError -> NodeExecutionError guard the tail uses),
         # then advance the target's out-edges. For a redirect the filler's own pool.set is SKIPPED;
         # `finish_executing` still runs on the FILLER `node_id` (the node that actually ran).
         #
@@ -865,7 +865,7 @@ class FlowEngine:
         target_node = self.flow.nodes[target]
         try:
             self.pool.set(target, event.output, declared=target_node.output_shape)
-        except SegmentError as exc:
+        except TypeCheckError as exc:
             self.sm.finish_executing(node_id)
             raise NodeExecutionError(
                 node_id, str(exc), type(exc).__name__,

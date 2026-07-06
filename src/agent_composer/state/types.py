@@ -16,8 +16,8 @@ from dataclasses import dataclass, replace
 from typing import Union
 
 from agent_composer.state.segments import (
-    SegmentError,
-    SegmentType,
+    TypeCheckError,
+    ValueKind,
     Shape,
 )
 
@@ -79,7 +79,7 @@ def parse_type(s: str) -> Type:
     try:
         node = ast.parse(s, mode="eval").body
     except SyntaxError as exc:
-        raise SegmentError(f"malformed type expression {s!r}: {exc}") from exc
+        raise TypeCheckError(f"malformed type expression {s!r}: {exc}") from exc
     return _type_from_ast(node, s)
 
 
@@ -100,7 +100,7 @@ def _type_from_ast(node: "ast.expr", src: str) -> Type:
         return RefType(nm)
     if isinstance(node, ast.Subscript):
         if not isinstance(node.value, ast.Name):
-            raise SegmentError(f"malformed type expression {src!r}")
+            raise TypeCheckError(f"malformed type expression {src!r}")
         ctor = node.value.id
         sl = node.slice
         if ctor in ("list", "List"):
@@ -112,12 +112,12 @@ def _type_from_ast(node: "ast.expr", src: str) -> Type:
         if ctor in ("dict", "Dict"):
             return DictPlaceholderType()
         if ctor == "Union":
-            raise SegmentError(
+            raise TypeCheckError(
                 f"Union types are not supported ({src!r}); model a tagged variant as a "
                 f"discriminated record {{tag: Literal[...], ...}} routed by `case ... on tag`"
             )
-        raise SegmentError(f"unknown type constructor {ctor!r} in {src!r}")
-    raise SegmentError(f"malformed type expression {src!r}")
+        raise TypeCheckError(f"unknown type constructor {ctor!r} in {src!r}")
+    raise TypeCheckError(f"malformed type expression {src!r}")
 
 
 def _literal_tags(sl: "ast.expr", src: str) -> tuple:
@@ -129,7 +129,7 @@ def _literal_tags(sl: "ast.expr", src: str) -> tuple:
         elif isinstance(e, ast.Name):
             tags.append(e.id)  # unquoted member: Literal[red]
         else:
-            raise SegmentError(f"invalid Literal member in {src!r} (use names or quoted strings)")
+            raise TypeCheckError(f"invalid Literal member in {src!r} (use names or quoted strings)")
     return tuple(tags)
 
 
@@ -159,23 +159,23 @@ class AliasDef:
 TypeRegistry = dict[str, Union[RecordDef, VariantDef, AliasDef]]
 
 _SCALAR_SEG = {
-    "str": SegmentType.STRING,
-    "int": SegmentType.INTEGER,
-    "float": SegmentType.NUMBER,
-    "bool": SegmentType.BOOLEAN,
-    "date": SegmentType.DATE,
-    "datetime": SegmentType.DATETIME,
-    "object": SegmentType.OBJECT,
-    "None": SegmentType.NONE,
-    "file": SegmentType.FILE,
+    "str": ValueKind.STRING,
+    "int": ValueKind.INTEGER,
+    "float": ValueKind.NUMBER,
+    "bool": ValueKind.BOOLEAN,
+    "date": ValueKind.DATE,
+    "datetime": ValueKind.DATETIME,
+    "object": ValueKind.OBJECT,
+    "None": ValueKind.NONE,
+    "file": ValueKind.FILE,
 }
 
 _LIST_SEG_FOR_ELEMENT = {
-    SegmentType.STRING: SegmentType.LIST_STRING,
-    SegmentType.INTEGER: SegmentType.LIST_INTEGER,
-    SegmentType.NUMBER: SegmentType.LIST_NUMBER,
-    SegmentType.BOOLEAN: SegmentType.LIST_BOOLEAN,
-    SegmentType.OBJECT: SegmentType.LIST_OBJECT,
+    ValueKind.STRING: ValueKind.LIST_STRING,
+    ValueKind.INTEGER: ValueKind.LIST_INTEGER,
+    ValueKind.NUMBER: ValueKind.LIST_NUMBER,
+    ValueKind.BOOLEAN: ValueKind.LIST_BOOLEAN,
+    ValueKind.OBJECT: ValueKind.LIST_OBJECT,
 }
 
 
@@ -188,39 +188,39 @@ def resolve_shape(t: Type, registry: TypeRegistry, _seen: frozenset[str] = froze
         return replace(resolve_shape(t.inner, registry, _seen), nullable=True)
 
     if isinstance(t, EnumType):
-        return Shape(seg_type=SegmentType.STRING, tags=frozenset(t.tags))
+        return Shape(seg_type=ValueKind.STRING, tags=frozenset(t.tags))
 
     if isinstance(t, DictPlaceholderType):
-        return Shape.scalar(SegmentType.OBJECT)  # lenient (no key/value typing yet)
+        return Shape.scalar(ValueKind.OBJECT)  # lenient (no key/value typing yet)
 
     if isinstance(t, ListType):
         elem = resolve_shape(t.element, registry, _seen)
         if elem.tags is not None:  # list of variant -> list of strings
-            list_seg = SegmentType.LIST_STRING
+            list_seg = ValueKind.LIST_STRING
         elif elem.fields is not None:  # list of record -> list of objects
-            list_seg = SegmentType.LIST_OBJECT
+            list_seg = ValueKind.LIST_OBJECT
         else:
-            list_seg = _LIST_SEG_FOR_ELEMENT.get(elem.seg_type, SegmentType.LIST_ANY)
+            list_seg = _LIST_SEG_FOR_ELEMENT.get(elem.seg_type, ValueKind.LIST_ANY)
         return Shape(seg_type=list_seg, element=elem)
 
     # RefType
     name = t.name
     if name in _seen:
-        raise SegmentError(f"recursive type reference: {name!r}")
+        raise TypeCheckError(f"recursive type reference: {name!r}")
     defn = registry.get(name)
     if defn is None:
-        raise SegmentError(f"unknown type {name!r}")
+        raise TypeCheckError(f"unknown type {name!r}")
     if isinstance(defn, AliasDef):
         return resolve_shape(defn.target, registry, _seen | {name})  # transitive (cycle-guarded)
     if isinstance(defn, VariantDef):
-        return Shape(seg_type=SegmentType.STRING, tags=frozenset(defn.tags))
+        return Shape(seg_type=ValueKind.STRING, tags=frozenset(defn.tags))
     fields = {
         f: resolve_shape(parse_type(ts), registry, _seen | {name})
         for f, ts in defn.fields.items()
     }
     # an Optional[X] field (its resolved Shape is nullable) is NOT required.
     required = frozenset(f for f, sh in fields.items() if not sh.nullable)
-    return Shape(seg_type=SegmentType.OBJECT, fields=fields, required=required)
+    return Shape(seg_type=ValueKind.OBJECT, fields=fields, required=required)
 
 
 def shape_for(type_str: str, registry: TypeRegistry) -> Shape:
@@ -251,7 +251,7 @@ def _check_alias_cycles(registry: TypeRegistry) -> None:
             return
         for ref in _refs_in_type(defn.target):
             if ref in path:
-                raise SegmentError(f"alias cycle through {ref!r} in typedefs")
+                raise TypeCheckError(f"alias cycle through {ref!r} in typedefs")
             if ref in registry:
                 visit(ref, path | {ref})
 
@@ -274,15 +274,15 @@ def read_typedefs(raw: dict) -> TypeRegistry:
     registry: TypeRegistry = {}
     for name, value in (raw or {}).items():
         if not (isinstance(name, str) and name.isidentifier() and name[0].isupper()):
-            raise SegmentError(f"typedef name {name!r} must be PascalCase (an uppercase identifier)")
+            raise TypeCheckError(f"typedef name {name!r} must be PascalCase (an uppercase identifier)")
         if _is_shadow(name):
-            raise SegmentError(
+            raise TypeCheckError(
                 f"typedef name {name!r} shadows a builtin scalar or typing constructor"
             )
         if isinstance(value, dict):
             for fname, ftype in value.items():
                 if not isinstance(ftype, str):
-                    raise SegmentError(
+                    raise TypeCheckError(
                         f"typedef {name!r} field {fname!r}: type must be a string expression "
                         f"(got {type(ftype).__name__})"
                     )
@@ -296,16 +296,16 @@ def read_typedefs(raw: dict) -> TypeRegistry:
         elif isinstance(value, (list, tuple)):
             if all(isinstance(m, str) for m in value):
                 members = ", ".join(str(m) for m in value)
-                raise SegmentError(
+                raise TypeCheckError(
                     f"typedef {name!r}: a tag-only union must be a Literal[...] enum, not a "
                     f"sequence (e.g. {name}: Literal[{members}])"
                 )
-            raise SegmentError(
+            raise TypeCheckError(
                 f"typedef {name!r}: a tagged/payload union sequence is not supported; model it "
                 f"as a discriminated record {{tag: Literal[...], ...}} routed by `case ... on tag`"
             )
         else:
-            raise SegmentError(
+            raise TypeCheckError(
                 f"typedef {name!r}: unsupported definition of type {type(value).__name__}"
             )
     _check_alias_cycles(registry)

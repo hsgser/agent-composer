@@ -1,6 +1,6 @@
 """Tests for the template scanner over the ONE unified parser.
 
-`scan_template(text)` splits a text string into a list of `Segment`s — a LITERAL
+`scan_template(text)` splits a text string into a list of `TypedValue`s — a LITERAL
 run (raw text, `$$` already collapsed to `$`) or a SPAN whose interior has been
 parsed via `expr.grammar.parse_expr`. **Only span interiors are parsed** — operator
 characters (`|`, `+`, `[`, ...) in literal text are NEVER parsed as expression

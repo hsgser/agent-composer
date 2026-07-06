@@ -150,7 +150,7 @@ def test_checkpoint_json_round_trip():
 
 
 def test_checkpoint_v1_blob_rejected_by_loads():
-    # breaking blob migration: a 1.0 checkpoint (the old node_id->key->Segment store)
+    # breaking blob migration: a 1.0 checkpoint (the old node_id->key->TypedValue store)
     # is not loadable. loads() reads the raw-JSON version BEFORE model_validate, so the
     # error is the clear "incompatible version", not an opaque pydantic failure.
     blob = RunCheckpoint(pool=TypedVariablePool()).dumps()

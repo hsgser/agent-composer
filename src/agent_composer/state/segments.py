@@ -1,9 +1,9 @@
 """Typed runtime value system.
 
-Every value flowing through a flow run is wrapped in a `Segment`: a frozen,
-self-describing container carrying its `SegmentType`. The tag is what makes the
+Every value flowing through a flow run is wrapped in a `TypedValue`: a frozen,
+self-describing container carrying its `ValueKind`. The tag is what makes the
 variable pool serialize losslessly — on a JSON round-trip the discriminated
-`AnySegment` union decodes each value back into the right subclass, so an int
+`AnyValue` union decodes each value back into the right subclass, so an int
 stays an int and a float stays a float regardless of JSON's number ambiguity.
 That losslessness is the primitive durable checkpoint/resume depends on.
 
@@ -24,8 +24,8 @@ from typing import Annotated, Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 
-class SegmentError(ValueError):
-    """A value cannot be wrapped in a Segment, or violates a declared type."""
+class TypeCheckError(ValueError):
+    """A value cannot be wrapped in a TypedValue, or violates a declared type."""
 
 
 # --------------------------------------------------------------------------- #
@@ -33,7 +33,7 @@ class SegmentError(ValueError):
 # --------------------------------------------------------------------------- #
 
 
-class SegmentType(str, Enum):
+class ValueKind(str, Enum):
     """Closed type vocabulary for runtime values.
 
     `.value` IS the one Python-surface vocabulary: it is simultaneously the serialized
@@ -59,12 +59,12 @@ class SegmentType(str, Enum):
     LIST_OBJECT = "list[object]"
 
     def is_list(self) -> bool:
-        return self in _LIST_ELEMENT_TYPE
+        return self in _LIST_ELEMENT_KIND
 
     @property
-    def element_type(self) -> Optional["SegmentType"]:
+    def element_kind(self) -> Optional["ValueKind"]:
         """Scalar element type for a list type (`None` for `LIST_ANY`/scalars)."""
-        return _LIST_ELEMENT_TYPE.get(self)
+        return _LIST_ELEMENT_KIND.get(self)
 
 
 # --------------------------------------------------------------------------- #
@@ -88,16 +88,16 @@ class FileRef(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Segment subclasses (one per type, each pinning a Literal discriminator)
+# TypedValue subclasses (one per type, each pinning a Literal discriminator)
 # --------------------------------------------------------------------------- #
 
 
-class Segment(BaseModel):
-    """Abstract base. Use a concrete subclass; construct via `build_segment`."""
+class TypedValue(BaseModel):
+    """Abstract base. Use a concrete subclass; construct via `build_value`."""
 
     model_config = ConfigDict(frozen=True)
 
-    value_type: SegmentType
+    kind: ValueKind
     value: Any
 
     def to_object(self) -> Any:
@@ -109,8 +109,8 @@ class Segment(BaseModel):
         return "" if self.value is None else str(self.value)
 
 
-class NoneSegment(Segment):
-    value_type: Literal[SegmentType.NONE] = SegmentType.NONE
+class NoneValue(TypedValue):
+    kind: Literal[ValueKind.NONE] = ValueKind.NONE
     value: None = None
 
     @property
@@ -118,23 +118,23 @@ class NoneSegment(Segment):
         return ""
 
 
-class StringSegment(Segment):
-    value_type: Literal[SegmentType.STRING] = SegmentType.STRING
+class StringValue(TypedValue):
+    kind: Literal[ValueKind.STRING] = ValueKind.STRING
     value: str
 
 
-class IntegerSegment(Segment):
-    value_type: Literal[SegmentType.INTEGER] = SegmentType.INTEGER
+class IntegerValue(TypedValue):
+    kind: Literal[ValueKind.INTEGER] = ValueKind.INTEGER
     value: int
 
 
-class NumberSegment(Segment):
-    value_type: Literal[SegmentType.NUMBER] = SegmentType.NUMBER
+class NumberValue(TypedValue):
+    kind: Literal[ValueKind.NUMBER] = ValueKind.NUMBER
     value: float
 
 
-class DateSegment(Segment):
-    value_type: Literal[SegmentType.DATE] = SegmentType.DATE
+class DateValue(TypedValue):
+    kind: Literal[ValueKind.DATE] = ValueKind.DATE
     value: str  # ISO-8601 "YYYY-MM-DD"
 
     @field_validator("value")
@@ -144,8 +144,8 @@ class DateSegment(Segment):
         return v
 
 
-class DateTimeSegment(Segment):
-    value_type: Literal[SegmentType.DATETIME] = SegmentType.DATETIME
+class DateTimeValue(TypedValue):
+    kind: Literal[ValueKind.DATETIME] = ValueKind.DATETIME
     value: str  # ISO-8601 "YYYY-MM-DDTHH:MM:SS[+HH:MM]"
 
     @field_validator("value")
@@ -159,110 +159,110 @@ class DateTimeSegment(Segment):
         return v
 
 
-class BooleanSegment(Segment):
-    value_type: Literal[SegmentType.BOOLEAN] = SegmentType.BOOLEAN
+class BooleanValue(TypedValue):
+    kind: Literal[ValueKind.BOOLEAN] = ValueKind.BOOLEAN
     value: bool
 
 
-class ObjectSegment(Segment):
-    value_type: Literal[SegmentType.OBJECT] = SegmentType.OBJECT
+class ObjectValue(TypedValue):
+    kind: Literal[ValueKind.OBJECT] = ValueKind.OBJECT
     value: dict[str, Any]
 
 
-class FileSegment(Segment):
-    value_type: Literal[SegmentType.FILE] = SegmentType.FILE
+class FileValue(TypedValue):
+    kind: Literal[ValueKind.FILE] = ValueKind.FILE
     value: FileRef
 
 
-class ListAnySegment(Segment):
-    value_type: Literal[SegmentType.LIST_ANY] = SegmentType.LIST_ANY
+class ListAnyValue(TypedValue):
+    kind: Literal[ValueKind.LIST_ANY] = ValueKind.LIST_ANY
     value: list[Any]
 
 
-class ListStringSegment(Segment):
-    value_type: Literal[SegmentType.LIST_STRING] = SegmentType.LIST_STRING
+class ListStringValue(TypedValue):
+    kind: Literal[ValueKind.LIST_STRING] = ValueKind.LIST_STRING
     value: list[str]
 
 
-class ListIntegerSegment(Segment):
-    value_type: Literal[SegmentType.LIST_INTEGER] = SegmentType.LIST_INTEGER
+class ListIntegerValue(TypedValue):
+    kind: Literal[ValueKind.LIST_INTEGER] = ValueKind.LIST_INTEGER
     value: list[int]
 
 
-class ListNumberSegment(Segment):
-    value_type: Literal[SegmentType.LIST_NUMBER] = SegmentType.LIST_NUMBER
+class ListNumberValue(TypedValue):
+    kind: Literal[ValueKind.LIST_NUMBER] = ValueKind.LIST_NUMBER
     value: list[float]
 
 
-class ListBooleanSegment(Segment):
-    value_type: Literal[SegmentType.LIST_BOOLEAN] = SegmentType.LIST_BOOLEAN
+class ListBooleanValue(TypedValue):
+    kind: Literal[ValueKind.LIST_BOOLEAN] = ValueKind.LIST_BOOLEAN
     value: list[bool]
 
 
-class ListObjectSegment(Segment):
-    value_type: Literal[SegmentType.LIST_OBJECT] = SegmentType.LIST_OBJECT
+class ListObjectValue(TypedValue):
+    kind: Literal[ValueKind.LIST_OBJECT] = ValueKind.LIST_OBJECT
     value: list[dict[str, Any]]
 
 
-# Discriminated union — `value_type` selects the subclass on validate, which is
-# what gives lossless decode of an arbitrary persisted segment.
-AnySegment = Annotated[
+# Discriminated union — `kind` selects the subclass on validate, which is
+# what gives lossless decode of an arbitrary persisted typed value.
+AnyValue = Annotated[
     Union[
-        NoneSegment,
-        StringSegment,
-        IntegerSegment,
-        NumberSegment,
-        DateSegment,
-        DateTimeSegment,
-        BooleanSegment,
-        ObjectSegment,
-        FileSegment,
-        ListAnySegment,
-        ListStringSegment,
-        ListIntegerSegment,
-        ListNumberSegment,
-        ListBooleanSegment,
-        ListObjectSegment,
+        NoneValue,
+        StringValue,
+        IntegerValue,
+        NumberValue,
+        DateValue,
+        DateTimeValue,
+        BooleanValue,
+        ObjectValue,
+        FileValue,
+        ListAnyValue,
+        ListStringValue,
+        ListIntegerValue,
+        ListNumberValue,
+        ListBooleanValue,
+        ListObjectValue,
     ],
-    Field(discriminator="value_type"),
+    Field(discriminator="kind"),
 ]
 
-# Module-level adapter so callers can round-trip a bare segment losslessly.
-ANY_SEGMENT_ADAPTER: TypeAdapter = TypeAdapter(AnySegment)
+# Module-level adapter so callers can round-trip a bare typed value losslessly.
+ANY_VALUE_ADAPTER: TypeAdapter = TypeAdapter(AnyValue)
 
 
 # --------------------------------------------------------------------------- #
 # Lookup tables
 # --------------------------------------------------------------------------- #
 
-_LIST_ELEMENT_TYPE: dict[SegmentType, Optional[SegmentType]] = {
-    SegmentType.LIST_ANY: None,
-    SegmentType.LIST_STRING: SegmentType.STRING,
-    SegmentType.LIST_INTEGER: SegmentType.INTEGER,
-    SegmentType.LIST_NUMBER: SegmentType.NUMBER,
-    SegmentType.LIST_BOOLEAN: SegmentType.BOOLEAN,
-    SegmentType.LIST_OBJECT: SegmentType.OBJECT,
+_LIST_ELEMENT_KIND: dict[ValueKind, Optional[ValueKind]] = {
+    ValueKind.LIST_ANY: None,
+    ValueKind.LIST_STRING: ValueKind.STRING,
+    ValueKind.LIST_INTEGER: ValueKind.INTEGER,
+    ValueKind.LIST_NUMBER: ValueKind.NUMBER,
+    ValueKind.LIST_BOOLEAN: ValueKind.BOOLEAN,
+    ValueKind.LIST_OBJECT: ValueKind.OBJECT,
 }
 
-_SCALAR_SEGMENT_CLASS: dict[SegmentType, type[Segment]] = {
-    SegmentType.NONE: NoneSegment,
-    SegmentType.STRING: StringSegment,
-    SegmentType.INTEGER: IntegerSegment,
-    SegmentType.NUMBER: NumberSegment,
-    SegmentType.DATE: DateSegment,
-    SegmentType.DATETIME: DateTimeSegment,
-    SegmentType.BOOLEAN: BooleanSegment,
-    SegmentType.OBJECT: ObjectSegment,
-    SegmentType.FILE: FileSegment,
+_SCALAR_VALUE_CLASS: dict[ValueKind, type[TypedValue]] = {
+    ValueKind.NONE: NoneValue,
+    ValueKind.STRING: StringValue,
+    ValueKind.INTEGER: IntegerValue,
+    ValueKind.NUMBER: NumberValue,
+    ValueKind.DATE: DateValue,
+    ValueKind.DATETIME: DateTimeValue,
+    ValueKind.BOOLEAN: BooleanValue,
+    ValueKind.OBJECT: ObjectValue,
+    ValueKind.FILE: FileValue,
 }
 
-_LIST_SEGMENT_CLASS: dict[SegmentType, type[Segment]] = {
-    SegmentType.LIST_ANY: ListAnySegment,
-    SegmentType.LIST_STRING: ListStringSegment,
-    SegmentType.LIST_INTEGER: ListIntegerSegment,
-    SegmentType.LIST_NUMBER: ListNumberSegment,
-    SegmentType.LIST_BOOLEAN: ListBooleanSegment,
-    SegmentType.LIST_OBJECT: ListObjectSegment,
+_LIST_VALUE_CLASS: dict[ValueKind, type[TypedValue]] = {
+    ValueKind.LIST_ANY: ListAnyValue,
+    ValueKind.LIST_STRING: ListStringValue,
+    ValueKind.LIST_INTEGER: ListIntegerValue,
+    ValueKind.LIST_NUMBER: ListNumberValue,
+    ValueKind.LIST_BOOLEAN: ListBooleanValue,
+    ValueKind.LIST_OBJECT: ListObjectValue,
 }
 
 # --------------------------------------------------------------------------- #
@@ -282,7 +282,7 @@ class Shape:
     A plain scalar / flat list uses only `seg_type` (see `Shape.scalar`).
     """
 
-    seg_type: SegmentType
+    seg_type: ValueKind
     fields: Optional[dict[str, "Shape"]] = None
     required: Optional[frozenset[str]] = None
     tags: Optional[frozenset[str]] = None
@@ -290,7 +290,7 @@ class Shape:
     nullable: bool = False  # an Optional[X] slot — accepts None (present-None or absent)
 
     @classmethod
-    def scalar(cls, seg: SegmentType) -> "Shape":
+    def scalar(cls, seg: ValueKind) -> "Shape":
         return cls(seg_type=seg)
 
 
@@ -299,37 +299,37 @@ class Shape:
 # --------------------------------------------------------------------------- #
 
 
-def _infer_scalar_type(value: Any) -> Optional[SegmentType]:
+def _infer_scalar_type(value: Any) -> Optional[ValueKind]:
     # bool before int — bool is a subclass of int in Python.
     if value is None:
-        return SegmentType.NONE
+        return ValueKind.NONE
     if isinstance(value, bool):
-        return SegmentType.BOOLEAN
+        return ValueKind.BOOLEAN
     if isinstance(value, int):
-        return SegmentType.INTEGER
+        return ValueKind.INTEGER
     if isinstance(value, float):
-        return SegmentType.NUMBER
+        return ValueKind.NUMBER
     if isinstance(value, str):
-        return SegmentType.STRING
+        return ValueKind.STRING
     if isinstance(value, FileRef):
-        return SegmentType.FILE
+        return ValueKind.FILE
     if isinstance(value, dict):
-        return SegmentType.OBJECT
+        return ValueKind.OBJECT
     return None
 
 
-def _scalar_matches(declared: SegmentType, value: Any) -> bool:
-    if declared == SegmentType.NONE:
+def _scalar_matches(declared: ValueKind, value: Any) -> bool:
+    if declared == ValueKind.NONE:
         return value is None
-    if declared == SegmentType.STRING:
+    if declared == ValueKind.STRING:
         return isinstance(value, str)
-    if declared == SegmentType.BOOLEAN:
+    if declared == ValueKind.BOOLEAN:
         return isinstance(value, bool)
-    if declared == SegmentType.INTEGER:
+    if declared == ValueKind.INTEGER:
         return isinstance(value, int) and not isinstance(value, bool)
-    if declared == SegmentType.NUMBER:
+    if declared == ValueKind.NUMBER:
         return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if declared == SegmentType.DATE:
+    if declared == ValueKind.DATE:
         if not isinstance(value, str):
             return False
         try:
@@ -337,7 +337,7 @@ def _scalar_matches(declared: SegmentType, value: Any) -> bool:
             return True
         except ValueError:
             return False
-    if declared == SegmentType.DATETIME:
+    if declared == ValueKind.DATETIME:
         if not isinstance(value, str):
             return False
         # a bare date is not a datetime — require an explicit time component
@@ -348,16 +348,16 @@ def _scalar_matches(declared: SegmentType, value: Any) -> bool:
             return True
         except ValueError:
             return False
-    if declared == SegmentType.OBJECT:
+    if declared == ValueKind.OBJECT:
         return isinstance(value, dict)
-    if declared == SegmentType.FILE:
+    if declared == ValueKind.FILE:
         return isinstance(value, FileRef)
     return False
 
 
-def _coerce_scalar(declared: SegmentType, value: Any) -> Any:
+def _coerce_scalar(declared: ValueKind, value: Any) -> Any:
     # Only widening: an int may fill a NUMBER slot as a float.
-    if declared == SegmentType.NUMBER and isinstance(value, int) and not isinstance(value, bool):
+    if declared == ValueKind.NUMBER and isinstance(value, int) and not isinstance(value, bool):
         return float(value)
     return value
 
@@ -367,114 +367,114 @@ def _coerce_scalar(declared: SegmentType, value: Any) -> Any:
 # --------------------------------------------------------------------------- #
 
 
-def build_segment(value: Any) -> Segment:
-    """Wrap a raw Python value in the natural Segment, inferring its type.
+def build_value(value: Any) -> TypedValue:
+    """Wrap a raw Python value in the natural TypedValue, inferring its type.
 
     `FILE` is never inferred from a dict/str — only an explicit `FileRef`
-    produces a `FileSegment`. An empty list infers as `LIST_ANY`.
+    produces a `FileValue`. An empty list infers as `LIST_ANY`.
     """
-    if isinstance(value, Segment):
+    if isinstance(value, TypedValue):
         return value  # idempotent
 
     scalar = _infer_scalar_type(value)
     if scalar is not None:
-        return _SCALAR_SEGMENT_CLASS[scalar](value=value)
+        return _SCALAR_VALUE_CLASS[scalar](value=value)
 
     if isinstance(value, (list, tuple)):
         return _infer_list(list(value))
 
-    raise SegmentError(f"cannot wrap value of type {type(value).__name__!r}")
+    raise TypeCheckError(f"cannot wrap value of type {type(value).__name__!r}")
 
 
-def _infer_list(items: list[Any]) -> Segment:
+def _infer_list(items: list[Any]) -> TypedValue:
     if not items:
-        return ListAnySegment(value=[])
+        return ListAnyValue(value=[])
     element_types = {_infer_scalar_type(x) for x in items}
     if None in element_types:
-        return ListAnySegment(value=items)
-    if element_types == {SegmentType.STRING}:
-        return ListStringSegment(value=items)
-    if element_types == {SegmentType.BOOLEAN}:
-        return ListBooleanSegment(value=items)
-    if element_types == {SegmentType.INTEGER}:
-        return ListIntegerSegment(value=items)
-    if element_types <= {SegmentType.INTEGER, SegmentType.NUMBER}:
-        return ListNumberSegment(value=[float(x) for x in items])
-    if element_types == {SegmentType.OBJECT}:
-        return ListObjectSegment(value=items)
-    return ListAnySegment(value=items)
+        return ListAnyValue(value=items)
+    if element_types == {ValueKind.STRING}:
+        return ListStringValue(value=items)
+    if element_types == {ValueKind.BOOLEAN}:
+        return ListBooleanValue(value=items)
+    if element_types == {ValueKind.INTEGER}:
+        return ListIntegerValue(value=items)
+    if element_types <= {ValueKind.INTEGER, ValueKind.NUMBER}:
+        return ListNumberValue(value=[float(x) for x in items])
+    if element_types == {ValueKind.OBJECT}:
+        return ListObjectValue(value=items)
+    return ListAnyValue(value=items)
 
 
-def build_segment_with_type(declared: "SegmentType | Shape", value: Any) -> Segment:
-    """Wrap `value` as a Segment matching `declared`, raising on a type mismatch.
+def build_value_as(declared: "ValueKind | Shape", value: Any) -> TypedValue:
+    """Wrap `value` as a TypedValue matching `declared`, raising on a type mismatch.
 
-    Accepts either a bare `SegmentType` (scalar / flat list — preserved behavior)
+    Accepts either a bare `ValueKind` (scalar / flat list — preserved behavior)
     or a structural `Shape` (records, variants, typed/element lists). This is the
     write-boundary check the variable pool uses against each declared output type,
     so a node returning the wrong type fails loudly at the write rather than
     silently downstream.
     """
-    shape = Shape.scalar(declared) if isinstance(declared, SegmentType) else declared
-    if isinstance(value, Segment):
+    shape = Shape.scalar(declared) if isinstance(declared, ValueKind) else declared
+    if isinstance(value, TypedValue):
         value = value.to_object()
     return _build_for_shape(shape, value)
 
 
-def _build_for_shape(shape: Shape, value: Any) -> Segment:
-    # nullable (Optional[X]) — a None value is accepted as NoneSegment
+def _build_for_shape(shape: Shape, value: Any) -> TypedValue:
+    # nullable (Optional[X]) — a None value is accepted as NoneValue
     if value is None and shape.nullable:
-        return NoneSegment()
+        return NoneValue()
 
     # variant — a tag-constrained string
     if shape.tags is not None:
         if not isinstance(value, str) or value not in shape.tags:
-            raise SegmentError(f"{value!r} is not a member of variant {sorted(shape.tags)}")
-        return StringSegment(value=value)
+            raise TypeCheckError(f"{value!r} is not a member of variant {sorted(shape.tags)}")
+        return StringValue(value=value)
 
     # record — an object with declared field shapes (closed: all required, no unknowns)
     if shape.fields is not None:
         if not isinstance(value, dict):
-            raise SegmentError(f"{value!r} is not an object for a record type")
+            raise TypeCheckError(f"{value!r} is not an object for a record type")
         required = shape.required or frozenset()
         missing = required - value.keys()
         if missing:
-            raise SegmentError(f"record missing required fields: {sorted(missing)}")
+            raise TypeCheckError(f"record missing required fields: {sorted(missing)}")
         unknown = value.keys() - shape.fields.keys()
         if unknown:
-            raise SegmentError(f"record has unknown fields: {sorted(unknown)}")
+            raise TypeCheckError(f"record has unknown fields: {sorted(unknown)}")
         for fname, fval in value.items():
             _build_for_shape(shape.fields[fname], fval)  # validates each field, raises on mismatch
-        return ObjectSegment(value=value)
+        return ObjectValue(value=value)
 
     # list with a known element shape (incl. List[record])
     if shape.seg_type.is_list() and shape.element is not None:
         if not isinstance(value, (list, tuple)):
-            raise SegmentError(
+            raise TypeCheckError(
                 f"{value!r} is not a list for declared {shape.seg_type.value}"
             )
         items = [_build_for_shape(shape.element, item).to_object() for item in value]
-        return _LIST_SEGMENT_CLASS[shape.seg_type](value=items)
+        return _LIST_VALUE_CLASS[shape.seg_type](value=items)
 
     # plain scalar / flat list — the original behavior
     return _build_scalar_or_list(shape.seg_type, value)
 
 
-def _build_scalar_or_list(declared: SegmentType, value: Any) -> Segment:
+def _build_scalar_or_list(declared: ValueKind, value: Any) -> TypedValue:
     if declared.is_list():
         if not isinstance(value, (list, tuple)):
-            raise SegmentError(f"{value!r} is not a list for declared {declared.value}")
+            raise TypeCheckError(f"{value!r} is not a list for declared {declared.value}")
         items = list(value)
-        element = declared.element_type
+        element = declared.element_kind
         if element is not None:
             for item in items:
                 if not _scalar_matches(element, item):
-                    raise SegmentError(
+                    raise TypeCheckError(
                         f"list element {item!r} is not {element.value} "
                         f"(declared {declared.value})"
                     )
             items = [_coerce_scalar(element, item) for item in items]
-        return _LIST_SEGMENT_CLASS[declared](value=items)
+        return _LIST_VALUE_CLASS[declared](value=items)
 
     if not _scalar_matches(declared, value):
-        raise SegmentError(f"{value!r} does not match declared type {declared.value}")
-    return _SCALAR_SEGMENT_CLASS[declared](value=_coerce_scalar(declared, value))
+        raise TypeCheckError(f"{value!r} does not match declared type {declared.value}")
+    return _SCALAR_VALUE_CLASS[declared](value=_coerce_scalar(declared, value))

@@ -19,7 +19,7 @@ from agent_composer.nodes.code import CodeNode
 from agent_composer.nodes.model import ModelNode
 from agent_composer.nodes.tool import ToolNode
 from agent_composer.llm_clients import LLMConfig
-from agent_composer.state.segments import SegmentType
+from agent_composer.state.segments import ValueKind
 from agent_composer.state.types import read_typedefs
 from agent_composer.compose import LoadError
 from agent_composer.compose.build import build_leaf_node
@@ -42,7 +42,7 @@ def test_agent_node_built_with_shape_and_bindings():
     node, wiring = build_leaf_node(desc, {})
     assert isinstance(node, AgentNode)
     assert node.id == "note"
-    assert node.output_shape.seg_type == SegmentType.STRING
+    assert node.output_shape.seg_type == ValueKind.STRING
     # the node-side signature is the param NAMES; the flow owns the source.
     assert [p.name for p in node.params] == ["topic"]
     assert wiring == {"topic": "${input.topic}"}
@@ -55,9 +55,9 @@ def test_agent_node_object_output():
     desc = _seed_nodes("01-structured-agent.yaml")["score"]
     node, _ = build_leaf_node(desc, {})
     assert isinstance(node, AgentNode)
-    assert node.output_shape.seg_type == SegmentType.OBJECT
-    assert node.output_shape.fields["rating"].seg_type == SegmentType.NUMBER
-    assert node.output_shape.fields["rationale"].seg_type == SegmentType.STRING
+    assert node.output_shape.seg_type == ValueKind.OBJECT
+    assert node.output_shape.fields["rating"].seg_type == ValueKind.NUMBER
+    assert node.output_shape.fields["rationale"].seg_type == ValueKind.STRING
 
 
 def test_agent_unknown_mode_is_loud_loaderror():
@@ -122,7 +122,7 @@ def test_agent_node_knobs():
     assert node.llm_config["model"] == "claude-opus-4-8"
     assert node.llm_config["temperature"] == 0.3
     assert node.prompt.startswith("Research ${topic}")
-    assert node.output_shape.fields["confidence"].seg_type == SegmentType.NUMBER
+    assert node.output_shape.fields["confidence"].seg_type == ValueKind.NUMBER
 
 
 def test_node_name_becomes_title():
@@ -156,7 +156,7 @@ def test_code_node_built():
     node, wiring = build_leaf_node(desc, {})
     assert isinstance(node, CodeNode)
     assert node.ref == "tests.seeds.fns:one_line_summary"
-    assert node.output_shape.seg_type == SegmentType.STRING
+    assert node.output_shape.seg_type == ValueKind.STRING
     assert {p.name for p in node.params} == {"rating", "rationale"}
     assert wiring == {
         "rating": "${score.output.rating}",
@@ -175,8 +175,8 @@ def test_model_node_built():
     assert node.model_id == "topic-ranker-v1"
     assert node.weights_uri == "manifold://calpha/models/topic-ranker-v1.pt"
     assert node.runtime_name == "torchscript"
-    assert node.output_shape.fields["score"].seg_type == SegmentType.NUMBER
-    assert node.output_shape.fields["rank"].seg_type == SegmentType.INTEGER
+    assert node.output_shape.fields["score"].seg_type == ValueKind.NUMBER
+    assert node.output_shape.fields["rank"].seg_type == ValueKind.INTEGER
     assert {p.name for p in node.params} == {"topic", "features"}
     assert wiring == {"topic": "${input.topic}", "features": "${input.features}"}
 
@@ -224,5 +224,5 @@ def test_output_shape_resolves_registry_name():
     )
     node, _ = build_leaf_node(nodes["synth"], registry)
     assert isinstance(node, AgentNode)
-    assert node.output_shape.seg_type == SegmentType.OBJECT
-    assert node.output_shape.fields["category"].seg_type == SegmentType.STRING
+    assert node.output_shape.seg_type == ValueKind.OBJECT
+    assert node.output_shape.fields["category"].seg_type == ValueKind.STRING

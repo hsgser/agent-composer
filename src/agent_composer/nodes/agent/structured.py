@@ -13,7 +13,7 @@ in a single-field model (`{"value": <scalar>}` / `{"items": [<element>]}`); `_un
 the wrapper back to the bare value after generation. A record maps one model field per
 declared field and passes through as the dumped dict.
 
-Layer: nodes — imports `state` (Shape/SegmentType) + `pydantic`; no engine/runtime imports.
+Layer: nodes — imports `state` (Shape/ValueKind) + `pydantic`; no engine/runtime imports.
 """
 
 from __future__ import annotations
@@ -24,16 +24,16 @@ from typing import Any, List, Literal, Optional
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, create_model
 
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.state.segments import Shape, ValueKind
 
-# SegmentType -> python type for a scalar slot. DATE/DATETIME persist as ISO strings.
-_SCALAR_PY: dict[SegmentType, type] = {
-    SegmentType.STRING: str,
-    SegmentType.INTEGER: int,
-    SegmentType.NUMBER: float,
-    SegmentType.BOOLEAN: bool,
-    SegmentType.DATE: str,
-    SegmentType.DATETIME: str,
+# ValueKind -> python type for a scalar slot. DATE/DATETIME persist as ISO strings.
+_SCALAR_PY: dict[ValueKind, type] = {
+    ValueKind.STRING: str,
+    ValueKind.INTEGER: int,
+    ValueKind.NUMBER: float,
+    ValueKind.BOOLEAN: bool,
+    ValueKind.DATE: str,
+    ValueKind.DATETIME: str,
 }
 
 
@@ -42,22 +42,22 @@ def _py_type(shape: Shape) -> Any:
 
     A `STRING` with `tags` is a `Literal[...]` variant; a nested `OBJECT` with `fields`
     becomes its own submodel; a `LIST_*` becomes `list[<element type>]`. Raises `ValueError`
-    for a type with no structured mapping (`NONE`, `FILE`) so a new SegmentType is loud.
+    for a type with no structured mapping (`NONE`, `FILE`) so a new ValueKind is loud.
     """
     seg = shape.seg_type
-    if seg == SegmentType.STRING and shape.tags:
+    if seg == ValueKind.STRING and shape.tags:
         return Literal[tuple(sorted(shape.tags))]  # type: ignore[valid-type]
     if seg in _SCALAR_PY:
         return _SCALAR_PY[seg]
-    if seg == SegmentType.OBJECT:
+    if seg == ValueKind.OBJECT:
         return _record_model(shape) if shape.fields else dict
-    if seg == SegmentType.LIST_ANY:
+    if seg == ValueKind.LIST_ANY:
         return list
     if seg.is_list():
         elem = shape.element
         if elem is not None:
             return List[_py_type(elem)]  # type: ignore[misc]
-        scalar = seg.element_type
+        scalar = seg.element_kind
         return List[_SCALAR_PY[scalar]] if scalar in _SCALAR_PY else list  # type: ignore[misc]
     raise ValueError(f"shape_to_schema: no structured mapping for segment type {seg!r}")
 
@@ -85,11 +85,11 @@ def shape_to_schema(shape: Shape) -> Optional[type[BaseModel]]:
     `_unwrap` later strips.
     """
     seg = shape.seg_type
-    if seg == SegmentType.STRING:
+    if seg == ValueKind.STRING:
         return None  # bare str OR a Literal variant — keep the text path
-    if seg == SegmentType.OBJECT and shape.fields:
+    if seg == ValueKind.OBJECT and shape.fields:
         return _record_model(shape)
-    if seg.is_list() or seg == SegmentType.LIST_ANY:
+    if seg.is_list() or seg == ValueKind.LIST_ANY:
         return create_model("ListWrapper", items=(_py_type(shape), ...))
     # any other scalar (int/float/bool/date/datetime) or freeform object -> value wrapper
     return create_model("ScalarWrapper", value=(_py_type(shape), ...))
@@ -100,9 +100,9 @@ def _unwrap(obj: BaseModel, shape: Shape) -> Any:
     bare value the write boundary expects. A record is returned as its dumped dict."""
     data = obj.model_dump()
     seg = shape.seg_type
-    if seg == SegmentType.OBJECT and shape.fields:
+    if seg == ValueKind.OBJECT and shape.fields:
         return data
-    if seg.is_list() or seg == SegmentType.LIST_ANY:
+    if seg.is_list() or seg == ValueKind.LIST_ANY:
         return data["items"]
     return data["value"]
 

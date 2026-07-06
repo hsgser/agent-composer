@@ -184,7 +184,7 @@ def run_flow(
     # The engine seeds store[START_ID] at run init (StartNode.run -> coerce/e08/defaults),
     # fires the boundary asserts pool-scoped (reading store[START_ID]), then advances START_ID. The
     # `inputs` namespace + run.py's add_inputs/e08/boundary-assert blocks are retired; the
-    # e08 SegmentError + the false-boundary-assert both come back as a RunFailed engine event.
+    # e08 TypeCheckError + the false-boundary-assert both come back as a RunFailed engine event.
     engine = FlowEngine(
         loaded.compiled, pool,
         num_workers=num_workers,

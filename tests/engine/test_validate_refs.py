@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.state.segments import ValueKind, Shape
 from agent_composer.compose.build import build_leaf_node, infer_data_edges
 from agent_composer.compose.cases import desugar_case, reconcile_case_edges
 from agent_composer.compose.errors import LoadError
@@ -123,7 +123,7 @@ def test_e03_unknown_field_on_anon_record_is_loud():
 def test_prompt_l1_pool_ref_is_loud():
     # an AGENT prompt that interpolates ${X.output} (a pool ref) -> loud.
     node = AgentNode("bad", prompt="Summarize ${upstream.output} for the user.")
-    node.output_shape = Shape.scalar(SegmentType.STRING)
+    node.output_shape = Shape.scalar(ValueKind.STRING)
     stamp_reads(node, {})  # no declared inputs
     nodes = {"bad": node}
     flow_wiring = derive_wiring(nodes)
@@ -138,7 +138,7 @@ def test_prompt_l1_pool_ref_is_loud():
 
 def test_prompt_l1_declared_input_passes():
     node = AgentNode("ok", prompt="Summarize ${topic} for the user.")
-    node.output_shape = Shape.scalar(SegmentType.STRING)
+    node.output_shape = Shape.scalar(ValueKind.STRING)
     stamp_reads(node, {"topic": "${input.topic}"})  # stamps params + the fake wiring
     nodes = {"ok": node}
     flow_wiring = derive_wiring(nodes)

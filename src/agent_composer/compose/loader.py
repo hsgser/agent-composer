@@ -37,7 +37,7 @@ from typing import Any, Optional
 
 from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput
 from agent_composer.nodes.base import Node
-from agent_composer.state.segments import SegmentError, Shape
+from agent_composer.state.segments import TypeCheckError, Shape
 from agent_composer.state.types import read_typedefs
 from agent_composer.compose.asserts import AssertSet, classify_asserts
 from agent_composer.compose.build import (
@@ -351,7 +351,7 @@ def _load_flow(text, child_resolver, search_paths, ctx: "_LoadCtx") -> LoadedFlo
 
     try:
         registry = read_typedefs(f.typedefs)
-    except SegmentError as exc:
+    except TypeCheckError as exc:
         # coarse: the state layer doesn't track source lines, so anchor at the
         # `typedefs:` section line (the box's context still shows the offending name).
         raise LoadError(

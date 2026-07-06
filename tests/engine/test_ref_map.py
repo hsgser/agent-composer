@@ -22,7 +22,7 @@ import pytest
 
 from agent_composer.nodes.call import CallNode   # nodes/call/__init__.py
 from agent_composer.nodes.map import MapNode
-from agent_composer.state.segments import SegmentType
+from agent_composer.state.segments import ValueKind
 from agent_composer.compose import LoadedFlow, LoadError, load_flow
 from agent_composer.compose.build import ChildSignature, child_signature
 
@@ -63,7 +63,7 @@ def test_seed03_loads_as_child_flow():
     assert names == {"topic", "as_of"}
     # the single codomain value: a {report, asof} record (>=2 outputs -> closed record).
     assert sig.output is not None
-    assert sig.output.seg_type == SegmentType.OBJECT
+    assert sig.output.seg_type == ValueKind.OBJECT
     assert set(sig.output.fields) == {"report", "asof"}
 
 
@@ -83,7 +83,7 @@ def test_seed04_ref_loads_and_reexports_child_output():
     # output_shape re-exports the child's single codomain (the {report, asof} record).
     shape = research.output_shape
     assert shape is not None
-    assert shape.seg_type == SegmentType.OBJECT
+    assert shape.seg_type == ValueKind.OBJECT
     assert set(shape.fields) == {"report", "asof"}
     # the REF sources live on flow.wiring; the node carries only the param names.
     assert loaded.compiled.wiring["research"] == {"topic": "${input.topic}"}
@@ -117,8 +117,8 @@ def test_seed05_map_loads_with_list_output_and_parallel():
     # output_shape = list[<child codomain>] -> a LIST_OBJECT (element = the record).
     shape = research_each.output_shape
     assert shape is not None
-    assert shape.seg_type == SegmentType.LIST_OBJECT
-    assert shape.element.seg_type == SegmentType.OBJECT
+    assert shape.seg_type == ValueKind.LIST_OBJECT
+    assert shape.element.seg_type == ValueKind.OBJECT
     assert set(shape.element.fields) == {"report", "asof"}
     # the MAP sources (incl the reserved `over`, over-first) live on flow.wiring; the node
     # carries only the per-element param names (`over:` is the iteration source, not a param).

@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent_composer.state.segments import SegmentError, SegmentType
+from agent_composer.state.segments import TypeCheckError, ValueKind
 from agent_composer.state.types import (
     AliasDef,
     RecordDef,
@@ -29,7 +29,7 @@ def test_record_enum_alias_build():
 
 def test_alias_composes_alias():
     reg = read_typedefs({"Topic": "str", "Bundle": "list[Topic]"})
-    assert shape_for("Bundle", reg).seg_type == SegmentType.LIST_STRING
+    assert shape_for("Bundle", reg).seg_type == ValueKind.LIST_STRING
 
 
 def test_record_resolves_with_enum_and_optional():
@@ -45,19 +45,19 @@ def test_record_resolves_with_enum_and_optional():
 
 def test_all_bare_tags_sequence_rejected_e05():
     # e05 mechanism: a tag-only union must be Literal[...], not a sequence.
-    with pytest.raises(SegmentError) as ei:
+    with pytest.raises(TypeCheckError) as ei:
         read_typedefs({"Category": ["pro", "con"]})
     assert "Literal" in str(ei.value)
 
 
 def test_payload_union_sequence_rejected():
-    with pytest.raises(SegmentError) as ei:
+    with pytest.raises(TypeCheckError) as ei:
         read_typedefs({"Choice": ["defer", {"approve": {"count": "int"}}]})
     assert "discriminated record" in str(ei.value) or "case" in str(ei.value)
 
 
 def test_alias_cycle_rejected_eagerly():
-    with pytest.raises(SegmentError) as ei:
+    with pytest.raises(TypeCheckError) as ei:
         read_typedefs({"A": "B", "B": "A"})
     assert "cycle" in str(ei.value)
 
@@ -66,24 +66,24 @@ def test_recursive_record_rejected_lazily():
     # read_typedefs keeps record field types raw, so the build is fine; the cycle is
     # caught lazily at resolve via resolve_shape's `_seen` guard.
     reg = read_typedefs({"R": {"x": "R"}})
-    with pytest.raises(SegmentError):
+    with pytest.raises(TypeCheckError):
         resolve_shape(RefType("R"), reg)
 
 
 def test_shadow_name_rejected():
-    with pytest.raises(SegmentError):
+    with pytest.raises(TypeCheckError):
         read_typedefs({"str": "int"})
-    with pytest.raises(SegmentError):
+    with pytest.raises(TypeCheckError):
         read_typedefs({"Optional": "int"})
 
 
 def test_non_pascalcase_rejected():
-    with pytest.raises(SegmentError) as ei:
+    with pytest.raises(TypeCheckError) as ei:
         read_typedefs({"rating": {"x": "int"}})
     assert "PascalCase" in str(ei.value)
 
 
 def test_record_field_must_be_string():
-    with pytest.raises(SegmentError) as ei:
+    with pytest.raises(TypeCheckError) as ei:
         read_typedefs({"Bad": {"x": {"nested": "int"}}})  # inline nested object not allowed here
     assert "string expression" in str(ei.value)

@@ -11,14 +11,14 @@ import pytest
 
 from agent_composer.compile.model import START_ID
 from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import SegmentError, SegmentType
+from agent_composer.state.segments import TypeCheckError, ValueKind
 
 
 def test_set_and_get():
     pool = TypedVariablePool()
     pool.set("n1", "hello")
     assert pool.get("n1") == "hello"
-    assert pool.get_segment("n1").value_type == SegmentType.STRING
+    assert pool.get_segment("n1").kind == ValueKind.STRING
     # a missing node resolves to the default
     assert pool.get("missing", default="d") == "d"
 
@@ -79,10 +79,10 @@ def test_subflow_outputs_resolve_via_node_first_head():
 def test_declared_type_drift_raises():
     pool = TypedVariablePool()
     # a node declaring an integer output but emitting a string fails at the write
-    with pytest.raises(SegmentError):
-        pool.set("n1", "twelve", declared=SegmentType.INTEGER)
+    with pytest.raises(TypeCheckError):
+        pool.set("n1", "twelve", declared=ValueKind.INTEGER)
     # the good case writes through
-    pool.set("n1", 12, declared=SegmentType.INTEGER)
+    pool.set("n1", 12, declared=ValueKind.INTEGER)
     assert pool.get("n1") == 12
 
 
@@ -90,10 +90,10 @@ def test_pool_set_accepts_shape_and_enforces():
     from agent_composer.state.segments import Shape
 
     pool = TypedVariablePool()
-    action = Shape(seg_type=SegmentType.STRING, tags=frozenset({"Approve", "Reject"}))
+    action = Shape(seg_type=ValueKind.STRING, tags=frozenset({"Approve", "Reject"}))
     pool.set("n", "Approve", declared=action)
     assert pool.get("n") == "Approve"
-    with pytest.raises(SegmentError):
+    with pytest.raises(TypeCheckError):
         pool.set("n", "approve", declared=action)
 
 
@@ -119,8 +119,8 @@ def test_full_pool_round_trip():
     back = TypedVariablePool.loads(pool.dumps())
 
     assert back.get("n1") == {"a": 1, "b": [1.5, 2.5]}
-    assert back.get_segment("flag_node").value_type == SegmentType.BOOLEAN
-    assert back.get_segment("n2").value_type == SegmentType.LIST_STRING
+    assert back.get_segment("flag_node").kind == ValueKind.BOOLEAN
+    assert back.get_segment("n2").kind == ValueKind.LIST_STRING
     assert back.resolve("input", ["as_of_date"]) == "2026-06-05"  # store[START_ID] survives dumps/loads
     # types survived: flag is still a real bool, not int
     assert back.get("flag_node") is True

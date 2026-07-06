@@ -99,7 +99,7 @@ def seed_system_clock(pool: "TypedVariablePool") -> None:
     and MAP element observes one consistent clock. The clock is the only seam through
     which a flow may read "now" (the engine never resolves date words).
     """
-    from agent_composer.state.segments import DateSegment, DateTimeSegment
+    from agent_composer.state.segments import DateValue, DateTimeValue
 
-    pool.system["today"] = DateSegment(value=today_utc())
-    pool.system["now"] = DateTimeSegment(value=now_utc())
+    pool.system["today"] = DateValue(value=today_utc())
+    pool.system["now"] = DateTimeValue(value=now_utc())

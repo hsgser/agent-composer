@@ -40,7 +40,7 @@ from agent_composer.compose.parser import (
 )
 from agent_composer.compose.run import RunResult, resume_command, resume_flow, run_flow
 from agent_composer.events import NodeFailed, SourceSpan
-from agent_composer.state.segments import SegmentType
+from agent_composer.state.segments import ValueKind
 
 console = Console()
 err_console = Console(stderr=True)
@@ -428,8 +428,8 @@ def _parse_kv(pairs: List[str]) -> Dict[str, Any]:
 # type name — the ISO-8601 date/datetime, which the engine parses with
 # `date.fromisoformat` / `datetime.fromisoformat` (a bare date is not a valid datetime).
 _FORMAT_EXAMPLE: Dict[Any, str] = {
-    SegmentType.DATE: "2026-05-21",
-    SegmentType.DATETIME: "2026-05-21T14:30",
+    ValueKind.DATE: "2026-05-21",
+    ValueKind.DATETIME: "2026-05-21T14:30",
 }
 
 
@@ -508,7 +508,7 @@ def _prompt_missing(decls: List[Any], have: Dict[str, Any]) -> Optional[Dict[str
             continue
         label = _input_label(decl)
         shape = decl.shape
-        if shape.seg_type == SegmentType.BOOLEAN:
+        if shape.seg_type == ValueKind.BOOLEAN:
             value = questionary.confirm(
                 label, default=bool(decl.default), qmark="?", style=style
             ).ask()

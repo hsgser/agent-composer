@@ -4,7 +4,7 @@ The graph *topology* is intentionally NOT stored (it is rebuilt from the flow
 spec), keeping checkpoints small and decoupled from code changes to node bodies.
 Only run state is captured:
 
-- `pool`            — the typed variable pool (lossless via AnySegment tags)
+- `pool`            — the typed variable pool (lossless via AnyValue tags)
 - `node_state` / `edge_state` — per-node/edge scheduling state
 - `paused_nodes`    — parked leaves; stay TAKEN, the stored answer is delivered as Output on resume (no re-run)
 - `deferred_nodes`  — became ready while suspending; enqueue on resume
@@ -26,12 +26,12 @@ from agent_composer.suspension.expansions import GrowRecord
 from agent_composer.suspension.pause import PauseReason
 
 # Checkpoint blob schema version. 1.0 -> 2.0: the single-value store migration
-# (pool.store collapsed node_id->key->Segment to node_id->Segment). 2.0 -> 3.0: the
+# (pool.store collapsed node_id->key->TypedValue to node_id->TypedValue). 2.0 -> 3.0: the
 # inputs-namespace retirement: `pool.inputs` is gone — `${input.X}`
 # resolves via `store[START_ID]` — so the serialized pool shape changed.
-# 3.0 -> 4.0: the type-surface rename (the `SegmentType.value` tags moved to the one
+# 3.0 -> 4.0: the type-surface rename (the `ValueKind.value` tags moved to the one
 # Python-surface vocabulary, `str`/`int`/`float`/`bool`/..., so a pre-4.0 blob's
-# `value_type` tags are unreadable by the AnySegment discriminated union). A pre-4.0
+# `kind` tags are unreadable by the AnyValue discriminated union). A pre-4.0
 # blob is NOT loadable. 4.0 -> 5.0: adds the additive `expansions` field (the
 # descriptor tree for runtime-grown subgraphs; defaults []). A 4.0 body is otherwise
 # wire-compatible — `pause_reasons` is unchanged — but pre-5.0 blobs are rejected as a
@@ -60,7 +60,7 @@ class RunCheckpoint(BaseModel):
         version (`str`, *optional*, defaults to `CHECKPOINT_VERSION`):
             The blob schema version. `loads()` rejects any other version up front.
         pool (`TypedVariablePool`):
-            The typed variable pool (lossless via the `AnySegment` tags).
+            The typed variable pool (lossless via the `AnyValue` tags).
         ready (`list[str]`, *optional*, defaults to `[]`):
             Node ids that were ready to run at suspend time; re-enqueued on resume.
         node_state (`dict[str, NodeState]`, *optional*, defaults to `{}`):

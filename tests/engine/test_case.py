@@ -23,7 +23,7 @@ import pytest
 
 from agent_composer.expr.expressions import evaluate_when_record
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.state.segments import ValueKind, Shape
 from agent_composer.compose.build import build_leaf_node, infer_data_edges
 from agent_composer.compose.cases import desugar_case, reconcile_case_edges
 from agent_composer.compose.errors import LoadError
@@ -213,7 +213,7 @@ def _enum_case(tags: list[str], cases: list[str], else_: str | None):
         cases=[{"when": t, "then": f"{t}_note"} for t in cases],
         else_=else_,
     )
-    producers = {"cls": Shape(seg_type=SegmentType.STRING, tags=frozenset(tags))}
+    producers = {"cls": Shape(seg_type=ValueKind.STRING, tags=frozenset(tags))}
     return desc, producers
 
 
@@ -247,13 +247,13 @@ def test_exhaustiveness_walks_dotted_field_into_record():
     # seed 18 shape: on ${synth.output.stance}; synth.output_shape is a View record
     # whose `stance` field carries the Stance enum tags.
     view = Shape(
-        seg_type=SegmentType.OBJECT,
+        seg_type=ValueKind.OBJECT,
         fields={
             "stance": Shape(
-                seg_type=SegmentType.STRING,
+                seg_type=ValueKind.STRING,
                 tags=frozenset({"positive", "negative", "neutral"}),
             ),
-            "claim": Shape.scalar(SegmentType.STRING),
+            "claim": Shape.scalar(ValueKind.STRING),
         },
         required=frozenset({"stance", "claim"}),
     )
@@ -269,10 +269,10 @@ def test_exhaustiveness_walks_dotted_field_into_record():
 
 def test_exhaustiveness_dotted_missing_tag_raises():
     view = Shape(
-        seg_type=SegmentType.OBJECT,
+        seg_type=ValueKind.OBJECT,
         fields={
             "stance": Shape(
-                seg_type=SegmentType.STRING,
+                seg_type=ValueKind.STRING,
                 tags=frozenset({"positive", "negative", "neutral"}),
             ),
         },
@@ -292,13 +292,13 @@ def test_exhaustiveness_dotted_missing_tag_raises():
 def test_no_exhaustiveness_for_searched_form():
     # a searched case (no on:) over an enum-ish producer is NOT exhaustiveness-checked.
     desc = _case_desc("02-case.yaml", "gate")
-    desugar_case(desc, {"score": Shape(seg_type=SegmentType.STRING, tags=frozenset({"a"}))})
+    desugar_case(desc, {"score": Shape(seg_type=ValueKind.STRING, tags=frozenset({"a"}))})
 
 
 def test_on_non_enum_producer_skips_exhaustiveness():
     # on: a plain scalar producer (no .tags) -> lenient, no exhaustiveness, no raise.
     desc = _case_desc("06-case-on.yaml", "route")
-    result = desugar_case(desc, {"classify": Shape.scalar(SegmentType.STRING)})
+    result = desugar_case(desc, {"classify": Shape.scalar(ValueKind.STRING)})
     assert isinstance(result.node, CaseNode)
 
 

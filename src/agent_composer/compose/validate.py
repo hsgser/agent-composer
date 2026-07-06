@@ -49,7 +49,7 @@ from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
 from agent_composer.nodes.wait import WaitNode
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.state.segments import ValueKind, Shape
 from agent_composer.compose.errors import LoadError
 
 # Heads forbidden in a strict prompt (always trigger the bespoke hint).
@@ -436,7 +436,7 @@ def validate_node_asserts(
                     reads_output = True
                     if len(segs) > 1:
                         sh = node.output_shape
-                        if sh is not None and sh.seg_type != SegmentType.OBJECT:
+                        if sh is not None and sh.seg_type != ValueKind.OBJECT:
                             errors.append((
                                 f"node {nid!r} assert: ${{{ref}}} — the node output is not a "
                                 f"record, so it has no field {'.'.join(segs[1:])!r}", line))

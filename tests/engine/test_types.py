@@ -38,7 +38,7 @@ def test_resolve_optional_is_nullable():
     from agent_composer.state.types import OptionalType, resolve_shape
 
     sh = resolve_shape(OptionalType(ScalarType("str")), {})
-    assert sh.seg_type == SegmentType.STRING and sh.nullable is True
+    assert sh.seg_type == ValueKind.STRING and sh.nullable is True
 
 
 def test_record_optional_field_excluded_from_required():
@@ -82,8 +82,8 @@ def test_parse_literal_quoted_and_unquoted():
 def test_legacy_engine_names_no_longer_resolve():
     # type unification: the OLD engine vocabulary is gone. A bare `string`/`integer`/
     # `number`/`boolean` is no longer a scalar — it parses as an unknown registry RefType
-    # and RAISES SegmentError on resolution.
-    from agent_composer.state.segments import SegmentError as _SE
+    # and RAISES TypeCheckError on resolution.
+    from agent_composer.state.segments import TypeCheckError as _SE
 
     for legacy in ("string", "integer", "number", "boolean"):
         assert parse_type(legacy) == RefType(legacy)
@@ -96,7 +96,7 @@ def test_legacy_engine_names_no_longer_resolve():
 
 
 def test_parse_union_rejected():
-    from agent_composer.state.segments import SegmentError as _SE
+    from agent_composer.state.segments import TypeCheckError as _SE
 
     with pytest.raises(_SE) as ei:
         parse_type("Union[int, str]")
@@ -104,7 +104,7 @@ def test_parse_union_rejected():
 
 
 def test_parse_malformed_raises():
-    from agent_composer.state.segments import SegmentError as _SE
+    from agent_composer.state.segments import TypeCheckError as _SE
 
     with pytest.raises(_SE):
         parse_type("list[")
@@ -124,11 +124,11 @@ def test_is_shadow_guard():
 # --- registry + resolve_shape ----------------------------------------------- #
 
 from agent_composer.state.segments import (  # noqa: E402
-    ListObjectSegment,
-    ObjectSegment,
-    SegmentError,
-    SegmentType,
-    build_segment_with_type,
+    ListObjectValue,
+    ObjectValue,
+    TypeCheckError,
+    ValueKind,
+    build_value_as,
 )
 from agent_composer.state.types import (  # noqa: E402
     RecordDef,
@@ -145,63 +145,63 @@ REG = {
 
 
 def test_resolve_scalar_and_list():
-    assert shape_for("str", REG).seg_type == SegmentType.STRING
-    assert shape_for("date", REG).seg_type == SegmentType.DATE
-    assert shape_for("datetime", REG).seg_type == SegmentType.DATETIME
-    assert shape_for("List[float]", REG).seg_type == SegmentType.LIST_NUMBER
+    assert shape_for("str", REG).seg_type == ValueKind.STRING
+    assert shape_for("date", REG).seg_type == ValueKind.DATE
+    assert shape_for("datetime", REG).seg_type == ValueKind.DATETIME
+    assert shape_for("List[float]", REG).seg_type == ValueKind.LIST_NUMBER
 
 
 def test_resolve_inline_literal_is_enum():
     from agent_composer.state.types import EnumType, resolve_shape
 
     sh = resolve_shape(EnumType(("pro", "con")), {})
-    assert sh.seg_type == SegmentType.STRING and sh.tags == frozenset({"pro", "con"})
+    assert sh.seg_type == ValueKind.STRING and sh.tags == frozenset({"pro", "con"})
 
 
 def test_resolve_dict_is_m11_placeholder():
     # dict[K,V] parses + resolves to a lenient object placeholder (full typing is deferred)
     sh = shape_for("dict[str, int]", REG)
-    assert sh.seg_type == SegmentType.OBJECT
+    assert sh.seg_type == ValueKind.OBJECT
 
 
 def test_resolve_record_and_variant():
     s = shape_for("Rating", REG)
-    assert s.seg_type == SegmentType.OBJECT and set(s.required) == {"value", "confidence"}
+    assert s.seg_type == ValueKind.OBJECT and set(s.required) == {"value", "confidence"}
     a = shape_for("Action", REG)
-    assert a.seg_type == SegmentType.STRING and a.tags == frozenset({"Approve", "Reject", "Defer"})
+    assert a.seg_type == ValueKind.STRING and a.tags == frozenset({"Approve", "Reject", "Defer"})
 
 
 def test_resolve_list_of_record():
     s = shape_for("List[Rating]", REG)
-    assert s.seg_type == SegmentType.LIST_OBJECT and s.element.fields is not None
+    assert s.seg_type == ValueKind.LIST_OBJECT and s.element.fields is not None
 
 
 def test_unknown_type_raises():
-    with pytest.raises(SegmentError):
+    with pytest.raises(TypeCheckError):
         shape_for("Nope", REG)
 
 
 def test_recursive_record_rejected():
     bad = {"Node": RecordDef(fields={"child": "Node"})}
-    with pytest.raises(SegmentError):
+    with pytest.raises(TypeCheckError):
         shape_for("Node", bad)
 
 
 def test_end_to_end_write_boundary():
-    assert build_segment_with_type(shape_for("Action", REG), "Approve").value == "Approve"
-    with pytest.raises(SegmentError):
-        build_segment_with_type(shape_for("Action", REG), "approve")
+    assert build_value_as(shape_for("Action", REG), "Approve").value == "Approve"
+    with pytest.raises(TypeCheckError):
+        build_value_as(shape_for("Action", REG), "approve")
     assert isinstance(
-        build_segment_with_type(shape_for("Rating", REG), {"value": 0.8, "confidence": 0.9}),
-        ObjectSegment,
+        build_value_as(shape_for("Rating", REG), {"value": 0.8, "confidence": 0.9}),
+        ObjectValue,
     )
     assert isinstance(
-        build_segment_with_type(shape_for("List[Rating]", REG), [{"value": 0.1, "confidence": 0.2}]),
-        ListObjectSegment,
+        build_value_as(shape_for("List[Rating]", REG), [{"value": 0.1, "confidence": 0.2}]),
+        ListObjectValue,
     )
     assert isinstance(
-        build_segment_with_type(shape_for("Prices", REG), {"closes": [1.0, 2.0], "last": 2.0}),
-        ObjectSegment,
+        build_value_as(shape_for("Prices", REG), {"closes": [1.0, 2.0], "last": 2.0}),
+        ObjectValue,
     )
 
 
@@ -210,7 +210,7 @@ def test_public_exports():
 
     for name in (
         "Shape",
-        "DateSegment",
+        "DateValue",
         "parse_type",
         "resolve_shape",
         "shape_for",

@@ -3,11 +3,11 @@
 import pytest
 
 from agent_composer.nodes.agent.structured import generate_structured
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.state.segments import Shape, ValueKind
 
 
 def test_retry_on_invalid_then_succeeds():
-    shape = Shape.scalar(SegmentType.INTEGER)
+    shape = Shape.scalar(ValueKind.INTEGER)
     calls = {"n": 0}
 
     class _Flaky:
@@ -26,7 +26,7 @@ def test_retry_on_invalid_then_succeeds():
 
 
 def test_retry_exhausted_raises():
-    shape = Shape.scalar(SegmentType.INTEGER)
+    shape = Shape.scalar(ValueKind.INTEGER)
 
     class _Always:
         def with_structured_output(self, schema):

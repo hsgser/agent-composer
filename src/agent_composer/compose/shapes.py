@@ -12,8 +12,8 @@ from typing import Any, Optional
 
 import yaml
 
-from agent_composer.state import SegmentError, Shape, shape_for
-from agent_composer.state.segments import SegmentType
+from agent_composer.state import TypeCheckError, Shape, shape_for
+from agent_composer.state.segments import ValueKind
 from agent_composer.state.types import ScalarType, TypeRegistry, parse_type
 
 from agent_composer.compose.errors import LoadError
@@ -24,13 +24,13 @@ def read_shape(node, registry: TypeRegistry) -> Shape:
     if isinstance(node, str):
         try:
             return shape_for(node, registry)
-        except SegmentError as exc:
+        except TypeCheckError as exc:
             raise LoadError(f"bad type expression {node!r}: {exc}") from exc
 
     if isinstance(node, dict):
         fields = {k: read_shape(v, registry) for k, v in node.items()}
         return Shape(
-            seg_type=SegmentType.OBJECT,
+            seg_type=ValueKind.OBJECT,
             fields=fields,
             required=frozenset(k for k, sh in fields.items() if not sh.nullable),
         )
@@ -120,7 +120,7 @@ def read_flow_inputs(mapping, registry: TypeRegistry) -> list[InputDecl]:
                     ) from exc
             try:
                 parsed = parse_type(type_part)
-            except SegmentError as exc:
+            except TypeCheckError as exc:
                 raise LoadError(f"input {name!r}: {exc}") from exc
             engine_type = parsed.name if isinstance(parsed, ScalarType) else type_part
             required = not shape.nullable and default is None

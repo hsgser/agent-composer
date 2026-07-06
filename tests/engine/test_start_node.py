@@ -7,12 +7,12 @@ from agent_composer.nodes.binding import ParamDecl
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.eval_node import eval_node
 from agent_composer.state.pool import TypedVariablePool
-from agent_composer.state.segments import SegmentType, Shape
+from agent_composer.state.segments import ValueKind, Shape
 
 
 def _decl(name, type_, default=None, required=False, shape=None):
     return InputDecl(name, type_, default, required,
-                     shape or Shape.scalar(SegmentType.STRING))
+                     shape or Shape.scalar(ValueKind.STRING))
 
 
 def test_start_kind_and_params_are_input_names():
@@ -29,8 +29,8 @@ def test_start_run_coerces_defaults_into_a_record():
     node = StartNode("__start__", input_decls=[
         _decl("topic", "str"),
         _decl("window", "int", default="30",
-              shape=Shape.scalar(SegmentType.INTEGER)),
-        _decl("offset", "int", shape=Shape.scalar(SegmentType.INTEGER)),
+              shape=Shape.scalar(ValueKind.INTEGER)),
+        _decl("offset", "int", shape=Shape.scalar(ValueKind.INTEGER)),
     ])
     out = node.run({"topic": "ACME", "offset": "7"})
     assert isinstance(out, Output)
@@ -40,7 +40,7 @@ def test_start_run_coerces_defaults_into_a_record():
 def test_start_e08_shape_mismatch_raises_located_message():
     # a value violating the declared shape raises the byte-stable located string.
     node = StartNode("__start__", input_decls=[
-        _decl("n", "int", required=True, shape=Shape.scalar(SegmentType.INTEGER)),
+        _decl("n", "int", required=True, shape=Shape.scalar(ValueKind.INTEGER)),
     ])
     with pytest.raises(Exception, match=r"input `n` — .*does not match declared type int"):
         node.run({"n": ["not", "an", "int"]})
@@ -71,7 +71,7 @@ def test_start_through_eval_node_fills_omitted_default():
     from agent_composer.events import NodeSucceeded
     node = StartNode("__start__", input_decls=[
         _decl("topic", "str"),
-        _decl("window", "int", default="30", shape=Shape.scalar(SegmentType.INTEGER)),
+        _decl("window", "int", default="30", shape=Shape.scalar(ValueKind.INTEGER)),
     ])
     pool = TypedVariablePool()
     pool.set(START_ID, {"topic": "ACME"})
@@ -89,7 +89,7 @@ def test_start_through_eval_node_required_unbound_fails():
 
     from agent_composer.events import NodeFailed
     node = StartNode("__start__", input_decls=[
-        _decl("n", "int", required=True, shape=Shape.scalar(SegmentType.INTEGER)),
+        _decl("n", "int", required=True, shape=Shape.scalar(ValueKind.INTEGER)),
     ])
     pool = TypedVariablePool()
     flow = SimpleNamespace(wiring={"__start__": {}})  # nothing bound

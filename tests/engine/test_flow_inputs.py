@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent_composer.state.segments import SegmentType
+from agent_composer.state.segments import ValueKind
 from agent_composer.state.seeding import apply_defaults, coerce_inputs
 from agent_composer.compose import LoadError
 from agent_composer.compose.shapes import InputDecl, read_flow_inputs
@@ -18,7 +18,7 @@ def test_required_scalar():
     assert d.required is True
     assert d.default is None
     assert d.type == "str"
-    assert d.shape.seg_type == SegmentType.STRING
+    assert d.shape.seg_type == ValueKind.STRING
 
 
 def test_int_with_default_and_coercion():
@@ -47,7 +47,7 @@ def test_float_default():
 
 def test_list_default():
     d = _by_name(read_flow_inputs({"bundle": 'list[str] = ["ACME"]'}, {}))["bundle"]
-    assert d.shape.seg_type == SegmentType.LIST_STRING
+    assert d.shape.seg_type == ValueKind.LIST_STRING
     assert d.default == ["ACME"]
     assert d.required is False
 
@@ -66,12 +66,12 @@ def test_record_typed_dict_value():
             {},
         )
     )["config"]
-    assert d.shape.seg_type == SegmentType.OBJECT
-    assert d.shape.fields["regroup"].seg_type == SegmentType.BOOLEAN
+    assert d.shape.seg_type == ValueKind.OBJECT
+    assert d.shape.fields["regroup"].seg_type == ValueKind.BOOLEAN
     bands = d.shape.fields["bands"]
-    assert bands.seg_type == SegmentType.OBJECT
-    assert bands.fields["lower"].seg_type == SegmentType.NUMBER
-    assert bands.fields["upper"].seg_type == SegmentType.NUMBER
+    assert bands.seg_type == ValueKind.OBJECT
+    assert bands.fields["lower"].seg_type == ValueKind.NUMBER
+    assert bands.fields["upper"].seg_type == ValueKind.NUMBER
     assert d.default is None
     assert d.required is True
 

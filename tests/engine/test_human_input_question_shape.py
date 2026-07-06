@@ -1,17 +1,17 @@
 from agent_composer.nodes.human_input.questions import question_list_shape
-from agent_composer.state.segments import SegmentType
+from agent_composer.state.segments import ValueKind
 from agent_composer.nodes.agent.structured import shape_to_schema
 
 
 def test_question_list_shape_structure():
     sh = question_list_shape()
-    assert sh.seg_type == SegmentType.LIST_OBJECT
+    assert sh.seg_type == ValueKind.LIST_OBJECT
     q = sh.element
-    assert q.seg_type == SegmentType.OBJECT
+    assert q.seg_type == ValueKind.OBJECT
     assert {"question", "header", "options", "multi_select"} <= set(q.fields)
     assert {"question", "header"} <= q.required
     opt = q.fields["options"]
-    assert opt.seg_type == SegmentType.LIST_OBJECT
+    assert opt.seg_type == ValueKind.LIST_OBJECT
     assert {"label", "description"} <= set(opt.element.fields)
 
 

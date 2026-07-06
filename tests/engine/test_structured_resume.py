@@ -19,7 +19,7 @@ from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.end import EndNode
 from agent_composer.nodes.start import StartNode
 from agent_composer.runtime.engine import FlowEngine
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.state.segments import Shape, ValueKind
 from agent_composer.suspension.pause import HumanInputRequired
 
 
@@ -58,10 +58,10 @@ class _StructuredAskChat:
 
 def _record_shape():
     return Shape(
-        seg_type=SegmentType.OBJECT,
+        seg_type=ValueKind.OBJECT,
         fields={
-            "name": Shape.scalar(SegmentType.STRING),
-            "score": Shape.scalar(SegmentType.INTEGER),
+            "name": Shape.scalar(ValueKind.STRING),
+            "score": Shape.scalar(ValueKind.INTEGER),
         },
         required=frozenset({"name", "score"}),
     )

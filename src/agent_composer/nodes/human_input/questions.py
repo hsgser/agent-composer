@@ -8,7 +8,7 @@ the engine's authoring constraints (1..4 questions, unique headers).
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agent_composer.state.segments import Shape, SegmentType
+from agent_composer.state.segments import Shape, ValueKind
 
 
 class OptionSpec(BaseModel):
@@ -118,21 +118,21 @@ def question_list_shape() -> Shape:
             A `LIST_OBJECT` shape whose `element` is the question record above.
     """
     option_record = Shape(
-        seg_type=SegmentType.OBJECT,
+        seg_type=ValueKind.OBJECT,
         fields={
-            "label": Shape.scalar(SegmentType.STRING),
-            "description": Shape.scalar(SegmentType.STRING),
+            "label": Shape.scalar(ValueKind.STRING),
+            "description": Shape.scalar(ValueKind.STRING),
         },
         required=frozenset({"label", "description"}),
     )
     question_record = Shape(
-        seg_type=SegmentType.OBJECT,
+        seg_type=ValueKind.OBJECT,
         fields={
-            "question": Shape.scalar(SegmentType.STRING),
-            "header": Shape.scalar(SegmentType.STRING),
-            "options": Shape(seg_type=SegmentType.LIST_OBJECT, element=option_record),
-            "multi_select": Shape.scalar(SegmentType.BOOLEAN),
+            "question": Shape.scalar(ValueKind.STRING),
+            "header": Shape.scalar(ValueKind.STRING),
+            "options": Shape(seg_type=ValueKind.LIST_OBJECT, element=option_record),
+            "multi_select": Shape.scalar(ValueKind.BOOLEAN),
         },
         required=frozenset({"question", "header"}),
     )
-    return Shape(seg_type=SegmentType.LIST_OBJECT, element=question_record)
+    return Shape(seg_type=ValueKind.LIST_OBJECT, element=question_record)
