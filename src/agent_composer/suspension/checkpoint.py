@@ -42,8 +42,9 @@ from agent_composer.suspension.pause import PauseReason
 # consistent with prior bumps). 6.0 -> 7.0: the expansion ledger unified from the four-variant
 # `*Expansion` union (CallExpansion/MapExpansion/AgentExpansion/LoopExpansion) to a single flat
 # `GrowRecord(spawner_id, seed, children)` — one uniform record per grow, kind-blind replay.
-# Pre-7.0 blobs are NOT loadable (hard cutover).
-CHECKPOINT_VERSION = "7.0"
+# Pre-7.0 blobs are NOT loadable (hard cutover). 8.0: MAP grows a synthetic `map#/__start__`
+# fan-out node, so a pre-8.0 checkpoint would replay a topology missing that node — hard cutover.
+CHECKPOINT_VERSION = "8.0"
 
 
 class RunCheckpoint(BaseModel):

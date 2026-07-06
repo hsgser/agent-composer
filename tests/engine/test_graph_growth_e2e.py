@@ -14,8 +14,8 @@ contract, this locks the engine results end-to-end:
 - **nested suspension resumes to terminal**: a HUMAN_INPUT inside a called child loads,
   parks on its namespaced leaf id, and resumes via deliver-as-Output.
 - the goldens still hold (graph-growth must not perturb the static edge ids).
-- `CHECKPOINT_VERSION == "7.0"` round-trips on a NON-paused run (bumped 6.0 -> 7.0 for
-  the unified GrowRecord expansion ledger).
+- `CHECKPOINT_VERSION == "8.0"` round-trips on a NON-paused run (bumped 7.0 -> 8.0 for
+  the MAP synthetic `map#/__start__` fan-out topology).
 - the ONE remaining engine xfail is the commandless durable re-pause, nothing else.
 
 LLM-terminating seeds (00/04/05/14/18) are asserted LOAD+structure only; run assertions use
@@ -106,7 +106,7 @@ def _run_map(topics):
 
 
 def test_checkpoint_version_is_current():
-    assert CHECKPOINT_VERSION == "7.0"  # bumped 6.0 -> 7.0 (unified GrowRecord expansion ledger)
+    assert CHECKPOINT_VERSION == "8.0"  # bumped 7.0 -> 8.0 (MAP synthetic map#/__start__ fan-out)
 
 
 # --- scratch eliminated structurally ------------------------ #
@@ -149,10 +149,16 @@ def test_start_end_splice_is_exercised():
     eng, events = _run_map(["ACME", "BETA"])
     assert isinstance(events[-1], RunSucceeded)
     ids = list(eng.flow.nodes)
-    # each element splices the namespaced child START_ID..END_ID; the MAP fan-in is ONE
-    # END_ID(list-mode) aggregator under the spawner namespace.
+    # each element splices the namespaced child START_ID..END_ID; MAP also synthesizes ONE
+    # `research_each/__start__` fan-out start + ONE END_ID(list-mode) aggregator under the spawner
+    # namespace.
     starts = sorted(i for i in ids if i.endswith("/__start__"))
-    assert starts == ["research_each#0/__start__", "research_each#1/__start__"]
+    assert starts == ["research_each#0/__start__", "research_each#1/__start__",
+                      "research_each/__start__"]
+    map_start_id = "research_each/__start__"                     # ns(spawner, START_ID)
+    # the synthetic start fans out to each element START via an ordering edge.
+    fanout = {e.to for e in eng.flow.edges if e.from_ == map_start_id and e.ordering}
+    assert fanout == {"research_each#0/__start__", "research_each#1/__start__"}
     map_end_id = "research_each/__end__"                         # ns(spawner, END_ID)
     assert eng.flow.nodes[map_end_id].kind == NodeKind.END
     into_end = {(e.from_, e.input_group) for e in eng.flow.edges if e.to == map_end_id}
@@ -245,9 +251,9 @@ def test_checkpoint_roundtrip_non_paused():
     events = list(eng.run())
     assert isinstance(events[-1], RunSucceeded) and events[-1].output == 10
     snap = eng.snapshot()
-    assert snap.version == "7.0"
+    assert snap.version == "8.0"
     ck = RunCheckpoint.loads(snap.dumps())  # cross-process round-trip
-    assert ck.version == "7.0"
+    assert ck.version == "8.0"
     eng2 = FlowEngine.restore(loaded.compiled, ck)
     evs2 = list(eng2.resume([]))
     assert isinstance(evs2[-1], RunSucceeded) and evs2[-1].output == 10

@@ -9,6 +9,13 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 ## Engine bugs surfaced but deferred
 
+- [ ] **Cross-version durable resume is not guaranteed (surfaced 2026-07-05, P10 Flow unification).** A
+  run suspended on an older binary and resumed on a newer one can re-grow a subgraph window whose node
+  topology changed between versions — e.g. post-P10 MAP grows a `map#/__start__` node absent from the
+  pre-P10 restored pool. Intra-version replay parity holds (the ledger serializes `GrowRecord` + seed and
+  the builder rebuilds the same window on the same binary). Fixing cross-binary migration would need a
+  ledger schema version + migration shims; deferred as out of scope for the young engine.
+
 - [ ] **`and`/`or`/`not`/`in` are not reserved words in the unified `${}` grammar** — the LALR lexer
   resolves them contextually: in operator position they lex as the keyword token, in operand position as
   a plain `NAME`/ref. So `${x and and}` parses (the 2nd `and` is a ref named `and`), and bare `${and}`

@@ -1,14 +1,14 @@
-"""The generic `_apply_grow` core splices a self-describing Subgraph.
+"""The generic `_apply_grow` core splices a self-describing `Flow`.
 
-Drives `FlowEngine._apply_grow` directly with a tiny one-node child Subgraph (a leaf carrying a
+Drives `FlowEngine._apply_grow` directly with a tiny one-node child `Flow` (a leaf carrying a
 baked `commit_as`), asserting the generic core's contract: the node is spliced into `flow.nodes`,
-registered in the state manager, and its root scheduled. The spawner stand-in is a plain
+registered in the state manager, and its `start_id` scheduled. The spawner stand-in is a plain
 `FuncNode` carrying the default node traits (`grow_depth_delta=None`, `is_loop=False`,
 `grow_restamps_self=False`), so the trait-driven growth bookkeeping is a no-op — the core's
 splice/register/schedule/prune contract is exercised in isolation."""
 
-from agent_composer.compile.model import Edge, END_ID, START_ID
-from agent_composer.nodes.base import Grow, Subgraph
+from agent_composer.compile.model import Edge, END_ID, Flow, START_ID
+from agent_composer.nodes.base import Grow
 from agent_composer.runtime.engine import FlowEngine
 from tests.engine._fakes import FuncNode
 from tests.engine._graph_builder import _graph
@@ -24,11 +24,12 @@ def _parent_engine() -> FlowEngine:
 
 
 def _one_node_grow(spawner_id: str) -> Grow:
-    # A single-node child subgraph: a leaf whose Output commits under the spawner id (baked
-    # commit_as), rooted at itself.
+    # A single-node child Flow: a leaf whose Output commits under the spawner id (baked
+    # commit_as); it is both the entry (start_id) and the exit (end_id).
     child = FuncNode(f"{spawner_id}/leaf", lambda p: {"output": "y"})
     child.commit_as = spawner_id
-    sg = Subgraph(nodes={child.id: child}, edges=[], wiring={child.id: {}}, roots=[child.id])
+    sg = Flow(nodes={child.id: child}, edges=[], wiring={child.id: {}},
+              start_id=child.id, end_id=child.id)
     return Grow(sg)
 
 
@@ -43,7 +44,7 @@ def test_apply_grow_splices_registers_and_schedules():
     assert child_id in eng.flow.nodes
     # Registered in the state manager overlay.
     assert child_id in eng.sm.node_state
-    # Its root scheduled (paused is empty -> lands in the serial ready deque).
+    # Its start_id scheduled (paused is empty -> lands in the serial ready deque).
     assert child_id in list(eng.ready)
 
 
@@ -61,15 +62,16 @@ def test_apply_grow_schedule_false_suppresses_scheduling():
 
 
 def _two_node_grow(a_id: str, b_id: str) -> Grow:
-    # A two-node child subgraph (a -> b), rooted at `a`. Reused to splice a subgraph whose ids a
-    # later Grow can name in its `prune` set.
+    # A two-node child Flow (a -> b): `a` is the entry (start_id), `b` the exit (end_id). Reused to
+    # splice a subgraph whose ids a later Grow can name in its `prune` set.
     a = FuncNode(a_id, lambda p: {"output": "a"})
     b = FuncNode(b_id, lambda p: {"output": "b"})
-    sg = Subgraph(
+    sg = Flow(
         nodes={a.id: a, b.id: b},
         edges=[Edge(id=f"{a_id}->{b_id}", from_=a_id, to=b_id)],
         wiring={a.id: {}, b.id: {}},
-        roots=[a.id],
+        start_id=a.id,
+        end_id=b.id,
     )
     return Grow(sg)
 

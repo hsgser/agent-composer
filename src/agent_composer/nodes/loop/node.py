@@ -49,7 +49,7 @@ class LoopNode(Node):
     """
 
     kind = NodeKind.LOOP
-    is_spawner: ClassVar[bool] = True  # grows the graph: each iteration splices a Grow(Subgraph)
+    is_spawner: ClassVar[bool] = True  # grows the graph: each iteration splices a Grow(Flow)
     is_loop: ClassVar[bool] = True  # the fixpoint-iteration driver: the ledger stays single-record
 
     def __init__(

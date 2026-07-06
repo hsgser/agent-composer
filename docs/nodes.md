@@ -182,11 +182,12 @@ class MapNode(NodeBase):               # SUBFLOW — run a child once per item
                            commit_as=self.id)           # its Output publishes under THIS map node;
                                                          #   the map's own post_asserts are re-checked
                                                          #   at the commit site, not rehomed here
-        return Grow(Subgraph(                           # a well-formed sub-flow: __start__ … __end__
+        return Grow(Flow(                               # a well-formed sub-flow: __start__ … __end__
             nodes = [start] + children + [end],
             edges = fan_out(start, children)            # __start__ → each child
                   + fan_in(children, end),              # each child's result → __end__
-        ))                                              # entry = __start__; __end__ commits via commit_as
+            start_id = start.id, end_id = end.id,       # single entry; __end__ commits via commit_as
+        ))
 
 class LoopNode(NodeBase):              # SUBFLOW — repeat until done (self-respawn)
     is_spawner = True
@@ -197,10 +198,11 @@ class LoopNode(NodeBase):              # SUBFLOW — repeat until done (self-res
         body = clone(self.body, inputs["k"], bake(inputs))
         next = self.respawn(k=inputs["k"] + 1,          # continue → a fresh copy of myself,
                             origin_id=self.origin_id)   # carrying the ORIGINAL loop id forward
-        return Grow(Subgraph(                           # entry = body's __start__; no committing
+        return Grow(Flow(                               # entry = body's __start__; no committing
             nodes = [body, next],                       # __end__ — the commit happens later, when a
             edges = [edge(body.end, next)],             # body __end__ → next's `carried` (normal
-        ),                                              # wiring); terminating iter commits via commit_as
+            start_id = body.start_id, end_id = body.end_id, # wiring); terminating iter commits via commit_as
+        ),
         prune = self.own_ids)                           # retire THIS iteration's scratch (the inverse
 ```
 

@@ -6,8 +6,7 @@ Output feeds the next driver by plain wiring) + the fresh `L~(k+1)` driver + the
 durable `replay_grow` build the SAME `L#k/…` namespace.
 """
 from agent_composer.compile.expand import loop_continue_subgraph, map_callsite, ns
-from agent_composer.compile.model import END_ID
-from agent_composer.nodes.base import Subgraph
+from agent_composer.compile.model import END_ID, Flow
 from agent_composer.nodes.loop import LoopNode
 
 from tests.engine.test_expand import _child_flow
@@ -24,9 +23,10 @@ def test_continue_subgraph_body_keyed_on_origin_not_driver():
     child = _child_flow()
     driver = _driver("lp", 1, child)                     # origin=lp; body must key on lp, not lp~0
     sg = loop_continue_subgraph(child, origin="lp", carried={"x": 1}, k=0, driver=driver)
-    assert isinstance(sg, Subgraph)
+    assert isinstance(sg, Flow)
     callsite = map_callsite("lp", 0)                      # "lp#0" (origin-keyed, NOT lp~0#0)
-    assert sg.roots == [ns(callsite, child.start_id)]
+    assert sg.start_id == ns(callsite, child.start_id)
+    assert sg.end_id == ns(callsite, END_ID)
     assert all(nid.startswith(callsite + "/") or nid == "lp~1" for nid in sg.nodes)
 
 

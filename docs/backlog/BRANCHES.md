@@ -22,4 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| _(none)_ | | | |
+| `dev/engine/flow-unification` | `main` | P10: unify `CompiledFlow`/`Subgraph`/`ClonedSubgraph` into one `Flow` core; adopt `__start__`/`__end__` convention (drop `roots`/`out_node_id`), incl. MAP synthetic `__start__` fan-out | 2026-07-05 |

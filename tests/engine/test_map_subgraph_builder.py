@@ -1,16 +1,17 @@
 """The pure MAP builder `map_subgraph` — pins its output to `_grow_map`'s clone+fan-in shape.
 
 `map_subgraph(child, spawner_id, records)` clones the child once per element (deep-namespaced under
-`map_callsite(spawner_id, i)`), synthesizes the list-`END` fan-in (an `EndNode.list_` carrying
-`commit_as=spawner_id`, fed one `e{i}` group per element), and returns a `Subgraph`. This test pins:
-over 2 records there are 2 child clones + 1 list-END; the list-END commits under the spawner; the
-end-wiring has `e0`/`e1`. The N=0 case pins that the sole node is the list-END and that it is a root
-(0-incoming, so it schedules and emits `[]`).
+`map_callsite(spawner_id, i)`), synthesizes a `map#/__start__` StartNode that fans out to every
+element START via ORDERING edges, plus the list-`END` fan-in (an `EndNode.list_` carrying
+`commit_as=spawner_id`, fed one `e{i}` group per element), and returns a `Flow`. This test pins:
+over 2 records there are 2 child clones + the synthetic start + 1 list-END; `start_id` is the
+synthetic start with an ordering edge to every element START; `end_id` is the list-END; the list-END
+commits under the spawner; the end-wiring has `e0`/`e1`. The N=0 case pins that the only body node is
+the list-END and that the synthetic start wires straight to it (so it schedules and emits `[]`).
 """
 
 from agent_composer.compile.expand import map_callsite, map_subgraph, ns
-from agent_composer.compile.model import END_ID
-from agent_composer.nodes.base import Subgraph
+from agent_composer.compile.model import END_ID, START_ID, Flow
 
 from tests.engine.test_expand import _child_flow
 
@@ -20,14 +21,20 @@ def test_map_subgraph_matches_grow_map_shape():
     records = [{"x": 1}, {"x": 2}]
     sg = map_subgraph(child, spawner_id="m0", records=records)
 
-    assert isinstance(sg, Subgraph)
+    assert isinstance(sg, Flow)
+    map_start_id = ns("m0", START_ID)
     map_end_id = ns("m0", END_ID)
 
-    # 2 child clones (one per element callsite) + 1 synthesized list-END.
+    # 2 child clones (one per element callsite) + the synthetic start + 1 synthesized list-END.
     for i in range(2):
         callsite = map_callsite("m0", i)
         assert set(ns(callsite, nid) for nid in child.nodes) <= set(sg.nodes)
+    assert map_start_id in sg.nodes
     assert map_end_id in sg.nodes
+
+    # start_id == the synthetic fan-out start; end_id == the list collector.
+    assert sg.start_id == map_start_id
+    assert sg.end_id == map_end_id
 
     # The list-END commits its list Output under the spawner id.
     assert sg.nodes[map_end_id].commit_as == "m0"
@@ -39,21 +46,46 @@ def test_map_subgraph_matches_grow_map_shape():
         out_id = ns(map_callsite("m0", i), child.end_id)
         assert end_wiring[f"e{i}"] == f"${{{out_id}.output}}"
 
-    # Element roots (the namespaced child STARTs) are present in roots; N>0 so the
-    # list-END is NOT a root (it has incoming fan-in edges).
+    # The synthetic start fans out to EVERY element START via an ordering edge (its sole gate).
     for i in range(2):
-        assert ns(map_callsite("m0", i), child.start_id) in sg.roots
-    assert map_end_id not in sg.roots
+        elem_start = ns(map_callsite("m0", i), child.start_id)
+        matched = [e for e in sg.edges if e.from_ == map_start_id and e.to == elem_start]
+        assert len(matched) == 1
+        edge = matched[0]
+        assert edge.ordering is True          # ordering, not data (no phantom input_group group)
+        assert edge.input_group is None
+        assert edge.optional is False         # depends_on: mirrors the top-level start->root gate
+
+    # N>0 so the synthetic start does NOT wire straight to the list-END (it fans in over the clones).
+    assert not any(e.from_ == map_start_id and e.to == map_end_id for e in sg.edges)
 
 
-def test_map_subgraph_n0_lists_end_is_the_sole_root():
+def test_map_subgraph_n_ge_2_start_fans_out_to_all_element_starts():
+    # A focused check that MAP with N>=2 produces a Flow whose synthetic start has an ordering edge
+    # to ALL N element starts (the fan-out replacing the old N-root list).
+    child = _child_flow()
+    records = [{"x": i} for i in range(4)]
+    sg = map_subgraph(child, spawner_id="m0", records=records)
+
+    map_start_id = ns("m0", START_ID)
+    fanout = {e.to for e in sg.edges if e.from_ == map_start_id and e.ordering}
+    expected = {ns(map_callsite("m0", i), child.start_id) for i in range(4)}
+    assert fanout == expected
+
+
+def test_map_subgraph_n0_wires_start_to_collector():
     child = _child_flow()
     sg = map_subgraph(child, spawner_id="m0", records=[])
 
+    map_start_id = ns("m0", START_ID)
     map_end_id = ns("m0", END_ID)
-    # The only node is the list-END; it has 0 incoming edges so it MUST be a root
-    # (it schedules and emits []).
-    assert set(sg.nodes) == {map_end_id}
-    assert sg.edges == []
-    assert map_end_id in sg.roots
+    # The only nodes are the synthetic start + the list-END; the start wires straight to the END
+    # (an ordering edge) so the collector schedules off the fan-out and emits [].
+    assert set(sg.nodes) == {map_start_id, map_end_id}
+    assert sg.start_id == map_start_id
+    assert sg.end_id == map_end_id
+    edges_to_end = [e for e in sg.edges if e.to == map_end_id]
+    assert len(edges_to_end) == 1
+    assert edges_to_end[0].from_ == map_start_id
+    assert edges_to_end[0].ordering is True
     assert sg.nodes[map_end_id].commit_as == "m0"

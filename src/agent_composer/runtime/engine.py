@@ -646,11 +646,12 @@ class FlowEngine:
             self._replay_expansions(rec.children, is_top_level=False)
 
     def _apply_grow(self, spawner_id, grow, *, schedule=True, record=None):
-        """Generic growth core (kind-BLIND): splice the node-built Subgraph, register it, enforce
+        """Generic growth core (kind-BLIND): splice the node-built `Flow`, register it, enforce
         MAX_TOTAL_NODES, record ONE uniform `GrowRecord` in the durable ledger, apply the trait-driven
         growth bookkeeping (boundary asserts, REF depth, `_spawner_expansion` stamps, origin
         `commit_as`), finish/mark the spawner, apply `grow.prune` (enabling loop self-prune), and
-        schedule its roots. `schedule=False` suppresses scheduling+budget on replay; `record` reuses
+        schedule its `start_id` (the single entry, which fans out downstream via `_advance`).
+        `schedule=False` suppresses scheduling+budget on replay; `record` reuses
         a deserialized ledger entry on replay (so no new record is minted).
 
         Ledger attach is kind-blind for non-loop kinds: mint a `GrowRecord(origin, seed, [])`, then
@@ -748,8 +749,7 @@ class FlowEngine:
             else:
                 self.expansions.append(rec)
         if schedule:
-            for root in sg.roots:
-                self._schedule(root)
+            self._schedule(sg.start_id)
 
     def _apply_origin_commit_as(self, spawner_id, grow) -> None:
         """Kind-blind origin `commit_as` override on the derived terminal(s). The origin is the

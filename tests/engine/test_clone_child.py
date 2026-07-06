@@ -1,5 +1,5 @@
-from agent_composer.compile.expand import clone_child, ClonedSubgraph
-from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput, START_ID, END_ID
+from agent_composer.compile.expand import clone_child
+from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput, Flow, START_ID, END_ID
 from agent_composer.compose.asserts import AssertSet
 from agent_composer.compose.shapes import InputDecl, read_shape
 from agent_composer.events import NodeFailed, NodeSucceeded
@@ -47,7 +47,7 @@ def _single():  # one declared output
 
 def test_clone_child_namespaces_ids():
     cloned = clone_child(_single(), callsite="each", record={"topic": "ACME"})
-    assert isinstance(cloned, ClonedSubgraph)
+    assert isinstance(cloned, Flow)
     assert "each/head" in cloned.nodes and "each/tail" in cloned.nodes
     # the child START_ID/END_ID are cloned too (namespaced)
     assert "each/__start__" in cloned.nodes and "each/__end__" in cloned.nodes
@@ -56,8 +56,8 @@ def test_clone_child_namespaces_ids():
     assert cloned.wiring["each/tail"]["r"] == "${each/head.output.r}"
     # an internal edge is re-keyed under the callsite
     assert any(e.id == "each/head->tail#0" for e in cloned.edges)
-    # roots = the namespaced child START_ID (the sole seed point), NOT each/head
-    assert cloned.roots == ["each/__start__"]
+    # start_id = the namespaced child START_ID (the sole seed point), NOT each/head
+    assert cloned.start_id == "each/__start__"
 
 
 def test_clone_child_seeds_start_with_call_args_as_edges():
@@ -78,7 +78,7 @@ def test_clone_child_seeds_start_with_call_args_as_edges():
 
 def test_clone_child_alias_target_is_child_end():
     cloned = clone_child(_single(), callsite="each", record={"topic": "ACME"})
-    assert cloned.out_node_id == "each/__end__"
+    assert cloned.end_id == "each/__end__"
     end = cloned.nodes["each/__end__"]
     assert isinstance(end, EndNode) and end.kind == NodeKind.END
 
@@ -104,8 +104,8 @@ def test_clone_child_rehomes_post_asserts_onto_child_end():
                    asserts=AssertSet(boundary=["${input.topic} != ''"],
                                      post=["${tail.output} != ''"]))
     cloned = clone_child(child, callsite="each", record={"topic": "ACME"})
-    # boundary stays exposed RAW for the eager eval in _apply_grow (not re-homed, no double-fire)
-    assert cloned.boundary_asserts == ["${input.topic} != ''"]
+    # boundary asserts are NOT carried on the Flow — the engine reads them off the spawner node
+    # via `iter_boundary_records` and evaluates them eagerly in `_apply_grow`.
     # post-assert re-namespaced under the callsite via the node-first shape.
     assert cloned.nodes["each/__end__"].post_asserts == ["${each/tail.output} != ''"]
 

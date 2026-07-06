@@ -37,7 +37,7 @@ def test_run_grows_iteration_zero_with_next_driver_when_continue():
     result = node.run(dict(seed))
     assert isinstance(result, Grow)
     assert result.seed == (seed, 0)
-    assert result.subgraph.roots == [ns(map_callsite("chat_loop", 0), child.start_id)]
+    assert result.subgraph.start_id == ns(map_callsite("chat_loop", 0), child.start_id)
     assert "chat_loop~1" in result.subgraph.nodes     # fresh next driver spliced
     assert result.prune == frozenset()                # k==0: no previous body, origin never self-prunes
 
