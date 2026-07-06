@@ -46,7 +46,7 @@ from agent_composer.expr import (
 from agent_composer.expr.template import flow_call_callees_in_spans
 from agent_composer.compose.calls import desugar_call_directives
 from agent_composer.nodes.agent import AgentNode
-from agent_composer.nodes.base import Node, NodeKind
+from agent_composer.nodes.base import Node
 from agent_composer.nodes.case import DEFAULT_HANDLE, CaseNode
 from agent_composer.nodes.wait import WaitNode
 from agent_composer.state.segments import SegmentType, Shape
@@ -271,13 +271,16 @@ def validate_references(
                         f"node {node_id!r} prompt: ${{{ref}}} is not a declared input{hint}",
                         node_line,
                     ))
-        # A MAP's `over:` is a parent-pool `list[T]` ref (no `${item}` there); each per-element
-        # input MAY use `${item}` (the body-local element scope, lenient).
-        if node.kind == NodeKind.MAP:
+        # A per-item binder (MAP) reads a parent-pool `list[T]` from its reserved wiring key(s)
+        # (`over` — no `${item}` there); each per-element input MAY use `${item}` (the body-local
+        # element scope, lenient).
+        if node.binds_per_item:
             nwiring = flow_wiring.get(node_id, {})
-            scan(nwiring.get("over"), f"node {node_id!r} map over", node_line)
+            reserved = node.reserved_wiring_keys()
+            for key in reserved:
+                scan(nwiring.get(key), f"node {node_id!r} map {key}", node_line)
             for param, src in nwiring.items():
-                if param == "over":
+                if param in reserved:
                     continue  # the iteration source, scanned above (not a per-element input)
                 scan(
                     src,
@@ -392,7 +395,7 @@ def validate_node_asserts(
         if not asserts:
             continue
         line = lines.get(nid)
-        if node.kind == NodeKind.MAP:
+        if node.binds_per_item:
             errors.append((
                 f"node {nid!r}: `asserts:` is not allowed on a mapped call (`kind: map`) — assert "
                 f"inside the def, or on a downstream node", line))
