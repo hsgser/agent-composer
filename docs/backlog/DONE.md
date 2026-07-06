@@ -142,6 +142,21 @@ This backlog is split four ways:
   -- b7330da (branch `dev/engine/loop-self-respawn`)
 
 
+- [x] ~~**Kind-agnostic refactor — Phase P10: Full Flow unification (one `Flow` core +
+  `__start__`/`__end__`).** Unified `CompiledFlow`/`Subgraph`/`ClonedSubgraph` onto one shared `Flow`
+  base (`nodes`/`edges`/`wiring`/`start_id`/`end_id`); `CompiledFlow(Flow)` adds the runtime concerns
+  (outputs, flow_llm_config, adjacency, `add_subgraph`/`remove_subgraph`/`from_parts`). `Grow.subgraph`
+  is now a plain `Flow`; the bespoke `Subgraph`/`ClonedSubgraph`/`from_flow` bridge were deleted. Adopted
+  the `__start__`/`__end__` convention: a spliced subgraph carries a single `start_id` the engine
+  schedules (`_apply_grow` now does `self._schedule(sg.start_id)`), dropping `Subgraph.roots` and
+  `ClonedSubgraph.out_node_id`. Reworked MAP to splice one synthetic `map#/__start__` (`StartNode` at
+  `ns(spawner, START_ID)`, empty decls) that fans out via non-optional ordering edges to the N element
+  entries — replacing the N-root list; N=0 wires `map#/__start__ → map#/__end__` (the list collector,
+  `commit_as=spawner`). `CHECKPOINT_VERSION` 7.0 → 8.0 (hard cutover: pre-8.0 blobs replay a topology
+  missing the synthetic start). Full engine suite green (1439); census still 0.~~
+  -- 946bc77 (branch `dev/engine/flow-unification`)
+
+
 - [x] ~~**Route all `${...}` reference extraction through the one AST walker.** The prior
   expr-unification landed the grammar, but six call sites still re-derived references with
   copy-pasted flat regexes (asserts, cases, build wiring, validation, expand) — so whole-span and

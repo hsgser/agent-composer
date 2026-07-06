@@ -146,11 +146,13 @@ StateManager / `Outcome`) + [`docs/nodes.md`](../nodes.md) (NodeBase template + 
     The durable-replay ledger must persist the baked `commit_as`/`post_asserts` on spliced terminals.
     The `depth`/node-budget bookkeeping that rode alongside `alias` (`engine.py:656,716`) is a
     SEPARATE concern — tracked under the budget/GC item, not solved by `commit_as`.
-- [ ] **`Grow` carries a `Flow`, not a bespoke `Subgraph`/`ClonedSubgraph`.** A spliced subgraph is
+- [x] ~~**`Grow` carries a `Flow`, not a bespoke `Subgraph`/`ClonedSubgraph`.** A spliced subgraph is
   just a flow (same `nodes`/`edges`/`wiring` core as `CompiledFlow`); factor a shared `Flow` core so
   `clone_child`'s `ClonedSubgraph` (`expand.py:55`) and the top-level `CompiledFlow`
   (`compile/model.py`) are one type. Drops `roots`/`out_node_id` via the `__start__`/`__end__`
-  convention (entry = `__start__`, result = `__end__`).
+  convention (entry = `__start__`, result = `__end__`).~~ Done: one `Flow` base
+  (`nodes`/`edges`/`wiring`/`start_id`/`end_id`), `CompiledFlow(Flow)`, `Grow.subgraph: Flow`;
+  `Subgraph`/`ClonedSubgraph` deleted; MAP splices a synthetic `map#/__start__` fan-out. -- 946bc77
 - [x] ~~**`on_failure(exc)` no-op hook on `NodeBase`** (default re-raise) — the error-strategy seam
   (retry / fallback / fail-branch). Define the signature now; **defer the behavior** to the
   error-strategy work.~~ `on_failure(self, exc, inputs, **caps) -> NodeResult` on `NodeBase`
