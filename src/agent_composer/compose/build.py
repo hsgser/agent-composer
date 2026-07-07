@@ -176,6 +176,10 @@ def _build_human_input(desc: HumanInputDescriptor) -> HumanInputNode:
 def build_leaf_node(
     desc: NodeDescriptor,
     registry: TypeRegistry,
+    *,
+    source_file: str = "<inline-code>",
+    code_line: int = 1,
+    code_field_line: Optional[int] = None,
 ) -> tuple[Node, dict[str, Any]]:
     """Build one leaf runtime `Node` (agent/code/model/tool/human_input/wait) + its WIRING.
 
@@ -184,6 +188,12 @@ def build_leaf_node(
     `CompiledFlow.wiring`). A timed WAIT's reserved `until` source rides the wiring under the
     `"until"` key; an event WAIT's wiring is `{}`. `registry` is the flow's
     `read_typedefs(...)` map. A MODEL node builds with no serving seam (removed as dead).
+
+    `source_file` (the flow's file label) and `code_line` (the `code:` block's content
+    start line) are used only by an inline CODE node, to frame its tracebacks at the
+    absolute YAML line. `code_field_line` (the `code:` field-key line) anchors an inline
+    load error that has no interior line — a reject, or a no-`return` body — at the `code:`
+    field rather than the node header.
     """
     if isinstance(desc, AgentDescriptor):
         own_cfg, inherit = _validate_llm_config(desc.llm_config, desc.id)
@@ -209,7 +219,33 @@ def build_leaf_node(
             # rejection as the loader's one error type (loud), not a bare ValueError.
             raise LoadError(f"node {desc.id!r}: {exc}") from exc
     elif isinstance(desc, CodeDescriptor):
-        node = CodeNode(desc.id, ref=desc.code, title=desc.node_name)
+        try:
+            node = CodeNode(
+                desc.id,
+                code=desc.code,
+                source_file=source_file,
+                code_line=code_line,
+                title=desc.node_name,
+            )
+        except (ValueError, SyntaxError) as exc:
+            # CodeNode classifies `code:` (reference / inline / reject) and syntax- +
+            # has-return-gates inline at construction; surface a reject, an inline
+            # SyntaxError, or a missing-return as the loader's one error type (loud),
+            # mirroring the AgentNode branch above — not a raw ValueError/SyntaxError.
+            #
+            # Anchor the frame precisely, matching the runtime exact-line framing:
+            #  - an inline SyntaxError's padded compile gives an ABSOLUTE `lineno` (the real
+            #    YAML line of the slip) — box it, but only with a real anchor (`code_line >
+            #    1`); a body-relative framing (nested def / uncaptured) would mis-point.
+            #  - a reject / no-`return` `ValueError` has no trustworthy interior line, so
+            #    fall to the `code:` field line.
+            # `code_field_line` is None only when the field line wasn't captured -> the
+            # loader then anchors at the node header, like every other load error.
+            if isinstance(exc, SyntaxError) and code_line > 1:
+                line = exc.lineno
+            else:
+                line = code_field_line
+            raise LoadError(f"node {desc.id!r}: {exc}", line=line) from exc
     elif isinstance(desc, ModelDescriptor):
         node = ModelNode(
             desc.id,
