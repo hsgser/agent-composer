@@ -279,6 +279,10 @@ These are the non-LLM computational leaves — a Python callable, an ML model, o
 a registered tool. They take typed `input:` bindings and declare a typed
 `output:` (which, unlike an AGENT, may be any type).
 
+A `code` node's `code:` field is one of two shapes:
+
+**Reference** — a `module:function` token: import and call it in-process.
+
 ```yaml
 verdict:
   kind: code
@@ -287,6 +291,39 @@ verdict:
   output: str
   code: pkg.mod:fn             # module:function
 ```
+
+**Inline** — real source shipped with the flow. Write a **bare body** (no `def`) that
+reads the node's inputs via the `inputs` dict and **`return`s** a value; the engine
+wraps it as `def main(inputs):` and runs it **in-process**:
+
+```yaml
+verdict:
+  kind: code
+  input:
+    rating: ${score.output.rating}
+    label:  ${score.output.label}
+  output: str
+  code: |
+    lean = "positive" if inputs["rating"] >= 0 else "negative"
+    return f"{inputs['label']}: {lean}"
+```
+
+Inline notes:
+
+- **Same one-dict convention as reference mode** — inline reads `inputs["x"]` exactly as
+  a `module:function` callable receives `inputs`, so a body promotes to a reference by
+  copy-paste. A body **must `return`** a value (a body with no `return` is rejected at
+  load).
+- **In-process, no isolation (single-tenant).** The trust model is *author == operator* —
+  running your own authored Python, the same capability the reference form already has.
+  There is no sandbox: a runaway body is not killed, only **logged** by a watchdog once it
+  overruns a soft time budget. A killable, sandboxed runtime is planned.
+- **Output must be JSON-representable** (`str` / `int` / `float` / `bool` / `list` /
+  `object` / typedefs); a non-serializable return — even nested — fails at the node.
+- **Imports** resolve against the process `sys.path` (cwd + `PYTHONPATH`), same as the
+  reference form. A dotted token with no colon (`pkg.mod.helper`) is treated as a likely
+  typo'd reference and rejected at load with a "did you mean `pkg.mod:helper`?" hint.
+- **`file:` / folder / repo sources are planned**, not yet available.
 
 ### `case` — branching
 
