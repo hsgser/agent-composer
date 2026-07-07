@@ -39,7 +39,10 @@ from agent_composer.compile.expand import agent_segment_subgraph
 from agent_composer.nodes.agent.modes.utils import text_of
 from agent_composer.nodes.base import Grow, Output
 
-MAX_TOOL_ITERATIONS = 8
+# Upper bound on model turns in one agent run before we give up with an AgentLoopError.
+# Sized for multi-tool agents (e.g. the composer chat's 5 flow-op tools), which can need
+# many exploratory turns before a final answer; low values starve legitimate tool use.
+MAX_TOOL_ITERATIONS = 100
 
 
 def _slug_call_id(call_id: str) -> str:

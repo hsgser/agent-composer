@@ -103,10 +103,13 @@ def test_tool_calling_round_trip(monkeypatch):
 
 
 def test_tool_calling_iteration_cap_fails(monkeypatch):
+    from agent_composer.nodes.agent.modes.tool_calling import MAX_TOOL_ITERATIONS
+
     monkeypatch.setitem(tools_mod.TOOL_REGISTRY, "noop", _FakeTool(lambda a: "ok"))
     # always asks for a tool -> never answers -> trips the cap. The cap `raise
     # AgentLoopError` is converted to NodeFailed by the engine boundary (eval_node).
-    looping = _FakeChat([_ai_tool_call("noop", {}, str(i)) for i in range(50)])
+    # One reply per allowed turn is enough to reach (and trip) the cap.
+    looping = _FakeChat([_ai_tool_call("noop", {}, str(i)) for i in range(MAX_TOOL_ITERATIONS)])
     _patch_model(monkeypatch, looping)
     ev = _run_node(_node(tools=["noop"]))
     assert isinstance(ev, NodeFailed)
