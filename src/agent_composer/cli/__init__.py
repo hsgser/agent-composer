@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import typer
 
+from agent_composer.cli.chat.command import chat as _chat
 from agent_composer.cli.run import run as _run
 
 app = typer.Typer(
@@ -27,6 +28,7 @@ def _root() -> None:
 
 
 app.command("run")(_run)
+app.command("chat")(_chat)
 
 
 def main() -> None:

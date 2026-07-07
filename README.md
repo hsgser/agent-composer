@@ -167,6 +167,28 @@ export OLLAMA_BASE_URL=http://localhost:11434
 ac run examples/hello.yaml --input name=Ada
 ```
 
+### `ac chat` — an interactive REPL, built as a flow
+
+```console
+ac chat [FLOW] [--workspace/-C DIR] [--provider P] [--model M]
+```
+
+An interactive chat session. The REPL is itself an Agent Composer flow — a
+`loop` node runs one turn per iteration (`human_input` → `agent` → `code` fold),
+so each turn is a durable suspend/resume: the assistant's reply prints, you're
+prompted `You:`, and your line resumes the run.
+
+- `FLOW` (optional) — a chat flow `.yaml`. The **default** is the bundled
+  *composer chat*: a `tool_calling` agent with flow-op tools
+  (`list_flows`, `read_flow`, `validate_flow`, `run_flow`, `write_flow`) so you
+  can build and run flows conversationally.
+- `--workspace`/`-C DIR` — the directory the flow-op tools are confined to
+  (default: the current directory).
+- `--provider P` / `--model M` — fill-the-gap overrides for agents that set no
+  provider/model of their own (the outermost cascade layer, same as `ac run`).
+- End the session with `/exit`, `/quit`, or EOF (Ctrl-D); the CLI prints
+  `session ended`.
+
 ## Examples
 
 The [`examples/`](examples/) directory ships a few generic flows:
@@ -178,6 +200,7 @@ The [`examples/`](examples/) directory ships a few generic flows:
 - `triage-ticket.yaml` — extract a structured record from a support message, then draft a reply.
 - `decision-brief.yaml` — fan-out to three angles, pick a verdict, route, and finalize.
 - `ask-user.yaml` / `human-approval.yaml` — the model-chosen vs. always-on human-in-the-loop pauses.
+- `chat.yaml` — a turn-by-turn conversational REPL (a `loop` per turn; deterministic transcript) — the shape `ac chat` runs.
 
 ## Use it as a library
 

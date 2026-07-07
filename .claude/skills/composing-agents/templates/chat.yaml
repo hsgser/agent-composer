@@ -1,0 +1,74 @@
+# Conversational REPL — a turn-by-turn chat, built AS a flow (this is what `ac chat` runs).
+# The turn boundary is STRUCTURAL: a LOOP body [human_input -> agent -> code-fold] fixes
+# "get the next message, reply, fold it into the transcript" as authored edges. The LLM
+# only fills the reply; the transcript grows in the fold (Python), NOT in the model.
+#
+# Carried record ('a): {transcript: str, exited: bool} — threaded turn to turn ('a -> 'a).
+# The loop body's `output:` MUST equal this record: re-export the fold node's whole record
+# with `output: ${fold.output}`. A bare multi-ref concat (e.g. "${transcript} ${reply}")
+# types as NONE and the loop's record contract REJECTS it — always fold into a node whose
+# declared `output:` IS the carried record, then re-export that node.
+#
+# Customize: point the fold `code:` at an importable `module:function` on your PYTHONPATH
+# (matching examples/chat_fns.py:fold_turn). It receives its bound input record and returns
+# the next carried record:
+#   def fold_turn(inputs: dict) -> dict:
+#       grown = (f"{inputs['transcript']}\n\nUser: {inputs['message']}"
+#                f"\n\nAssistant: {inputs['reply']}")
+#       return {"transcript": grown, "exited": bool(inputs["exited"])}
+# (load doesn't import the fn, so the placeholder ref below loads clean; wire your own to run.)
+
+id: chat
+name: chat
+description: A turn-by-turn conversational assistant (plain agent, deterministic transcript).
+
+input:
+  opening: str            # seed transcript; `ac chat` passes "" (empty)
+
+defs:
+  turn:                   # body: 'a -> 'a over {transcript, exited}
+    input:
+      transcript: str
+      exited: bool
+    nodes:
+      ask:
+        kind: human_input       # suspends each turn; resumed with the user's message
+        prompt: "You:"
+        output: str
+      reply:
+        kind: agent
+        mode: plain
+        input:
+          transcript: ${input.transcript}
+          message:    ${ask.output}
+        output: str
+        prompt: |-
+          You are a helpful conversational assistant.
+
+          Conversation so far:
+          ${transcript}
+
+          User: ${message}
+      fold:
+        kind: code
+        code: your_package.chat:fold_turn   # grows the transcript deterministically
+        input:
+          transcript: ${input.transcript}
+          message:    ${ask.output}
+          reply:      ${reply.output}
+          exited:     ${input.exited}
+        output:                             # MUST equal the carried record shape
+          transcript: str
+          exited: bool
+    output: ${fold.output}                  # re-export the fold's WHOLE record (the 'a)
+
+nodes:
+  chat:
+    kind: loop
+    call: turn
+    input:                          # the SEED carried record — defines 'a
+      transcript: ${input.opening}
+      exited: false                 # threaded through; `ac chat` ends the session via /exit
+    while: "not ${exited}"          # pre-check over a carried field
+    max: 1000                       # required runaway safety cap
+output: ${chat.output.transcript}

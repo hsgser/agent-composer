@@ -228,7 +228,13 @@ deferred") as largely inherent for the common native path._
 
 ## CLI
 
-_None currently open — recently shipped CLI items are archived in [DONE.md](DONE.md)._
+- [ ] **`ac chat` should catch the `RuntimeError` from `_ensure_provider_keys`** (missing API key,
+  no TTY) and print a clean error like `ac run` does (see the try/except around
+  `_ensure_provider_keys` in `src/agent_composer/cli/run.py`), instead of a raw traceback
+  (`src/agent_composer/cli/chat/command.py`).
+- [ ] `write_flow` interactive human confirm for `ac chat` (a synchronous tool can't prompt today).
+- [ ] token streaming of the `ac chat` reply.
+- [ ] a `--workspace`-scoped run-history for `ac chat`.
 - [ ] compress __start__ and __end__ nodes when printing? should we?
 ? seed (str) * hello
 ✓ polish#0/__start__
