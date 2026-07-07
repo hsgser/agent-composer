@@ -86,6 +86,19 @@ def test_chat_two_turns(tmp_path, monkeypatch):
     assert "session ended" in r.output
 
 
+def test_chat_eof_exit_is_newline_terminated(tmp_path, monkeypatch):
+    """Ctrl+D (EOF) at the `You:` prompt echoes no newline, so the exit notice must not be
+    glued to the prompt line (`You: session ended`) — the command emits its own newline first.
+    Regression for "the screen doesn't refresh / no trailing newline on exit"."""
+    monkeypatch.setattr(llm_clients_mod, "model_from_config", lambda cfg: _FakeModel())
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+    flow = Path("examples/chat.yaml")
+    r = runner.invoke(app, ["chat", str(flow), "--provider", "openai"], input="hi\n")
+    assert r.exit_code == 0
+    assert "session ended" in r.output
+    assert "You: session ended" not in r.output   # the prompt line was terminated first
+
+
 def test_chat_resolves_cwd_local_fold_module(tmp_path, monkeypatch):
     """`ac chat` must put the cwd on `sys.path` so a chat flow's `code: module:fn` fold
     ref resolves without the caller exporting PYTHONPATH — mirroring `ac run`.

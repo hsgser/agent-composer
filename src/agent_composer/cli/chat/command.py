@@ -99,6 +99,10 @@ def chat(
             try:
                 msg = console.input("[bold cyan]You:[/bold cyan] ")
             except (EOFError, KeyboardInterrupt):
+                # Ctrl+D / Ctrl+C at the prompt echoes NO newline, leaving the cursor glued to
+                # the `You:` line — emit one so the exit notice (and the shell prompt after) start
+                # on a fresh line instead of needing a manual redraw.
+                console.print()
                 quit_session = True
                 break
             if msg.strip() in {"/exit", "/quit"}:
