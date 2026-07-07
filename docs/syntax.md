@@ -179,7 +179,7 @@ Keys in use today:
 
 | Key | Node kind | Meaning |
 |-----|-----------|---------|
-| `max_tool_iterations` | `agent` | Model turns the tool-calling loop runs before it gives up with an `AgentLoopError` (default `100`). Must be a positive int. |
+| `max_tool_iterations` | `agent` | Model turns the tool-calling loop runs before it gives up with an `AgentLoopError`. Default `-1` (**no cap** — run until a final answer). Set a positive int to bound it; `0` and other negatives are rejected. |
 
 ## Node kinds
 

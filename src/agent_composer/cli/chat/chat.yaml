@@ -21,6 +21,10 @@ defs:
       reply:
         kind: agent
         mode: tool_calling
+        # The engine default is no cap (-1); bound this interactive agent so a runaway
+        # model can't hang the REPL. 100 fits the 5 flow-op tools' exploratory turns.
+        env:
+          max_tool_iterations: 100
         tools: [list_flows, read_flow, validate_flow, run_flow, write_flow]
         input:
           transcript: ${input.transcript}

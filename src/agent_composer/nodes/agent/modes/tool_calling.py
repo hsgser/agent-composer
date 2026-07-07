@@ -39,11 +39,11 @@ from agent_composer.compile.expand import agent_segment_subgraph
 from agent_composer.nodes.agent.modes.utils import text_of
 from agent_composer.nodes.base import Grow, Output
 
-# Default upper bound on model turns in one agent run before we give up with an
-# AgentLoopError. Sized for multi-tool agents (e.g. the composer chat's 5 flow-op tools),
-# which can need many exploratory turns; low values starve legitimate tool use. A node
-# overrides it per-flow via `env: {max_tool_iterations: N}` (threaded as ctx.max_tool_iterations).
-MAX_TOOL_ITERATIONS = 100
+# Default tool-iteration policy: -1 means NO CAP — the loop runs until the model returns a
+# final answer. A node bounds it per-flow with a POSITIVE `env: {max_tool_iterations: N}`
+# (threaded as ctx.max_tool_iterations), which raises AgentLoopError after N turns. -1 is the
+# sentinel for unbounded; 0 and other negatives are rejected as invalid caps.
+MAX_TOOL_ITERATIONS = -1
 
 
 def _slug_call_id(call_id: str) -> str:
@@ -93,7 +93,9 @@ def agent_step(
     bound = resolve_tools(list(ctx.tools)) + [CONTROL_TOOLS[n].tool for n in ctx.controls]
     chat = ctx.model.bind_tools(bound) if bound else ctx.model
 
-    while iterations < ctx.max_tool_iterations:
+    # A negative cap (the -1 default) means NO bound — loop until a final answer; a positive
+    # cap bounds the turns and trips AgentLoopError below.
+    while ctx.max_tool_iterations < 0 or iterations < ctx.max_tool_iterations:
         reply = chat.invoke(messages)
         iterations += 1
         messages.append(reply)

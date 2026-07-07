@@ -185,13 +185,15 @@ class AgentNode(Node):
 
     def _max_tool_iterations(self) -> int:
         """The per-node tool-iteration cap: `env: {max_tool_iterations: N}` when authored,
-        else the module default. A bad value (not a positive int) is a loud NodeFailed —
-        `bool` is rejected explicitly (it is an `int` subclass but never a valid cap)."""
+        else the module default (-1, no cap). A valid value is a positive int (bound the loop
+        at N turns) or -1 (no cap — loop until a final answer); anything else is a loud
+        NodeFailed. `bool` is rejected explicitly (it is an `int` subclass but never valid);
+        0 and other negatives are rejected too."""
         raw = self.env.get("max_tool_iterations", MAX_TOOL_ITERATIONS)
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        if isinstance(raw, bool) or not isinstance(raw, int) or (raw < 1 and raw != -1):
             raise ValueError(
-                f"AGENT node {self.id!r}: env max_tool_iterations must be a positive int, "
-                f"got {raw!r}"
+                f"AGENT node {self.id!r}: env max_tool_iterations must be a positive int "
+                f"or -1 (no cap), got {raw!r}"
             )
         return raw
 

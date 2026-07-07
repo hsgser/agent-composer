@@ -226,7 +226,7 @@ nodes:
 ```
 
 Keys in use: `max_tool_iterations` (agent) — tool-calling loop turns before an
-`AgentLoopError` (default `100`; must be a positive int).
+`AgentLoopError` (default `-1` = no cap; set a positive int to bound it).
 
 ## Validate
 
