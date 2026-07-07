@@ -39,10 +39,11 @@ from agent_composer.compile.expand import agent_segment_subgraph
 from agent_composer.nodes.agent.modes.utils import text_of
 from agent_composer.nodes.base import Grow, Output
 
-# Upper bound on model turns in one agent run before we give up with an AgentLoopError.
-# Sized for multi-tool agents (e.g. the composer chat's 5 flow-op tools), which can need
-# many exploratory turns before a final answer; low values starve legitimate tool use.
-MAX_TOOL_ITERATIONS = 100
+# Default tool-iteration policy: -1 means NO CAP — the loop runs until the model returns a
+# final answer. A node bounds it per-flow with a POSITIVE `env: {max_tool_iterations: N}`
+# (threaded as ctx.max_tool_iterations), which raises AgentLoopError after N turns. -1 is the
+# sentinel for unbounded; 0 and other negatives are rejected as invalid caps.
+MAX_TOOL_ITERATIONS = -1
 
 
 def _slug_call_id(call_id: str) -> str:
@@ -92,7 +93,9 @@ def agent_step(
     bound = resolve_tools(list(ctx.tools)) + [CONTROL_TOOLS[n].tool for n in ctx.controls]
     chat = ctx.model.bind_tools(bound) if bound else ctx.model
 
-    while iterations < MAX_TOOL_ITERATIONS:
+    # A negative cap (the -1 default) means NO bound — loop until a final answer; a positive
+    # cap bounds the turns and trips AgentLoopError below.
+    while ctx.max_tool_iterations < 0 or iterations < ctx.max_tool_iterations:
         reply = chat.invoke(messages)
         iterations += 1
         messages.append(reply)
@@ -161,13 +164,14 @@ def agent_step(
             }
             return Grow(
                 agent_segment_subgraph([human_input, resume], callsite=ctx.node_id,
-                                       output_type=ctx.output_type, retries=ctx.retries),
+                                       output_type=ctx.output_type, retries=ctx.retries,
+                                       max_tool_iterations=ctx.max_tool_iterations),
                 seed={"hi_desc": human_input, "resume_desc": resume},
             )
 
     raise AgentLoopError(
         f"agent node {ctx.node_id!r} hit the tool-iteration cap "
-        f"({MAX_TOOL_ITERATIONS}) without a final answer"
+        f"({ctx.max_tool_iterations}) without a final answer"
     )
 
 

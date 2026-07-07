@@ -902,6 +902,14 @@ def run(
         )
         if result.status == "paused":
             result = _resume_to_terminal(loaded, result, reporter, on_event)
+    except KeyboardInterrupt:
+        # Ctrl+C while nodes are executing (as opposed to at an interactive prompt, which
+        # questionary handles by returning None -> "run cancelled") kills the run. Tear the
+        # live spinner region down first, then say so — without this the run dies silently
+        # mid-spinner and the shell prompt returns with no explanation.
+        reporter.stop()
+        err_console.print("[yellow]cancelled by user[/yellow]")
+        raise typer.Exit(code=130)
     finally:
         reporter.stop()
 

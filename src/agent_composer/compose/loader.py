@@ -421,6 +421,7 @@ def _load_flow(text, child_resolver, search_paths, ctx: "_LoadCtx") -> LoadedFlo
         name=f.name,
         description=f.description,
         flow_llm_config=f.llm_config,
+        flow_env=f.env,
         source=source,
     )
 
@@ -544,6 +545,7 @@ def _load_def(name: str, body, registry, resolver: ChildResolver, parent_text: s
             n_lines={},
             s_lines={},
             flow_llm_config=body.get("llm_config") or {},
+            flow_env=body.get("env") or {},
             source=source,
         )
     except LoadError as exc:
@@ -610,6 +612,7 @@ def _assemble(
     name: Optional[str] = None,
     description: Optional[str] = None,
     flow_llm_config: Optional[dict] = None,
+    flow_env: Optional[dict] = None,
     source: Optional[SourceFrame] = None,
 ) -> LoadedFlow:
     """Assemble parsed sections into a `LoadedFlow` — the post-parse pipeline shared by
@@ -716,6 +719,12 @@ def _assemble(
                 raise
             leaf[nid] = node
             flow_wiring[nid] = wiring
+    # Stamp each built node's effective static config: the flow-level `env:` default merged
+    # under the node's own `env:` (node override wins), flow-local (a called child flow has its
+    # own flow env). The engine core never reads `Node.env` — only a node's own `run()` does.
+    _flow_env = flow_env or {}
+    for nid, node in leaf.items():
+        node.env = {**_flow_env, **getattr(descriptors[nid], "env", {})}
     # producers: each built node's declared output_type (drives the case `on:` enum
     # exhaustiveness + the dotted-field walk in ref/assert validation).
     producers: dict[str, Type] = {

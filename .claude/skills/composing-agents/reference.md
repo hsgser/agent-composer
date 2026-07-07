@@ -28,6 +28,7 @@ Copy, rename, and edit.
 | [`loop.yaml`](templates/loop.yaml) | `loop` a body until a predicate goes false — chat-shaped pause-per-turn |
 | [`chat.yaml`](templates/chat.yaml) | a conversational REPL — `loop` per turn (`human_input` → `agent` → code-fold), the shape `ac chat` runs |
 | [`llm-config-cascade.yaml`](templates/llm-config-cascade.yaml) | flow-level `llm_config:`, per-node override, `inherit: false` |
+| [`node-env-config.yaml`](templates/node-env-config.yaml) | flow-level `env:` default + per-node override (node wins), e.g. `max_tool_iterations` |
 
 `call-child.yaml` and `map-fanout.yaml` depend on `child-summarize.yaml` being on
 the search path — run them from the `templates/` dir (or pass the dir to
@@ -209,6 +210,23 @@ nodes:
   a: {kind: agent, prompt: hi, llm_config: {model: claude-opus-4-8}}        # fills `model`
   b: {kind: agent, prompt: hi, llm_config: {provider: openai, model: gpt-5.5, inherit: false}}
 ```
+
+## Per-node config — `env:`
+
+Any node may carry an `env:` mapping of **static** config keys its own `run()` reads
+(the engine never interprets `env`). A flow-level `env:` is the default for every node;
+each node overrides individual keys. Merge is **static at build time** (`{**flow_env,
+**node_env}`, node wins), **flow-local** (a child flow does NOT inherit the parent's
+flow env), literals only (no `${...}`).
+
+```yaml
+env: {max_tool_iterations: 150}         # flow default for every node
+nodes:
+  r: {kind: agent, prompt: hi, tools: [search], env: {max_tool_iterations: 300}}  # node override
+```
+
+Keys in use: `max_tool_iterations` (agent) — tool-calling loop turns before an
+`AgentLoopError` (default `-1` = no cap; set a positive int to bound it).
 
 ## Validate
 

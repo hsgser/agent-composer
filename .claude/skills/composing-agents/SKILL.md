@@ -156,6 +156,9 @@ at the write boundary and retried up to `retries:` times (default 2) on deviatio
 Use a downstream `code`/`model` node only for deterministic post-processing. To give
 an agent ordinary tools: `tools: [tool_id, ...]` (requires `mode: tool_calling`).
 A node may pin its model via `llm_config:`; otherwise the environment defaults apply.
+Tune a node's non-model behavior with a static `env:` block (flow-level default +
+per-node override, node wins): e.g. `env: {max_tool_iterations: 300}` bounds an
+agent's tool-calling loop (default `-1` = no cap).
 
 ### `code` — deterministic Python
 ```yaml

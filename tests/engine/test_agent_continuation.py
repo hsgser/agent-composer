@@ -117,16 +117,13 @@ def test_many_pause_agent_does_not_trip_max_ref_depth(monkeypatch):
     # MAX_REF_DEPTH. It is bounded by MAX_TOOL_ITERATIONS (the agent_step cap) and by
     # MAX_TOTAL_NODES (the +2 nodes/pause budget check on the agent arm), NOT by the
     # REF depth bound. This is the regression test for the carry-depth-unchanged invariant.
-    from agent_composer.nodes.agent.modes.tool_calling import MAX_TOOL_ITERATIONS
     from agent_composer.runtime.engine import MAX_REF_DEPTH
 
-    # n must EXCEED MAX_REF_DEPTH (to prove the agent arm never trips the depth bound) yet stay
-    # UNDER MAX_TOOL_ITERATIONS so the FINAL turn (entered with iterations==n) still fits the cap
-    # — each pause is one model turn (iterations += 1) and the K pauses accumulate across the
-    # continuation chain. With the live constants (MAX_REF_DEPTH=5, MAX_TOOL_ITERATIONS=100) this is
-    # MAX_REF_DEPTH+1=6: the run is bounded by the tool-iteration cap, NOT the REF depth.
+    # n must EXCEED MAX_REF_DEPTH (to prove the agent arm never trips the depth bound). The default
+    # tool-iteration cap is -1 (NO cap), so the K-pause chain is bounded only by MAX_TOTAL_NODES,
+    # never the tool cap — MAX_REF_DEPTH+1=6 pauses is comfortably within that node budget.
     n = MAX_REF_DEPTH + 1
-    assert n > MAX_REF_DEPTH and n < MAX_TOOL_ITERATIONS  # the window the invariant lives in
+    assert n > MAX_REF_DEPTH  # exceed the REF-depth bound; the default tool cap (-1) never fires
     chat = _chat([_ask({"question": f"q{i}?"}, f"q{i}") for i in range(n)] + [AIMessage(content="FINAL")])
     monkeypatch.setattr(llm, "model_from_config", lambda cfg: chat)
     loaded = load_flow(ASK)

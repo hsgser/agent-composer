@@ -102,19 +102,69 @@ def test_tool_calling_round_trip(monkeypatch):
     assert chat.calls == 2                      # ask -> tool -> ask
 
 
-def test_tool_calling_iteration_cap_fails(monkeypatch):
-    from agent_composer.nodes.agent.modes.tool_calling import MAX_TOOL_ITERATIONS
-
+def test_tool_calling_cap_trips_when_bounded(monkeypatch):
+    # A POSITIVE env cap bounds the loop: always-asks-for-a-tool -> never answers -> trips
+    # the cap after `cap` turns. The `raise AgentLoopError` is converted to NodeFailed by the
+    # engine boundary (eval_node). (The DEFAULT is -1 / no cap — see the no-cap test below.)
+    cap = 5
     monkeypatch.setitem(tools_mod.TOOL_REGISTRY, "noop", _FakeTool(lambda a: "ok"))
-    # always asks for a tool -> never answers -> trips the cap. The cap `raise
-    # AgentLoopError` is converted to NodeFailed by the engine boundary (eval_node).
-    # One reply per allowed turn is enough to reach (and trip) the cap.
-    looping = _FakeChat([_ai_tool_call("noop", {}, str(i)) for i in range(MAX_TOOL_ITERATIONS)])
+    looping = _FakeChat([_ai_tool_call("noop", {}, str(i)) for i in range(cap)])
     _patch_model(monkeypatch, looping)
-    ev = _run_node(_node(tools=["noop"]))
+    node = _node(tools=["noop"])
+    node.env = {"max_tool_iterations": cap}
+    ev = _run_node(node)
     assert isinstance(ev, NodeFailed)
     assert ev.error_type == "AgentLoopError"
     assert "tool-iteration cap" in ev.error
+
+
+def test_default_no_cap_runs_unbounded(monkeypatch):
+    from agent_composer.nodes.agent.modes.tool_calling import MAX_TOOL_ITERATIONS
+
+    # The default cap is the -1 no-cap sentinel: an agent making many tool turns (well past the
+    # old default of 100) then answering still finishes, no AgentLoopError.
+    assert MAX_TOOL_ITERATIONS == -1
+    monkeypatch.setitem(tools_mod.TOOL_REGISTRY, "noop", _FakeTool(lambda a: "ok"))
+    replies = [_ai_tool_call("noop", {}, str(i)) for i in range(150)]
+    replies.append(AIMessage(content="done"))
+    chat = _FakeChat(replies)
+    _patch_model(monkeypatch, chat)
+    assert _run_node(_node(tools=["noop"])).output == "done"
+    assert chat.calls == 151          # 150 tool turns + the final answer, all uncapped
+
+
+def test_env_max_tool_iterations_overrides_cap(monkeypatch):
+    # A per-node `env: {max_tool_iterations: 2}` bounds the loop: the agent trips the cap after
+    # exactly 2 model turns (vs the -1 no-cap default). Proves the env value threads
+    # node.env -> _max_tool_iterations -> AgentRunContext -> the mode loop.
+    monkeypatch.setitem(tools_mod.TOOL_REGISTRY, "noop", _FakeTool(lambda a: "ok"))
+    looping = _FakeChat([_ai_tool_call("noop", {}, str(i)) for i in range(2)])
+    _patch_model(monkeypatch, looping)
+    node = _node(tools=["noop"])
+    node.env = {"max_tool_iterations": 2}
+    ev = _run_node(node)
+    assert isinstance(ev, NodeFailed)
+    assert ev.error_type == "AgentLoopError"
+    assert "(2)" in ev.error          # the cap in the message is the env override, not the default
+    assert looping.calls == 2         # stopped at exactly the env bound
+
+
+def test_env_max_tool_iterations_minus_one_accepted():
+    # -1 is the explicit no-cap sentinel and passes validation (unlike 0 / other negatives).
+    node = _node()
+    node.env = {"max_tool_iterations": -1}
+    assert node._max_tool_iterations() == -1
+
+
+def test_env_max_tool_iterations_rejects_bad_value(monkeypatch):
+    # A non-(positive-int-or-(-1)) env value is rejected as a NodeFailed (ValueError at the
+    # boundary), not silently coerced. bool is explicitly rejected (isinstance(True, int) is True).
+    _patch_model(monkeypatch, _FakeChat([AIMessage(content="unused")]))
+    node = _node()
+    node.env = {"max_tool_iterations": 0}
+    ev = _run_node(node)
+    assert isinstance(ev, NodeFailed)
+    assert "max_tool_iterations" in ev.error
 
 
 def test_agent_run_has_no_scratch_kwarg():
