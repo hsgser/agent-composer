@@ -1,7 +1,8 @@
 """Tests for the `ac chat` CLI — exercised through typer's `CliRunner`.
 
-The turn-loop / suspend-resume behaviour is covered by the scripted end-to-end test;
-this module only asserts the subcommand is wired and its help renders its options.
+Covers: the subcommand is wired and renders its options; a scripted multi-turn drive; the
+cwd-local fold-module import path; and turn-failure resilience (a failed turn is surfaced
+and the session survives).
 """
 
 from __future__ import annotations
@@ -28,6 +29,35 @@ class _FakeModel:
             content = "hello back"
 
         return R()
+
+
+class _Msg:
+    """A minimal AI message: `.content` for a final answer, `.tool_calls` for tool requests."""
+
+    def __init__(self, content="", tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls or []
+
+
+class _LoopyModel:
+    """Never gives a final answer — always requests a tool, so the agent hits its
+    tool-iteration cap and the turn fails (the failure the resilience path must survive)."""
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, msgs):
+        return _Msg(tool_calls=[{"name": "list_flows", "args": {}, "id": "c"}])
+
+
+class _GoodModel:
+    """Answers immediately with text (no tool calls)."""
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, msgs):
+        return _Msg(content="recovered reply")
 
 
 
@@ -92,4 +122,39 @@ def test_chat_resolves_cwd_local_fold_module(tmp_path, monkeypatch):
         if str(tmp_path) in sys.path:
             sys.path.remove(str(tmp_path))
         sys.modules.pop("localfold", None)
+
+
+def test_chat_survives_a_failed_turn(tmp_path, monkeypatch):
+    """A single bad turn must NOT end the session. When the reply agent fails (here: it hits
+    its tool-iteration cap), the run terminates as `failed`; the loop must surface the error,
+    say it is continuing, and RESTART the flow so the next turn works — not print a silent
+    "session ended". Regression for the reported "session ended right after I run a flow" bug.
+    """
+    # First model resolution (turn 1) loops forever -> tool cap -> the turn fails. Every
+    # later resolution (the restarted run's turn) answers cleanly. `model_from_config` is
+    # called once per agent-node run, i.e. once per turn.
+    calls = {"n": 0}
+
+    def _factory(cfg):
+        calls["n"] += 1
+        return _LoopyModel() if calls["n"] == 1 else _GoodModel()
+
+    monkeypatch.setattr(llm_clients_mod, "model_from_config", _factory)
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+
+    # The bundled composer chat (tool_calling reply). A workspace with one flow keeps
+    # list_flows fast and confined.
+    (tmp_path / "f.yaml").write_text("id: f\nname: f\ninput: {}\nkind: agent\noutput: str\nprompt: hi\n")
+
+    # turn 1 fails (loopy), then turn 2 recovers, then EOF ends the session.
+    r = runner.invoke(
+        app, ["chat", "--workspace", str(tmp_path), "--provider", "openai"],
+        input="run something\ngood turn\n",
+    )
+    assert r.exit_code == 0
+    assert "turn failed" in r.output          # the failure was surfaced, not swallowed
+    assert "tool-iteration cap" in r.output   # with the real reason
+    assert "continuing" in r.output           # and the session was kept alive
+    assert "recovered reply" in r.output      # the restarted run produced a working turn
+    assert "session ended" in r.output
 
