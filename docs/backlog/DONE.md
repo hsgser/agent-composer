@@ -365,6 +365,19 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   `lib_boom.yaml`), `e26-three-level-raise.yaml` + tests in `test_cli_prompt.py`,
   `test_call_source_frame.py`, `test_parser_lines.py`.~~ -- e801d26
 
+- [x] ~~**`ac chat` — an interactive REPL dogfooded as a flow.** Turn-taking is a LOOP-per-turn flow
+  (the turn boundary is structural, not model-chosen); the CLI is a thin host driving the per-turn
+  `human_input` suspend/resume, mirroring how `ac run` hosts pauses. Ships `examples/chat.yaml` (the
+  minimal plain REPL, documenting the pattern), a bundled composer chat (`cli/chat/chat.yaml`) whose
+  `tool_calling` reply agent wields workspace-confined flow-op tools (`list_flows`, `read_flow`,
+  `validate_flow`, `run_flow`, `write_flow` — validate-before-write, `..`/absolute escapes rejected),
+  and the `ac chat [flow] [--workspace] [--provider] [--model]` subcommand. The load-bearing assumption
+  (a `tool_calling` agent inside a LOOP body returns `Output`, never a mid-body `Pause`) is pinned by
+  `tests/engine/test_agent_in_loop.py`. Loop-body `output:` must declare a typed RECORD equal to the
+  carried record, so the transcript is grown by a CODE fold node (`{transcript, exited}`,
+  `while: not ${exited}`) re-exported via `${fold.output}`. Pure authoring + CLI host — zero engine
+  changes (kind-census ratchet stays at 0).~~ -- 8c418e9 (branch `dev/cli/chat-repl`)
+
 ## Docs
 
 - [x] ~~**Docstring/comment sweep for CONTRIBUTING compliance + Types/Expressions internals pages.**

@@ -22,4 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/cli/chat-repl` | `main` | `ac chat` REPL: plain chat example + tool-equipped composer chat + flow-op tools | 2026-07-06 |
+| _None currently open_ | | | |
