@@ -43,6 +43,7 @@ from typing import Any, ClassVar, Optional, Union
 from agent_composer.expr.template import render_template_record
 from agent_composer.nodes.agent.controls import CONTROL_TOOLS
 from agent_composer.nodes.agent.modes import MODES, AgentRunContext
+from agent_composer.nodes.agent.modes.tool_calling import MAX_TOOL_ITERATIONS
 from agent_composer.nodes.base import Node, NodeKind, NodeResult
 from agent_composer.nodes.binding import ParamDecl
 
@@ -182,6 +183,18 @@ class AgentNode(Node):
         carrier the provider normalizes."""
         return llm(self.llm_config if self.llm_config is not None else {})
 
+    def _max_tool_iterations(self) -> int:
+        """The per-node tool-iteration cap: `env: {max_tool_iterations: N}` when authored,
+        else the module default. A bad value (not a positive int) is a loud NodeFailed —
+        `bool` is rejected explicitly (it is an `int` subclass but never a valid cap)."""
+        raw = self.env.get("max_tool_iterations", MAX_TOOL_ITERATIONS)
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+            raise ValueError(
+                f"AGENT node {self.id!r}: env max_tool_iterations must be a positive int, "
+                f"got {raw!r}"
+            )
+        return raw
+
     def _ctx(self, prompt: str, llm) -> AgentRunContext:
         """Build the per-run mode context shared by both entry arms. `llm_config` carries
         forward (config-as-data), so a resumed continuation rebuilds the same model. `llm` is
@@ -195,6 +208,7 @@ class AgentNode(Node):
             llm_config=self.llm_config,
             output_type=self.output_type,
             retries=self.retries,
+            max_tool_iterations=self._max_tool_iterations(),
         )
 
     def run(self, inputs: dict, **caps: Any) -> NodeResult:
@@ -247,4 +261,5 @@ class AgentNode(Node):
             callsite=self.id,
             output_type=self.output_type,
             retries=self.retries,
+            max_tool_iterations=self._max_tool_iterations(),
         )

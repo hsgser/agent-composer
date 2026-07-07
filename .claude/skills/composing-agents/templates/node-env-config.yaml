@@ -1,0 +1,34 @@
+# Per-node config — the `env:` block.
+#
+# `env:` is a static mapping of config keys a node's own run() reads (the engine never
+# interprets it). A flow-level `env:` is the default for every node; each node overrides
+# individual keys. Merge is static at build time ({**flow_env, **node_env}, node wins),
+# flow-local (a called child flow does NOT inherit this flow's env), literals only.
+#
+# Keys in use today:
+#   max_tool_iterations (agent) — tool-calling loop turns before an AgentLoopError
+#                                 (default 100; must be a positive int).
+
+id: node-env-config
+name: node_env_config
+description: Show the env block — flow-level default plus a per-node override.
+
+env:                              # the flow layer: every node inherits these by default
+  max_tool_iterations: 50
+
+nodes:
+  researcher:                     # overrides the flow default for this node only
+    kind: agent
+    mode: tool_calling
+    tools: [search]
+    prompt: Investigate the topic thoroughly, then summarize.
+    env:
+      max_tool_iterations: 300
+
+  grader:                         # no env: of its own — inherits the flow default (50)
+    kind: agent
+    mode: plain
+    depends_on: [researcher]
+    prompt: Grade the research pass/fail.
+
+output: ${grader.output}

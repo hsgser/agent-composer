@@ -150,6 +150,12 @@ class Node(ABC):
             sets `origin_id = L` too, so the engine can attribute every iteration's
             `Grow`/`Output` to the single durable origin `L`. A driver is the origin iff
             `self.id == self.origin_id`, which is what gates "do not self-prune".
+        env (`dict[str, Any]`):
+            Author-supplied static per-node config (`{str -> literal}`), baked at build
+            time from the flow-level `env:` default merged with the node's own `env:`
+            (node override wins). Opaque to the engine core — kind-blind: only a node's
+            own `run()` reads the keys it understands (AGENT: `max_tool_iterations`).
+            Unknown keys are carried but ignored. `{}` when none is authored.
     """
 
     kind: ClassVar[NodeKind]
@@ -221,6 +227,13 @@ class Node(ABC):
         # the compiled `L`, == `L` on each fresh iteration clone `L~k`). A driver is the
         # origin iff `self.id == self.origin_id` (which gates "do not self-prune").
         self.origin_id: Optional[str] = None
+        # Author-supplied static per-node config, opaque to the engine core (kind-blind): a
+        # plain `{str -> literal}` map baked at build time from the flow-level `env:` default
+        # merged with this node's own `env:` (node override wins; see the compose builder). The
+        # engine NEVER reads it — only a node's own `run()` interprets the keys it understands
+        # (e.g. AGENT reads `max_tool_iterations`); unknown keys are carried but ignored. `{}`
+        # for a node that declares no `env:` and inherits no flow default.
+        self.env: dict[str, Any] = {}
 
     @abstractmethod
     def run(self, inputs: dict[str, Any], **caps: Any) -> "NodeResult":

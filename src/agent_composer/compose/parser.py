@@ -108,6 +108,11 @@ class ComposeFile(BaseModel):
     # is `{}`. A child agent fills the gaps it leaves unset from this, then from the
     # parent/CLI layers; `resolve_llm_cascade` bakes the effective dict per agent.
     llm_config: dict[str, Any] = Field(default_factory=dict)
+    # Flow-level static per-node config defaults (`{str -> literal}`). Optional — absent is
+    # `{}`. Each node in THIS flow merges it under its own `env:` (node override wins); the
+    # builder bakes the effective map onto `Node.env`. Flow-local: a called child flow does
+    # NOT inherit this — it has its own flow `env:`.
+    env: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
@@ -300,6 +305,7 @@ class AgentDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
     # INTERNAL — never parsed from YAML (not in `_KIND_SPECS`), set only by the
     # adaptive_questions desugar pass. When present it overrides the type-string
     # derived `output_type` for a synthesized structured agent whose codomain is
@@ -319,6 +325,7 @@ class CodeDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 @dataclass(frozen=True)
@@ -335,6 +342,7 @@ class ModelDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 @dataclass(frozen=True)
@@ -348,6 +356,7 @@ class ToolDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 @dataclass(frozen=True)
@@ -366,6 +375,7 @@ class CaseDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 @dataclass(frozen=True)
@@ -393,6 +403,7 @@ class CallDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 @dataclass(frozen=True)
@@ -418,6 +429,7 @@ class LoopDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 @dataclass(frozen=True)
@@ -443,6 +455,7 @@ class HumanInputDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 @dataclass(frozen=True)
@@ -454,6 +467,7 @@ class WaitDescriptor:
     node_name: Optional[str] = None
     depends_on: list[str] = field(default_factory=list)
     runs_after: list[str] = field(default_factory=list)
+    env: dict[str, Any] = field(default_factory=dict)  # static per-node config; merged under flow env: at build
 
 
 NodeDescriptor = (
@@ -469,7 +483,7 @@ NodeDescriptor = (
 )
 
 # Common keys every kind accepts (besides `kind` itself).
-_COMMON_FIELDS = frozenset({"node_name", "depends_on", "runs_after"})
+_COMMON_FIELDS = frozenset({"node_name", "depends_on", "runs_after", "env"})
 
 # Per-kind: (descriptor class, required flat fields, all allowed flat fields).
 # `else` (a Python keyword) maps onto CaseDescriptor.else_.
@@ -659,6 +673,16 @@ def _parse_node(node_id: str, body: Any, line: Optional[int]) -> NodeDescriptor:
         kwargs["depends_on"] = body["depends_on"]
     if "runs_after" in body:
         kwargs["runs_after"] = body["runs_after"]
+    if "env" in body:
+        # `env:` is a static config map (`{str -> literal}`) the node's own run() reads.
+        # Validate the shape here (string keys); per-key type/meaning is the node's concern.
+        env = body["env"]
+        if not isinstance(env, dict) or not all(isinstance(k, str) for k in env):
+            raise LoadError(
+                f"node {node_id!r} (kind={kind}): `env:` must be a mapping with string keys",
+                line=line,
+            )
+        kwargs["env"] = env
     return cls(**kwargs)
 
 

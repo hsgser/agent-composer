@@ -308,7 +308,8 @@ def loop_continue_subgraph(child, origin: str, carried: dict, k: int, driver) ->
 # --------------------------------------------------------------------------- #
 
 
-def clone_continuation_pair(pair, callsite: str, *, output_type=None, retries: int = 2) -> Flow:
+def clone_continuation_pair(pair, callsite: str, *, output_type=None, retries: int = 2,
+                            max_tool_iterations: Optional[int] = None) -> Flow:
     """Materialize the agent-pause continuation PAIR namespaced at `callsite`.
 
     `pair` is `[human_input_desc, resume_desc]` from `agent_step`'s continuation `Grow`. The
@@ -325,10 +326,17 @@ def clone_continuation_pair(pair, callsite: str, *, output_type=None, retries: i
     onto the resume node so a resumed agent with a non-text `output:` still emits the declared
     type on its final turn (the dispatcher reads them off `flow.nodes[spawner_id]`; they are
     not serialized — restore re-grows from the compiled spawner). For a multi-pause chain each
-    resume node becomes the next segment's spawner, so the type propagates segment to segment."""
+    resume node becomes the next segment's spawner, so the type propagates segment to segment.
+
+    `max_tool_iterations` carries the spawner's per-node tool-iteration cap (from its `env:`)
+    onto the resume node's own `env` so a resumed agent keeps the same cap across the pause; a
+    `None` falls back to the module default `MAX_TOOL_ITERATIONS`."""
     from agent_composer.nodes.agent.node import AgentNode, Resume
+    from agent_composer.nodes.agent.modes.tool_calling import MAX_TOOL_ITERATIONS
     from agent_composer.nodes.human_input import HumanInputNode
 
+    if max_tool_iterations is None:
+        max_tool_iterations = MAX_TOOL_ITERATIONS
     hi_desc, resume_desc = pair
     hi_id = ns(callsite, hi_desc["node_id"])              # e.g. agent/__ask#q1
     resume_id = ns(callsite, "__resume#" + hi_desc["slot"])
@@ -350,6 +358,8 @@ def clone_continuation_pair(pair, callsite: str, *, output_type=None, retries: i
     # The Resume entry's declared output Type is set as node DATA (AgentNode.__init__ takes no
     # output_type param — the compiler stamps it; here the dispatcher supplies the spawner's).
     resume_node.output_type = output_type
+    # Carry the per-node tool-iteration cap forward so the resumed loop uses the same bound.
+    resume_node.env = {"max_tool_iterations": max_tool_iterations}
 
     # Rewrite the answer forward-ref to the NAMESPACED node-first ref.
     answer_ref = f"${{{hi_id}.output}}"
@@ -371,7 +381,8 @@ def clone_continuation_pair(pair, callsite: str, *, output_type=None, retries: i
     )
 
 
-def agent_segment_subgraph(pair, callsite: str, *, output_type=None, retries: int = 2) -> Flow:
+def agent_segment_subgraph(pair, callsite: str, *, output_type=None, retries: int = 2,
+                           max_tool_iterations: Optional[int] = None) -> Flow:
     """The pure AGENT-pause builder: the continuation fragment an AGENT grows into when it pauses.
 
     Wraps `clone_continuation_pair` (the deep-namespaced clone of the `[human_input, resume]` PAIR
@@ -389,8 +400,11 @@ def agent_segment_subgraph(pair, callsite: str, *, output_type=None, retries: in
 
     `output_type`/`retries` carry the SPAWNER's declared output Type + self-correction cap onto
     the resume node (see `clone_continuation_pair`), so a resumed agent with a non-text `output:`
-    still emits the declared type on its final turn and the type propagates segment to segment."""
-    cloned = clone_continuation_pair(pair, callsite=callsite, output_type=output_type, retries=retries)
+    still emits the declared type on its final turn and the type propagates segment to segment.
+    `max_tool_iterations` carries the spawner's per-node tool-iteration cap the same way, so the
+    resumed loop keeps the same bound across the pause."""
+    cloned = clone_continuation_pair(pair, callsite=callsite, output_type=output_type, retries=retries,
+                                     max_tool_iterations=max_tool_iterations)
     cloned.nodes[cloned.end_id].commit_as = callsite   # PROVISIONAL: the engine residual overrides it to the true origin
     return Flow(nodes=cloned.nodes, edges=cloned.edges, wiring=cloned.wiring,
                 start_id=cloned.start_id, end_id=cloned.end_id)

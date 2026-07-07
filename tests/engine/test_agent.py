@@ -117,6 +117,33 @@ def test_tool_calling_iteration_cap_fails(monkeypatch):
     assert "tool-iteration cap" in ev.error
 
 
+def test_env_max_tool_iterations_overrides_cap(monkeypatch):
+    # A per-node `env: {max_tool_iterations: 2}` lowers the loop bound: the agent trips
+    # the cap after exactly 2 model turns, not the module default (100). Proves the env
+    # value threads node.env -> _max_tool_iterations -> AgentRunContext -> the mode loop.
+    monkeypatch.setitem(tools_mod.TOOL_REGISTRY, "noop", _FakeTool(lambda a: "ok"))
+    looping = _FakeChat([_ai_tool_call("noop", {}, str(i)) for i in range(2)])
+    _patch_model(monkeypatch, looping)
+    node = _node(tools=["noop"])
+    node.env = {"max_tool_iterations": 2}
+    ev = _run_node(node)
+    assert isinstance(ev, NodeFailed)
+    assert ev.error_type == "AgentLoopError"
+    assert "(2)" in ev.error          # the cap in the message is the env override, not 100
+    assert looping.calls == 2         # stopped at exactly the env bound
+
+
+def test_env_max_tool_iterations_rejects_bad_value(monkeypatch):
+    # A non-positive-int env value is rejected as a NodeFailed (ValueError at the boundary),
+    # not silently coerced. bool is explicitly rejected (isinstance(True, int) is True).
+    _patch_model(monkeypatch, _FakeChat([AIMessage(content="unused")]))
+    node = _node()
+    node.env = {"max_tool_iterations": 0}
+    ev = _run_node(node)
+    assert isinstance(ev, NodeFailed)
+    assert "max_tool_iterations" in ev.error
+
+
 def test_agent_run_has_no_scratch_kwarg():
     # AgentNode.run is a pure `run(self, inputs)` — the agent memo rides as graph
     # data through the resume_agent continuation, never a `scratch` cap.

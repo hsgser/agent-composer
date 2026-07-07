@@ -147,6 +147,40 @@ typedefs:
 required input has neither; `lookback: int = 30` defaults when omitted;
 `Optional[date]` omitted resolves to null.
 
+## Per-node configuration — `env:`
+
+Any node may carry an `env:` block — a mapping of **static** config keys the node's
+own implementation reads. It is the generic knob for "tune this node's behavior"
+that isn't data flow (`input:`) or model selection (`llm_config:`). Keys are plain
+strings; each key's meaning and type is the consuming node's concern (the engine
+never interprets `env` — it only hands the merged mapping to the node's `run()`).
+
+A flow can set a default `env:` for **every** node under it; each node can override
+individual keys. On build the two merge per key, **node wins**:
+
+```yaml
+env:                            # flow layer — default for every node
+  max_tool_iterations: 150
+nodes:
+  researcher:
+    kind: agent
+    prompt: Investigate ${topic}.
+    tools: [search]
+    env:
+      max_tool_iterations: 300  # this node overrides the flow default
+```
+
+The merge is **static, at build time** (`{**flow_env, **node_env}`) — there is no
+runtime cascade and no per-field resolution across parent flows. It is also
+**flow-local**: a called child flow does *not* inherit its parent's flow `env:` —
+it has its own. Values must be literals (no `${...}` refs).
+
+Keys in use today:
+
+| Key | Node kind | Meaning |
+|-----|-----------|---------|
+| `max_tool_iterations` | `agent` | Model turns the tool-calling loop runs before it gives up with an `AgentLoopError` (default `100`). Must be a positive int. |
+
 ## Node kinds
 
 Every node has a `kind:`. The set is closed — you compose flows from these, you
