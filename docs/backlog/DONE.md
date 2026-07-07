@@ -378,6 +378,15 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   `while: not ${exited}`) re-exported via `${fold.output}`. Pure authoring + CLI host — zero engine
   changes (kind-census ratchet stays at 0).~~ -- 8c418e9 (branch `dev/cli/chat-repl`)
 
+- [x] ~~**`ac chat` turn resilience + tool-iteration cap bump.** A single bad turn no longer ends the
+  session silently: when the reply agent fails mid-turn (a raise, or hitting its tool-iteration cap),
+  the CLI surfaces the error and RESTARTS the flow seeded with the host-mirrored transcript, so the
+  conversation continues from where it left off (fixes the "session ended right after I run a flow"
+  report). `command.py` mirrors the fold node's transcript off the event stream and re-`load_flow`s per
+  restart (the engine mutates the compiled graph in place as the LOOP spawns iterations, so a run graph
+  is single-use). Also raised the shared `MAX_TOOL_ITERATIONS` 8 -> 100 so multi-tool agents (the
+  composer chat's five flow-op tools) have room to work.~~ -- 652880b (branch `dev/cli/chat-turn-resilience`)
+
 ## Docs
 
 - [x] ~~**Docstring/comment sweep for CONTRIBUTING compliance + Types/Expressions internals pages.**

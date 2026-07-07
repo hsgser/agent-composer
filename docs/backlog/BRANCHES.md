@@ -22,4 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/cli/chat-turn-resilience` | `main` | `ac chat`: surface a failed turn + keep the session alive (restart from the transcript) instead of a silent `session ended` | 2026-07-07 |
+| `dev/engine/node-env-config` | `main` | general per-node `env:` config (flow-level default + per-node override, node wins); first key wired: agent `max_tool_iterations` | 2026-07-07 |
