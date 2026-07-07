@@ -123,7 +123,7 @@ def test_many_pause_agent_does_not_trip_max_ref_depth(monkeypatch):
     # n must EXCEED MAX_REF_DEPTH (to prove the agent arm never trips the depth bound) yet stay
     # UNDER MAX_TOOL_ITERATIONS so the FINAL turn (entered with iterations==n) still fits the cap
     # — each pause is one model turn (iterations += 1) and the K pauses accumulate across the
-    # continuation chain. With the live constants (MAX_REF_DEPTH=5, MAX_TOOL_ITERATIONS=8) this is
+    # continuation chain. With the live constants (MAX_REF_DEPTH=5, MAX_TOOL_ITERATIONS=100) this is
     # MAX_REF_DEPTH+1=6: the run is bounded by the tool-iteration cap, NOT the REF depth.
     n = MAX_REF_DEPTH + 1
     assert n > MAX_REF_DEPTH and n < MAX_TOOL_ITERATIONS  # the window the invariant lives in

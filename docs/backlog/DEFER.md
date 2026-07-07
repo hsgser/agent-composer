@@ -65,6 +65,13 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
   field, so the loop's `while: not ${exited}` terminates from inside the flow rather than the host
   intercepting the line. Decide whether to move end-of-session into the flow. (Surfaced 2026-07-06.)
 
+- [x] ~~**`MAX_TOOL_ITERATIONS` (8) is low for the `ac chat` composer assistant.** The composer chat wields
+  five flow-op tools; a discover → read → validate → run → answer sequence can approach the cap, and a
+  model that waffles hits it and fails the turn.~~ **RAISED to 100 (2026-07-07).** The shared
+  `tool_calling` cap is now 100, giving multi-tool agents room to work. Making it *per-node* configurable
+  (a general node-config surface, e.g. an `env:`/`config:` field) is tracked separately as a design
+  discussion. -- 8542e23
+
 - [x] ~~**`:-` / `:?` RHS: expression vs. legacy bare-literal text.**~~ **DECIDED (2026-07-03): Option A —
   the RHS of `:-` (default) and `:?` (required message) is a **full expression** under the unified
   grammar, uniform with everything else inside `${}`. A bare word is a **reference**; a literal must be

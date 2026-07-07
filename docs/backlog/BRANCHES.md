@@ -22,4 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| _None currently open_ | | | |
+| `dev/cli/chat-turn-resilience` | `main` | `ac chat`: surface a failed turn + keep the session alive (restart from the transcript) instead of a silent `session ended` | 2026-07-07 |

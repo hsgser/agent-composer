@@ -4,6 +4,12 @@ Loads the bundled composer chat flow (or a user-supplied one), runs it, and driv
 per-turn human_input suspend/resume: print the assistant's latest reply, prompt the
 user, resume with the message. `/exit` or EOF ends the session. The turn loop and
 tools live here; the engine sees only an ordinary flow.
+
+A single bad turn does not end the session. The reply agent can fail mid-turn (a raise,
+or hitting its tool-iteration cap), which terminates the underlying flow *run* as
+`failed`. Because the transcript is mirrored host-side off the fold node's output, the
+loop surfaces the error and RESTARTS the flow seeded with the accumulated transcript, so
+the conversation continues from where it left off.
 """
 
 from __future__ import annotations
@@ -51,39 +57,71 @@ def chat(
     _ensure_cwd_importable()  # so a chat flow's `code: pkg.mod:fn` fold ref resolves (mirrors `ac run`)
     chat_tools.set_workspace(workspace)
     path = flow or _BUNDLED
-    loaded = load_flow(path.read_text(), search_paths=[path.parent, workspace])
-
+    text = path.read_text()
+    search = [path.parent, workspace]
     # The CLI flags supply the OUTERMOST cascade layer (fill-the-gap), not a hard override.
     cli_cfg = {k: v for k, v in {"provider": provider, "model": model}.items() if v}
-    _ensure_provider_keys(loaded, cli_cfg)
+    _ensure_provider_keys(load_flow(text, search_paths=search), cli_cfg)  # preflight keys once
 
-    # The reply node's latest output, captured off the event stream each turn so it can be
-    # printed before the next prompt. The reply node lives inside the per-turn LOOP body, so
-    # its runtime id is namespaced (`chat/reply`, `chat~1/reply`) — `_last_segment` maps it
-    # back to the authored `reply`. `None` between turns (cleared once printed).
-    latest: dict[str, Any] = {"reply": None}
+    # Host-mirrored conversation state, updated off the flow's event stream each turn:
+    #   reply      — the reply node's latest output, printed before the next prompt (`None`
+    #                between turns, cleared once printed). The reply node lives inside the
+    #                per-turn LOOP body, so its runtime id is namespaced (`chat/reply`,
+    #                `chat~1/reply`) — `_last_segment` maps it back to the authored `reply`.
+    #   transcript — the fold node's latest grown transcript. Mirrored here so a FAILED turn
+    #                (the agent raised or hit its tool cap, terminating the run) can restart
+    #                the flow from the accumulated conversation instead of ending the session.
+    state: dict[str, Any] = {"reply": None, "transcript": ""}
 
     def on_event(ev: Any) -> None:
-        if isinstance(ev, NodeSucceeded) and _last_segment(ev.node_id) == "reply":
-            latest["reply"] = ev.output
+        if not isinstance(ev, NodeSucceeded):
+            return
+        seg = _last_segment(ev.node_id)
+        if seg == "reply":
+            state["reply"] = ev.output
+        elif seg == "fold" and isinstance(ev.output, dict):
+            state["transcript"] = ev.output.get("transcript", state["transcript"])
 
-    # The chat flow immediately pauses on the first `human_input` (the turn's `ask`).
-    result = run_flow(loaded, {"opening": ""}, on_event=on_event, llm_config=cli_cfg or None)
-    while result.status == "paused":
-        if latest["reply"] is not None:
-            console.print(Markdown(str(latest["reply"])))
-            latest["reply"] = None
-        try:
-            msg = console.input("[bold cyan]You:[/bold cyan] ")
-        except (EOFError, KeyboardInterrupt):
+    quit_session = False
+    while not quit_session:
+        # (Re)start the flow from the accumulated transcript. A FRESH `load_flow` is required per
+        # (re)start: the engine grows the compiled graph in place as the LOOP spawns iterations, so
+        # a graph that has already run cannot be re-run. It immediately pauses on the first
+        # `human_input` (the turn's `ask`); the inner loop then drives turns.
+        loaded = load_flow(text, search_paths=search)
+        result = run_flow(
+            loaded, {"opening": state["transcript"]}, on_event=on_event, llm_config=cli_cfg or None
+        )
+        while result.status == "paused":
+            if state["reply"] is not None:
+                console.print(Markdown(str(state["reply"])))
+                state["reply"] = None
+            try:
+                msg = console.input("[bold cyan]You:[/bold cyan] ")
+            except (EOFError, KeyboardInterrupt):
+                quit_session = True
+                break
+            if msg.strip() in {"/exit", "/quit"}:
+                quit_session = True
+                break
+            # The pause is the turn's single `human_input`; deliver the typed line as its answer.
+            reason = result.pause_reasons[0]
+            cmd = resume_command(loaded, reason, msg)
+            # Resume the SAME in-process run via the live engine. `llm_config` is not re-supplied
+            # here: it is a no-op on the `engine=` path (the live graph already carries the baked
+            # cascade from the initial run_flow; it only re-applies on the `checkpoint=` restore).
+            result = resume_flow(loaded, engine=result.engine, commands=[cmd], on_event=on_event)
+
+        if quit_session:
             break
-        if msg.strip() in {"/exit", "/quit"}:
-            break
-        # The pause is the turn's single `human_input`; deliver the typed line as its answer.
-        reason = result.pause_reasons[0]
-        cmd = resume_command(loaded, reason, msg)
-        # Resume the SAME in-process run via the live engine. `llm_config` is not re-supplied
-        # here: it is a no-op on the `engine=` path (the live graph already carries the baked
-        # cascade from the initial run_flow; it only re-applies on the `checkpoint=` restore).
-        result = resume_flow(loaded, engine=result.engine, commands=[cmd], on_event=on_event)
+        # The run left "paused" without the user quitting. A FAILED turn (the agent raised or hit
+        # its tool cap) surfaces the error and restarts the flow from the mirrored transcript; any
+        # other terminal (the flow reached its own end / max) simply ends the session.
+        if result.status == "failed":
+            console.print(f"[red]turn failed:[/red] {result.error}")
+            console.print("[dim]continuing — your conversation so far is preserved.[/dim]")
+            state["reply"] = None
+            continue
+        break
+
     console.print("[dim]session ended[/dim]")

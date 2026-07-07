@@ -188,6 +188,9 @@ prompted `You:`, and your line resumes the run.
   provider/model of their own (the outermost cascade layer, same as `ac run`).
 - End the session with `/exit`, `/quit`, or EOF (Ctrl-D); the CLI prints
   `session ended`.
+- A single bad turn does not end the session: if the reply agent errors mid-turn
+  (a raise, or hitting its tool-iteration cap), the CLI prints the failure and
+  continues from your conversation so far.
 
 ## Examples
 
