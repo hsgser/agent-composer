@@ -100,3 +100,21 @@ def test_bad_kv_is_rejected(tmp_path: Path):
 def test_missing_flow_file_errors(tmp_path: Path):
     result = runner.invoke(app, ["run", str(tmp_path / "nope.yaml")])
     assert result.exit_code != 0
+
+
+def test_ctrl_c_mid_run_says_cancelled(tmp_path: Path, monkeypatch):
+    """Ctrl+C while nodes are executing (a KeyboardInterrupt out of `run_flow`, not a
+    prompt cancel) must surface a "cancelled by user" notice and exit 130 — not die
+    silently mid-spinner. Regression for "Ctrl+C kills the run but says nothing"."""
+    import agent_composer.cli.run as run_mod
+
+    flow = _write_flow(tmp_path, ECHO_FLOW)
+
+    def _boom(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_mod, "run_flow", _boom)
+    result = runner.invoke(app, ["run", str(flow), "--input", "topic=clouds"])
+    assert result.exit_code == 130
+    assert "cancelled by user" in result.output
+
