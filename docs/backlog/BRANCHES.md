@@ -22,4 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/engine/node-env-config` | `main` | general per-node `env:` config (flow-level default + per-node override, node wins); first key wired: agent `max_tool_iterations` | 2026-07-07 |

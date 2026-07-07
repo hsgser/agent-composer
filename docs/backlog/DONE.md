@@ -387,6 +387,19 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   is single-use). Also raised the shared `MAX_TOOL_ITERATIONS` 8 -> 100 so multi-tool agents (the
   composer chat's five flow-op tools) have room to work.~~ -- 652880b (branch `dev/cli/chat-turn-resilience`)
 
+- [x] ~~**Per-node `env:` config + `ac chat`/`ac run` polish.** Added a general per-node `env:` map
+  (flow-level default + per-node override, node wins) threaded parser → build → `AgentNode` and through
+  `call`/subflow expansion; first key wired is agent `max_tool_iterations` (engine default flipped to
+  `-1` = no cap; the composer REPL sets its own bound). CLI polish shipped alongside: `ac chat` emits a
+  trailing newline on EOF/Ctrl+C exit; `ac run` catches a mid-run Ctrl+C, tears down the live spinner,
+  prints "cancelled by user", and exits 130. Chat flow-op tools hardened: `run_flow`'s `inputs` is now a
+  JSON OBJECT (`Optional[dict[str, Any]]`) instead of `str` — a `str` param made tool-calling models
+  hand-serialize and loop forever failing validation — and all five tools gained clear model-facing
+  descriptions + per-argument descriptions (via `Annotated`), with the registry dedenting docstrings
+  through `inspect.cleandoc`. Docs+skills updated in-branch (`docs/syntax.md`, `composing-agents` +
+  `engine` skills, `node-env-config.yaml` template). Kind-census ratchet stays at 0.~~
+  -- 1846932 (branch `dev/engine/node-env-config`)
+
 ## Docs
 
 - [x] ~~**Docstring/comment sweep for CONTRIBUTING compliance + Types/Expressions internals pages.**
