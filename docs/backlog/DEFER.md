@@ -128,10 +128,6 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
   compiled artifact runs under different clients (real vs dummy, per-tenant) without recompiling?
   Trade-off: node self-containment vs artifact reusability.
 
-- [ ] **Inline CODE source (sandbox + trust model).** CODE is `module:function` only; inline `exec`
-  is RCE the moment a flow isn't run by its author. Decide the trust model ((A) single-tenant self-run
-  → unsandboxed-behind-opt-in; (B) shared/deploy → sandbox first), then add a `CodeExecutor` seam.
-
 - [ ] **Tighter required contract (low priority).** A required child input BOUND to an explicit null
   (a present edge resolving `None`) reaches the body as `None` silently: the synthesized START's
   presence-gated required-check only fires for an OMITTED input. Consistent with `f(x=None)`; a
@@ -270,3 +266,31 @@ the checkpoint would remove that host obligation but couples the persisted run t
   a `bad typedefs:` error lands on the `typedefs:` section line (not the offending typedef name —
   the `state` layer doesn't track source lines), and a non-exhaustive `case` lands on the case
   node line (not the uncovered `when:`/`else:` region).
+
+## Inline CODE — deferred roadmap
+
+Phase 1 (in-process inline `code:` — a bare body run as `def main(inputs)`; a watchdog that
+*logs*, but can't kill, a runaway) is in-flight on `dev/engine/code-inline-source`. The
+**killable runtime comes first**; everything else sits on it. **Deps and the sandbox are
+independent** (one swaps the child's interpreter, the other confines it) — order them by the
+trust model, not by dependency: @hsgser
+
+- [ ] **Killable runtime.** Run the body in a child process (child-side `RLIMIT_CPU`/`RLIMIT_AS`,
+  own process group + wall timeout) so a runaway is killed and the worker reclaimed — what the
+  watchdog can't do. Correctness-grade, not security (the child still reaches the network). Open:
+  plain subprocess-with-kill vs. a real sandbox / warm-interpreter-pool. The seam the rest plug into;
+  unblocks its own follow-ups: non-POSIX/Windows, author-configurable limits, interpreter reuse,
+  `async def main`.
+- [ ] **Per-node deps (venv).** An inline node declares `deps:` and runs against a per-node ephemeral
+  venv (hash of deps + interpreter; uv/pip; cached, immutable). Needs only the killable subprocess
+  (swaps a *child* interpreter), **not** the sandbox — safe and high-value under author == operator, so
+  the stronger near-term step. Design decided 2026-07-06; folds in venv GC, lockfile, uv-managed Python.
+- [ ] **Sandbox (untrusted trust model).** Real isolation — network/namespace/syscall + a
+  prompt-injection guard — for untrusted third-party or agent-generated `code:`. Independent of deps, but
+  the **gating** requirement the day the trust model changes (a malicious `deps:` runs arbitrary
+  install-time code, so deps is only safe *without* a sandbox under author == operator). Interaction: a
+  network-blocking sandbox breaks `pip install`, so the venv build must be a **privileged step outside**
+  the sandboxed execution. Ties to the path-traversal / `uses:` trust item above.
+- [ ] **`file:` / folder / repo sources.** Point a node at a local `.py` file / package / repo instead of
+  pasting source; same bare-body / `main(inputs)` convention; `file:` reuses the `uses:`/`system.paths`
+  trust stance.
