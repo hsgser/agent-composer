@@ -11,6 +11,7 @@ unique across everything registered into the process.
 
 from __future__ import annotations
 
+import inspect
 from typing import Callable
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -22,8 +23,10 @@ TOOL_REGISTRY: dict[str, BaseTool] = {}
 def register_tool(tool_id: str) -> Callable:
     """Register the decorated function as a tool under `tool_id`.
 
-    The function's docstring becomes the tool description the model sees. The original
-    function is returned unchanged; the built LangChain tool is stored in `TOOL_REGISTRY`.
+    The function's docstring becomes the tool description the model sees (dedented with
+    `inspect.cleandoc`, so a multi-line docstring reads cleanly, not with source indentation).
+    The original function is returned unchanged; the built LangChain tool is stored in
+    `TOOL_REGISTRY`.
 
     Args:
         tool_id (`str`):
@@ -47,7 +50,7 @@ def register_tool(tool_id: str) -> Callable:
     def decorator(fn: Callable) -> Callable:
         if tool_id in TOOL_REGISTRY:
             raise ValueError(f"Duplicate tool id '{tool_id}'")
-        description = (fn.__doc__ or "").strip() or tool_id
+        description = inspect.cleandoc(fn.__doc__ or "").strip() or tool_id
         TOOL_REGISTRY[tool_id] = StructuredTool.from_function(
             fn, name=tool_id, description=description
         )

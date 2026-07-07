@@ -29,8 +29,19 @@ def test_validate_good_and_bad(tmp_path):
 def test_run_flow_tool(tmp_path):
     T.set_workspace(tmp_path)
     (tmp_path / "g.yaml").write_text(GOOD)
-    out = T.run_flow("g.yaml", '{"x": "hi"}')
+    # inputs is a JSON OBJECT (dict), matching how a tool-calling model passes structured
+    # args — not a hand-serialized JSON string.
+    out = T.run_flow("g.yaml", {"x": "hi"})
     assert "hi" in out
+
+
+def test_run_flow_tool_defaults_inputs(tmp_path):
+    # Omitting inputs runs the flow with an empty input set (default None -> {}).
+    T.set_workspace(tmp_path)
+    (tmp_path / "n.yaml").write_text(
+        "id: n\nname: n\ninput: {}\noutput: int\nkind: code\ncode: tests.seeds.fns:const_one\n"
+    )
+    assert "OUTPUT: 1" in T.run_flow("n.yaml")
 
 
 def test_write_flow_validates_and_confines(tmp_path):
