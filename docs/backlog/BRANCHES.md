@@ -22,3 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
+| `dev/engine/code-inline-source` | `main` | Inline `code:` source — a bare-body inline function (implicit `def main(inputs)`) run in-process, alongside the `module:function` reference form (Phase 1). | 2026-07-02 |

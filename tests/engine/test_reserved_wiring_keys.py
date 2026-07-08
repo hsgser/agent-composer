@@ -12,5 +12,5 @@ def test_reserved_wiring_keys_by_kind():
     assert MapNode("m", flow_id="c", child=None, child_inputs=[]).reserved_wiring_keys() == {"over"}
     assert WaitNode("w", is_timed=True).reserved_wiring_keys() == {"until"}
     assert WaitNode("w", is_timed=False).reserved_wiring_keys() == set()
-    # a plain leaf reserves nothing (CodeNode.__init__ is (node_id, *, ref: str) — ref needs a ':')
-    assert CodeNode("c", ref="mod:fn").reserved_wiring_keys() == set()
+    # a plain leaf reserves nothing (CodeNode.__init__ is (node_id, *, code: str) — a ref needs a ':')
+    assert CodeNode("c", code="mod:fn").reserved_wiring_keys() == set()

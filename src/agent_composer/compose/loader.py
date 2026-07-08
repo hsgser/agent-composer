@@ -67,6 +67,7 @@ from agent_composer.compose.parser import (
     CallDescriptor,
     CaseDescriptor,
     LoopDescriptor,
+    code_content_lines,
     def_node_field_lines,
     def_node_lines,
     node_field_lines,
@@ -416,6 +417,7 @@ def _load_flow(text, child_resolver, search_paths, ctx: "_LoadCtx") -> LoadedFlo
         resolver=resolver,
         n_lines=node_lines(text),
         s_lines=section_lines(text),
+        code_lines=code_content_lines(text),
         uses_aliases=set(f.uses),
         version=f.version,
         name=f.name,
@@ -607,6 +609,7 @@ def _assemble(
     resolver: ChildResolver,
     n_lines: dict,
     s_lines: dict,
+    code_lines: Optional[dict] = None,
     uses_aliases: set = frozenset(),
     version: Optional[str] = None,
     name: Optional[str] = None,
@@ -624,8 +627,12 @@ def _assemble(
       cycles + check if/else handles -> CompiledFlow.from_parts.
 
     `resolver` is the composite call resolver (defs-first); `registry` is the file's
-    `read_typedefs(...)`. `n_lines`/`s_lines` are the source maps (`{}` for a nested def —
-    its errors are unlocated)."""
+    `read_typedefs(...)`. `n_lines`/`s_lines`/`code_lines` are the source maps (`{}` for a
+    nested def — its errors are unlocated, and inline CODE there frames body-relative)."""
+    code_lines = code_lines or {}
+    # The flow's file label frames inline-CODE tracebacks; the code_lines map gives each
+    # inline node's content start line. Both are inert for reference-mode CODE.
+    flow_label = source.label if source is not None else "<inline-code>"
     inputs = read_flow_inputs(inputs_section, registry)
     flow_inputs = {decl.name for decl in inputs}
     descriptors = parse_nodes(nodes_section, n_lines)
@@ -712,7 +719,13 @@ def _assemble(
             flow_wiring[nid] = wiring
         else:
             try:
-                node, wiring = build_leaf_node(desc, registry)
+                node, wiring = build_leaf_node(
+                    desc, registry,
+                    source_file=flow_label, code_line=code_lines.get(nid, 1),
+                    # the `code:` field-key line — anchors an inline reject / no-`return`
+                    # load error (which has no interior line) at `code:`, not the node header.
+                    code_field_line=(source.field_lines.get(nid, {}).get("code") if source else None),
+                )
             except LoadError as exc:  # locate a build failure (e.g. a bad type expr) at the node's line
                 if exc.line is None:
                     exc.line = n_lines.get(nid)

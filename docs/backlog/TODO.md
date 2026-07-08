@@ -25,6 +25,17 @@ under "Roadmap".
 
 ## Engine
 
+- [ ] **Inline CODE Phase 1 — inline source as a simple in-process function.** A `code:` node carries
+  **inline source** (not just a `module:function` reference): the author writes a **bare body** that reads
+  the `inputs` dict and `return`s a value; the engine wraps it as `def main(inputs):`, compiles it (padded
+  for absolute-YAML-line tracebacks), and runs it **in-process** as `main(inputs)` — the same one-dict
+  convention as reference mode, so a body promotes to a reference by copy-paste. Ships a kind-blind
+  **watchdog** (`runtime/watchdog.py` — logs a node past a soft budget; diagnoses a runaway but can't kill
+  it) + a `CodeNode.run` **deep serialize-once check** (a nested non-serializable return fails *at the
+  node*) + load gates (syntax, has-`return`, reject bucket). No subprocess / isolation — a killable,
+  sandboxed runtime is deferred (see DEFER). In-flight on `dev/engine/code-inline-source`; move to DONE on
+  merge. @hsgser
+
 - [ ] **(low) `pause_reasons = paused[0].reasons` collapses a simultaneous multi-node pause** — only
   the first paused node's reasons surface. Rare (needs two nodes pausing in one step). Fix when a real
   multi-node pause flow exists.
