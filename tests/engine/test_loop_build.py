@@ -16,6 +16,7 @@ import pytest
 from agent_composer.compose.loader import load_flow
 from agent_composer.compose.errors import LoadError
 from agent_composer.nodes.base import NodeKind
+from agent_composer.typesys.values import ValueKind
 
 
 # A good loop: the body `bump` reads a subset of the carried record and returns the
@@ -155,12 +156,63 @@ def test_body_output_fieldset_must_equal_carried():
     assert e.value.line is not None
 
 
+# A loop whose body builds a carried `str` field from a MULTI-SEGMENT template binding
+# (embedded literal text + spans). eval_template concatenates such a binding to a str, so
+# output typing infers `str` for it — matching the carried `transcript` seeded from the
+# str flow input `${input.opening}`. No CODE fold node is needed to stamp the type.
+TEMPLATE_STR = """
+id: loop-template-str
+name: loop_template_str
+input:
+  opening: str
+defs:
+  turn:
+    input:
+      transcript: str
+      exited: bool
+    nodes:
+      step:
+        kind: code
+        code: tests.engine._compose_codefns:make_report
+        input:
+          n: ${input.transcript}
+          exited: ${input.exited}
+        output:
+          n: int
+          exited: bool
+    output:
+      transcript: |-
+        ${input.transcript}
+        turn: ${step.output.n}
+      exited: ${step.output.exited}
+nodes:
+  chat_loop:
+    kind: loop
+    call: turn
+    input:
+      transcript: ${input.opening}
+      exited: false
+    while: not ${exited}
+    max: 5
+output: ${chat_loop.output.transcript}
+"""
+
+
 def test_body_output_types_must_equal_carried():
     with pytest.raises(LoadError) as e:
         load_flow(BAD_TYPES)
     # pin the failure to the TYPE pass (check_loop_type_contract), not any LoadError.
     assert "carried field" in str(e.value)
     assert e.value.line is not None
+
+
+def test_multi_segment_template_output_types_as_str():
+    # The body's `transcript` output is a multi-segment template -> inferred str, so the
+    # `'a -> 'a` contract holds against the str-seeded carried field with no fold node.
+    flow = load_flow(TEMPLATE_STR)
+    node = flow.compiled.nodes["chat_loop"]
+    assert node.kind == NodeKind.LOOP
+    assert node.output_type.fields["transcript"].kind == ValueKind.STRING
 
 
 # A runaway guard below 1 (`max: 0`) is nonsensical — the guard bounds the iteration

@@ -87,7 +87,8 @@ def test_chat_two_turns(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "x")
 
     # Use the plain example flow (mode: plain) so no tools/keys are needed for the drive test.
-    # Its code fold ref is `examples.chat_fns:fold_turn`; run from repo root so it imports.
+    # It grows the transcript in its `output:` template bindings (no code node), so it needs
+    # nothing on sys.path beyond the package.
     flow = Path("examples/chat.yaml")
     # two user turns then EOF (CliRunner closes stdin -> loop breaks)
     r = runner.invoke(app, ["chat", str(flow), "--provider", "openai"], input="hi\nagain\n")
@@ -114,10 +115,11 @@ def test_chat_resolves_cwd_local_fold_module(tmp_path, monkeypatch):
     """`ac chat` must put the cwd on `sys.path` so a chat flow's `code: module:fn` fold
     ref resolves without the caller exporting PYTHONPATH — mirroring `ac run`.
 
-    Reproduces the integration gap the fold-import fix closes: a flow whose CODE fold lives
-    in a cwd-local module (not the installed package, not the repo root pytest already put on
-    the path). Without `_ensure_cwd_importable()`, the run fails to import the fold, the turn
-    loop never yields a reply, and the user sees only "session ended".
+    The bundled/example chat flows no longer use a CODE fold (they grow the transcript in
+    `output:` template bindings), so this test uses a self-contained legacy-style chat flow
+    whose turn folds via a cwd-local module. Without `_ensure_cwd_importable()`, the run
+    fails to import the fold, the turn loop never yields a reply, and the user sees only
+    "session ended".
     """
     monkeypatch.setattr(llm_clients_mod, "model_from_config", lambda cfg: _FakeModel())
     monkeypatch.setenv("OPENAI_API_KEY", "x")
@@ -129,9 +131,50 @@ def test_chat_resolves_cwd_local_fold_module(tmp_path, monkeypatch):
         "    return {'transcript': grown, 'exited': bool(inputs['exited'])}\n"
     )
     (tmp_path / "mychat.yaml").write_text(
-        (Path("examples/chat.yaml").read_text()).replace(
-            "examples.chat_fns:fold_turn", "localfold:fold_turn"
-        )
+        "id: mychat\n"
+        "name: mychat\n"
+        "input:\n"
+        "  opening: str\n"
+        "defs:\n"
+        "  turn:\n"
+        "    input:\n"
+        "      transcript: str\n"
+        "      exited: bool\n"
+        "    nodes:\n"
+        "      ask:\n"
+        "        kind: human_input\n"
+        '        prompt: "You:"\n'
+        "        output: str\n"
+        "      reply:\n"
+        "        kind: agent\n"
+        "        mode: plain\n"
+        "        input:\n"
+        "          transcript: ${input.transcript}\n"
+        "          message:    ${ask.output}\n"
+        "        output: str\n"
+        "        prompt: hi ${transcript} ${message}\n"
+        "      fold:\n"
+        "        kind: code\n"
+        "        code: localfold:fold_turn\n"
+        "        input:\n"
+        "          transcript: ${input.transcript}\n"
+        "          message:    ${ask.output}\n"
+        "          reply:      ${reply.output}\n"
+        "          exited:     ${input.exited}\n"
+        "        output:\n"
+        "          transcript: str\n"
+        "          exited: bool\n"
+        "    output: ${fold.output}\n"
+        "nodes:\n"
+        "  chat:\n"
+        "    kind: loop\n"
+        "    call: turn\n"
+        "    input:\n"
+        "      transcript: ${input.opening}\n"
+        "      exited: false\n"
+        '    while: "not ${exited}"\n'
+        "    max: 1000\n"
+        "output: ${chat.output.transcript}\n"
     )
 
     # Run from tmp_path; it is NOT on sys.path until the command adds it.

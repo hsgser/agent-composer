@@ -92,3 +92,15 @@ def questions_seed(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
 def chosen_framework(inputs: Dict[str, Any]) -> str:
     """`{ans: {Framework, Notes}}` -> the chosen framework label (routes on the answer)."""
     return str(inputs["ans"]["Framework"])
+
+
+# --- seed 30 (reference-code) — the reference twin of seed 29's inline body -- #
+def verdict_line(inputs: Dict[str, Any]) -> str:
+    """`{rating: float, label: str}` -> a verdict string.
+
+    The `module:function` twin of seed 29's inline body — same code, so the two
+    seeds show one computation both ways (an inline body promotes to a reference by
+    copy-paste).
+    """
+    lean = "positive" if inputs["rating"] >= 0 else "negative"
+    return f"{inputs['label']}: {lean} ({inputs['rating']:+.2f})"

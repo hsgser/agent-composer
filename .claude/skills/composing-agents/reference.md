@@ -16,6 +16,7 @@ Copy, rename, and edit.
 | [`minimal.yaml`](templates/minimal.yaml) | one AGENT, `str` in/out |
 | [`compact.yaml`](templates/compact.yaml) | the SAME one-agent flow in compact form (no `nodes:` map) |
 | [`pipeline.yaml`](templates/pipeline.yaml) | AGENT → CODE (typed record) — deterministic post-processing |
+| [`inline-code.yaml`](templates/inline-code.yaml) | inline `code:` source — a bare body run in-process (no `module:function`) |
 | [`typed_output.yaml`](templates/typed_output.yaml) | AGENT with a record `output:` — structured generation + `retries:` |
 | [`branching.yaml`](templates/branching.yaml) | classify → `case` route → `\|` join |
 | [`tool-use.yaml`](templates/tool-use.yaml) | a `tool` node (no LLM) feeding an AGENT |
@@ -26,7 +27,7 @@ Copy, rename, and edit.
 | [`expr-and-call.yaml`](templates/expr-and-call.yaml) | `${a + b}` arithmetic in a binding + inline `call(...)` over an in-file `defs:` callee |
 | [`map-fanout.yaml`](templates/map-fanout.yaml) | `map` a child over a list, in parallel |
 | [`loop.yaml`](templates/loop.yaml) | `loop` a body until a predicate goes false — chat-shaped pause-per-turn |
-| [`chat.yaml`](templates/chat.yaml) | a conversational REPL — `loop` per turn (`human_input` → `agent` → code-fold), the shape `ac chat` runs |
+| [`chat.yaml`](templates/chat.yaml) | a conversational REPL — `loop` per turn (`human_input` → `agent`, transcript grown in `output:` bindings), the shape `ac chat` runs |
 | [`llm-config-cascade.yaml`](templates/llm-config-cascade.yaml) | flow-level `llm_config:`, per-node override, `inherit: false` |
 | [`node-env-config.yaml`](templates/node-env-config.yaml) | flow-level `env:` default + per-node override (node wins), e.g. `max_tool_iterations` |
 
@@ -144,17 +145,19 @@ and the pause is DURABLE (a mid-loop checkpoint resumes in a fresh process). A l
 loop stays cheap: each committed iteration is PRUNED from the live graph, so only one
 is resident at a time. See `loop.yaml`.
 
-**Conversational REPL (LOOP + human_input + code-fold).** A chat is a `loop` whose
-body pauses each turn: `ask` (`human_input`) → `reply` (`agent`) → `fold` (`code`),
-carrying the 2-field record `{transcript: str, exited: bool}` (`'a -> 'a`). The
-transcript grows DETERMINISTICALLY in the Python fold, not by re-prompting the model.
-The one gotcha: the loop body's `output:` must EQUAL the carried record, so fold into a
-node whose declared `output:` **is** the carried record and re-export it whole
-(`output: ${fold.output}`). A bare multi-ref concat as the body output (e.g.
-`"${transcript}\n${reply}"`) types as NONE and the loop's record contract REJECTS it —
-always route the turn through a fold node with the typed record `output:`. This is the
-shape `ac chat` runs; see `chat.yaml` (and `examples/chat.yaml` + `examples/chat_fns.py`
-for a runnable pair).
+**Conversational REPL (LOOP + human_input).** A chat is a `loop` whose body pauses each
+turn: `ask` (`human_input`) → `reply` (`agent`), carrying the 2-field record
+`{transcript: str, exited: bool}` (`'a -> 'a`). The transcript grows DETERMINISTICALLY in
+the turn body's `output:` bindings — a `${...}` template that concatenates the prior
+transcript with this turn's message and reply — not by re-prompting the model, and with no
+CODE fold node. The one gotcha: the loop body's `output:` must EQUAL the carried record,
+so each field's binding must match its carried TYPE. A CONCATENATING template (literal text
+around spans, e.g. the multi-line `transcript` binding) is joined to a `str`, so it types
+as `str` and fits the carried `str` field; a single lone span (`${input.exited}`) is a
+typed passthrough. Only a single lone span with a MULTI-ref expression (e.g. `${a + b}`)
+types as NONE and the loop's record contract rejects it — keep each output field a plain
+passthrough or a concatenating template. This is the shape `ac chat` runs; see `chat.yaml`
+(and `examples/chat.yaml` for a runnable copy).
 
 ## Gotchas
 

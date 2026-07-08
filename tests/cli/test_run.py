@@ -56,12 +56,37 @@ output:
   topic: ${boom.output}
 """
 
+INLINE_FLOW = """\
+id: cli_inline
+name: cli_inline
+input:
+  topic: str
+nodes:
+  shout:
+    kind: code
+    input:
+      topic: ${input.topic}
+    output: str
+    code: |
+      return inputs["topic"].upper()
+output:
+  topic: ${shout.output}
+"""
+
 
 def test_run_succeeds_with_input_flag(tmp_path: Path):
     flow = _write_flow(tmp_path, ECHO_FLOW)
     result = runner.invoke(app, ["run", str(flow), "--input", "topic=clouds"])
     assert result.exit_code == 0, result.output
     assert "clouds" in result.stdout
+
+
+def test_run_inline_code_in_process(tmp_path: Path):
+    # an inline `code:` node (bare body, run in-process) works end-to-end through `ac run`.
+    flow = _write_flow(tmp_path, INLINE_FLOW)
+    result = runner.invoke(app, ["run", str(flow), "--input", "topic=clouds"])
+    assert result.exit_code == 0, result.output
+    assert "CLOUDS" in result.stdout
 
 
 def test_run_reads_inputs_json(tmp_path: Path):

@@ -1,0 +1,74 @@
+name: "✨ Feature Request"
+description: Suggest a new feature, engine primitive, or improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Before submitting, please consider Agent Composer's design intent:
+
+        - **New capability should usually be a node, not an engine branch.** The engine core stays kind-blind; kind-specific logic lives in a node's own `run()`. See [`src/agent_composer/README.md`](https://github.com/ngocbh/agent-composer/blob/main/src/agent_composer/README.md).
+        - **Prefer general combinators over one-off features.** The engine privileges no output type and no domain.
+        - **Search [existing issues](https://github.com/ngocbh/agent-composer/issues) and the [backlog](https://github.com/ngocbh/agent-composer/tree/main/docs/backlog)** — it may already be planned.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: What problem does this solve? What flow are you trying to express that you can't today?
+      placeholder: |
+        I'm trying to author a flow that ... but there's currently no way to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How should this work? Be specific — node kind, `${...}` syntax, CLI flag, config key, engine primitive.
+      placeholder: |
+        Add a `kind: retry` node that ...
+        Or: extend the `${...}` grammar so that ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you consider? Why is the proposed one better?
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Feature Type
+      options:
+        - New node kind
+        - Engine primitive / combinator
+        - CLI improvement (`ac ...`)
+        - Compose syntax (`${...}` / YAML surface / typedefs)
+        - Typesys (types / variable pool)
+        - LLM client / provider
+        - Documentation
+        - Developer experience (tests, docs, CI)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: How big is this change?
+      options:
+        - Small (single file, < 50 lines)
+        - Medium (few files, < 300 lines)
+        - Large (new module or significant refactor)
+
+  - type: checkboxes
+    id: pr-ready
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to implement this myself and submit a PR

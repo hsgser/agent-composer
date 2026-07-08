@@ -905,6 +905,37 @@ def node_field_lines(text: str) -> dict[str, dict[str, int]]:
     return _node_field_lines_of(_nodes_mapping(text))
 
 
+def code_content_lines(text: str) -> dict[str, int]:
+    """Map each CODE node's id -> the 1-based line where its `code:` block content begins.
+
+    For an inline `code: |` node this is the line AFTER the block indicator (where the
+    first source character sits) — the anchor the node uses to frame inline tracebacks at
+    absolute YAML lines (leading-newline padding). PyYAML reports a block scalar's
+    `start_mark` at the indicator line, and its content always begins on the next line, so
+    the value is `start_mark.line + 2` (0-based -> 1-based content line).
+
+    Only block-style scalars (`|` / `>`) are captured — a plain `module:function`
+    reference is a plain scalar with no block content to frame and is skipped. Best-effort:
+    {} when uncomposable; a node absent from the result frames body-relative (line 1).
+    """
+    nodes = _nodes_mapping(text)
+    if nodes is None:
+        return {}
+    out: dict[str, int] = {}
+    for nid, body in nodes.value:
+        if not (isinstance(nid, yaml.ScalarNode) and isinstance(body, yaml.MappingNode)):
+            continue
+        for fk, fv in body.value:
+            if (
+                isinstance(fk, yaml.ScalarNode)
+                and fk.value == "code"
+                and isinstance(fv, yaml.ScalarNode)
+                and fv.style in ("|", ">")
+            ):
+                out[nid.value] = fv.start_mark.line + 2
+    return out
+
+
 def assert_lines(text: str) -> dict[tuple[Optional[str], str], int]:
     """Map (node id | None, assert expr) -> 1-based source line.
 

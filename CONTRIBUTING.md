@@ -14,26 +14,84 @@ pip install -e ".[all,dev]"
 The `all` extra pulls in every provider client (Anthropic / OpenAI / Google /
 Ollama); `dev` adds the test and build tooling.
 
-## Branching workflow
+## Contribution workflow
 
-Never commit a feature straight to `main`. Cut a branch first and work from there:
+All work is tracked in **GitHub issues** — there is no in-repo backlog. Every change,
+from a typo fix to a new node kind, follows the same issue-driven workflow.
+
+**Before you write any code:**
+
+1. **Find or create the issue.** Search the [issue tracker](https://github.com/ngocbh/agent-composer/issues)
+   first. If nothing covers the work, open one using the matching template under
+   `.github/ISSUE_TEMPLATE/` (bug / feature / setup) and apply sensible labels.
+
+**To address an issue:**
+
+2. **Claim it.** Assign yourself (`gh issue edit <n> --add-assignee @me`) and/or add the
+   `in progress` label so nobody duplicates your effort.
+3. **Read it — but don't trust it.** Read the whole issue, treating every claim as
+   unverified. Issues go stale as the code moves.
+4. **Verify against the current codebase.** Reproduce the bug, or for a feature decide
+   whether it is still necessary and not already implemented. Quote `file:line` evidence.
+   If the issue is already addressed or no longer needed, **close it with that evidence**
+   instead of writing code.
+5. **Treat any proposed solution as one option, not the plan.** A fix proposed earlier may
+   be stale — verify it still holds against today's code before adopting it.
+6. **List the options.** Enumerate candidate approaches with their trade-offs, weighed
+   against the project's design intent (general combinators, a kind-blind engine core,
+   node purity, structural determinism — see [`src/agent_composer/README.md`](src/agent_composer/README.md)).
+7. **Split if it's too big.** Break a large issue into linked sub-issues and tackle them
+   one at a time.
+8. **Finalize, branch, and post a plan.** Choose the approach, cut a branch (below), and
+   post an **implementation plan** as a comment on the issue (see
+   [Implementation plan structure](#implementation-plan-structure)).
+9. **Implement** in small, tested steps — code + test + green, one logical change per commit.
+10. **Run an adversarial self-review** before opening the PR: try to break your own code —
+    edge cases, boundary inputs, resume/concurrency paths, and the engine invariants (layer
+    ladder, kind census, node purity). Fix what you find.
+11. **Open the PR** using `.github/PULL_REQUEST_TEMPLATE.md`, linking the issue with
+    `Fixes #<n>`.
+
+### Branch naming
+
+Never commit a feature straight to `main`. Cut a branch first:
 
 - **Branch off** `main` for independent work, or off another `dev/...` branch when the
   work builds on an unmerged feature.
 - **Name it** `dev/<domain>/<feature>` — `<domain>` is the area it touches (`engine`,
   `cli`, `compose`, `docs`, ...) and `<feature>` is a short kebab-case slug, e.g.
   `dev/engine/loop-until-times` or `dev/cli/chat-repl`.
-- **Track it** in [`docs/backlog/BRANCHES.md`](docs/backlog/BRANCHES.md): add a row when
-  you open the branch, and remove it when it merges.
 - **A feature is finished only once it is merged to `main`** — not when the code is
-  written or tests pass on the branch. Record the landing commit in
-  [`docs/backlog/DONE.md`](docs/backlog/DONE.md).
+  written or tests pass on the branch. Git history and merged PRs are the record.
 
 ```bash
 git switch -c dev/engine/loop-until-times   # cut the branch off main
 # ... implement, test, commit ...
 # open a PR; a feature is done only after it merges to main
 ```
+
+### Implementation plan structure
+
+Post the plan as a comment on the issue *before* implementing, so the approach can be
+reviewed while it is still cheap to change. A plan should contain:
+
+- **Summary** — one or two sentences: what will change and why. Link the issue.
+- **Problem verification** — how you confirmed the issue is real against the *current*
+  code: `file:line` evidence, reproduction steps for a bug, or the justification that a
+  feature is still needed and not already covered.
+- **Options considered** — the candidate approaches, each with its trade-offs, and which
+  one you chose and why. Note explicitly if you rejected the issue's original proposed
+  solution and the reason.
+- **Chosen approach** — the design in enough detail to review before any code exists:
+  new/changed node kinds, `${...}` syntax, seams, data shapes.
+- **Changes** — the files/modules you expect to touch, and the tests you will add.
+- **Invariants respected** — how the change keeps the layer ladder acyclic, the engine
+  core kind-blind (census stays at 0), nodes pure, and the graph structurally
+  deterministic. Call out any tension.
+- **Test plan** — the specific tests that will prove the change works.
+- **Risks / out of scope** — what could break, and anything deliberately deferred (file a
+  follow-up issue for it).
+
 
 ## Running tests
 

@@ -159,6 +159,16 @@ Evaluation then follows one rule:
 - a span **embedded** in surrounding text is **stringified** into it;
 - text with no span is a plain literal.
 
+**Compile-time output typing mirrors this rule.** When the loader needs the Type of a
+flow-output binding (to check the loop `'a -> 'a` record contract, a `call` codomain, or a
+child signature), `_output_value_type` (in `compose/build.py`) infers it from the binding's
+shape: a **single lone span** with a single resolvable ref is a typed passthrough (its
+referenced Type); a **concatenating template** — literal text around spans, or two or more
+spans — is always a `str`, because `eval_template` joins it; a **pure literal** or a
+single-span **multi-ref** expression (e.g. `${a + b}`) stays opaque (`None`, lenient — a
+literal is still coercible at the boundary). This is what lets a loop body grow a carried
+`str` field with a plain `${...}` template binding, no CODE fold node required.
+
 The public entry points are thin wrappers over the scanner + `eval_expr`:
 
 | Function | Purpose |

@@ -42,6 +42,9 @@ just what can.
 | `e15-prompt-undeclared-input.yaml` | an AGENT prompt references a non-declared input | prompt-L1 |
 | `e16-bad-typedef-name.yaml` | a `typedefs:` name shadows a typing constructor | `read_typedefs` rules |
 | `e17-case-nonexhaustive.yaml` | a `case … on` enum leaves a tag uncovered, no `else:` | exhaustiveness check |
+| `e30-inline-syntax-error.yaml` | a malformed inline `code:` body (`return (`) | inline syntax gate → located `LoadError` (padded to the real line) |
+| `e31-inline-no-return.yaml` | an inline `code:` body with no `return` | has-`return` load gate → located `LoadError` |
+| `e32-malformed-code-ref.yaml` | a `code:` value that is neither a valid ref nor inline source (dotted, no colon) | reject bucket → `LoadError` with a "did you mean" hint |
 
 ## Runtime failures (fail during the run; the header states the triggering inputs)
 
@@ -57,6 +60,9 @@ just what can.
 | `e24-nested-code-raise.yaml` | a CODE callable that raises INSIDE a called child (namespaced node id `run/boom`) | CLI error framing → owning-call fallback + `--engine-trace` |
 | `e25-external-raise.yaml` (+ `lib_boom.yaml`) | a CODE callable that raises inside an EXTERNAL `uses:` flow (`go/kaboom`) | multi-frame call traceback across a file boundary |
 | `e26-three-level-raise.yaml` | a CODE callable that raises three levels deep (call → def → def, `outer/via/boom`) | multi-frame call traceback, ≥3 stacked frames |
+| `e27-inline-code-raises.yaml` | an inline `code:` body that raises (run `topic: X`) | inline analogue of e20 (in-process raise → `RunFailed`) |
+| `e28-inline-wrong-type.yaml` | an inline `code:` body returns the wrong type for its `output:` | typed write boundary (reused, not reinvented) |
+| `e29-inline-nonserializable.yaml` | an inline `code:` body returns a nested non-serializable value | node's deep serialize-once check → fails AT the node |
 
 ## Deferred (`_future/errors/`, until the check lands)
 
