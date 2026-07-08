@@ -22,3 +22,4 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
+| `dev/cli/fix-chat-help-ci` | `main` | fix pre-existing `test_chat_help` CI failure (rich width truncation) | 2026-07-07 |

@@ -62,7 +62,12 @@ class _GoodModel:
 
 
 def test_chat_help():
-    r = runner.invoke(app, ["chat", "--help"])
+    # Force a wide terminal. typer renders --help as a rich table whose option column
+    # narrows with the width; at a non-TTY runner's default width the "--workspace" token
+    # can wrap or truncate, so the literal assertion misses (CI hits this, a wide local
+    # terminal hides it). Pinning the width keeps the render deterministic across
+    # environments and typer/rich versions.
+    r = runner.invoke(app, ["chat", "--help"], env={"COLUMNS": "200"})
     assert r.exit_code == 0
     assert "--workspace" in r.output
 
