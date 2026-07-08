@@ -24,7 +24,11 @@ The leaf code thus sees only its declared inputs (a pure function); the engine's
 Inline source is **author-written and static** (it lives in the version-controlled flow
 YAML), so there is no injection vector into the code itself, and running the operator's
 own Python in-process is the same capability reference mode already has (trust model =
-author is the operator). Phase 1 runs inline **in-process** with no isolation — a runaway
+author is the operator). That safety argument holds **only** while flow YAML is
+operator-authored: because inline source is `exec`'d in-process with the engine's
+privileges, loading a flow from an untrusted or agent-generated source is remote code
+execution. An opt-in load-time gate for that pathway is deferred until an untrusted-source
+loader exists (see the backlog). Phase 1 runs inline **in-process** with no isolation — a runaway
 body is *diagnosed* by the engine watchdog (it logs an over-budget node) but cannot be
 killed; a killable subprocess runtime and a security sandbox are deferred (see the design
 docs). A per-node `run()` **deep serialize-once check** makes a non-serializable inline
@@ -67,6 +71,10 @@ def classify_code_source(code: str) -> str:
             valid reference nor inline source (a likely typo'd reference). The message
             names both fixes; the loader turns it into a located `LoadError`.
     """
+    # Reference shape wins: a single-line body that happens to fullmatch `token:token`
+    # (e.g. `a.b:c`) is read as a reference, not inline source. Practically unreachable —
+    # such a string carries no `return`, so it would fail the has-`return` gate as inline
+    # anyway — but the precedence is fixed here so the classification is unambiguous.
     if _REFERENCE_RE.fullmatch(code):
         return "reference"
     if _BARE_TOKEN_RE.fullmatch(code):
@@ -180,6 +188,10 @@ class CodeNode(Node):
             return Output(value=result)  # the one value (object/list/scalar), stored whole
         # inline: run in-process. `main(inputs)` gets the bound record (one dict, like
         # reference mode). A raise propagates and eval_node funnels it into a clean NodeFailed.
+        # A fresh namespace per run is deliberate, not a missed cache: re-`exec` rebuilds the
+        # `main` function object (cheap — it does NOT re-run the body) into a clean module
+        # scope, so no module-level state carries between invocations. That per-run isolation
+        # keeps each run independent, which is what the engine's determinism wants.
         ns: dict = {}
         exec(self._code, ns)  # binds `main`
         result = ns["main"](inputs)

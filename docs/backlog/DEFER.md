@@ -285,6 +285,12 @@ trust model, not by dependency: @hsgser
   venv (hash of deps + interpreter; uv/pip; cached, immutable). Needs only the killable subprocess
   (swaps a *child* interpreter), **not** the sandbox — safe and high-value under author == operator, so
   the stronger near-term step. Design decided 2026-07-06; folds in venv GC, lockfile, uv-managed Python.
+- [ ] **Opt-in inline-exec gate (fail-closed for untrusted sources).** Today inline `code:` runs
+  unconditionally because every flow is operator-authored. The moment a flow can originate from an
+  untrusted or agent-generated source, in-process `exec` is RCE — so *before* the full sandbox lands,
+  add a load-time capability gate (default-deny for untrusted loaders) that refuses to execute inline
+  source unless the caller explicitly opts in. Cheap guardrail that precedes the sandbox, doesn't
+  replace it. Raised in the Phase 1 code review (2026-07-07).
 - [ ] **Sandbox (untrusted trust model).** Real isolation — network/namespace/syscall + a
   prompt-injection guard — for untrusted third-party or agent-generated `code:`. Independent of deps, but
   the **gating** requirement the day the trust model changes (a malicious `deps:` runs arbitrary
