@@ -296,13 +296,15 @@ required for `while:`/`until:` but **redundant and rejected** with `times:`.
 
 #### Conversational REPL — a chat as a `loop` (what `ac chat` runs)
 A chat is a `loop` whose body pauses each turn: `ask` (`human_input`) → `reply`
-(`agent`) → `fold` (`code`), carrying `{transcript: str, exited: bool}`. The
-transcript grows **deterministically in the Python fold**, not by re-prompting the
-model. **Gotcha:** the body's `output:` must EQUAL the carried record — so fold into
-a node whose declared `output:` **is** that record and re-export it whole
-(`output: ${fold.output}`). A bare multi-ref concat as the body output (e.g.
-`"${transcript}\n${reply}"`) types as **None** and the loop's record contract
-**rejects** it. See [`templates/chat.yaml`](templates/chat.yaml).
+(`agent`), carrying `{transcript: str, exited: bool}`. The transcript grows
+**deterministically in the turn body's `output:` bindings** — a `${...}` template that
+concatenates the prior transcript with this turn's message and reply — not by
+re-prompting the model, and with no CODE fold node. **Gotcha:** the body's `output:` must
+EQUAL the carried record, so each field's binding must match its carried TYPE. A
+**concatenating template** (literal text around spans) is joined to a `str` and fits the
+carried `str` field; a single lone span (`${input.exited}`) is a typed passthrough. Only a
+single lone span with a **multi-ref expression** (e.g. `${a + b}`) types as **None** and
+the loop's record contract **rejects** it. See [`templates/chat.yaml`](templates/chat.yaml).
 
 ## Run-ordering without data (`depends_on` / `runs_after`)
 Both gate a node on another **settling** even when no value flows. `depends_on:

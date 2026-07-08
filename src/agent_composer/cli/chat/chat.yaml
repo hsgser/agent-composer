@@ -1,6 +1,7 @@
 # The default `ac chat` flow — a composer assistant with flow-op tools.
 # Same LOOP-per-turn shape as examples/chat.yaml; the reply agent is tool_calling
-# and the transcript grows deterministically in a CODE fold (not model-built).
+# and the transcript grows deterministically in the turn's `output:` bindings
+# (string concatenation in `${...}`, not a model-built or CODE-node fold).
 id: composer-chat
 name: composer_chat
 description: An assistant that can discover, read, validate, run, and author Agent Composer flows.
@@ -39,18 +40,16 @@ defs:
           ${transcript}
 
           User: ${message}
-      fold:
-        kind: code
-        code: agent_composer.cli.chat.fns:fold_turn
-        input:
-          transcript: ${input.transcript}
-          message:    ${ask.output}
-          reply:      ${reply.output}
-          exited:     ${input.exited}
-        output:
-          transcript: str
-          exited: bool
-    output: ${fold.output}
+    # Grow the carried transcript with this turn (user message + assistant reply) via a
+    # template binding — plain string concatenation in `${...}`, no CODE node needed.
+    output:
+      transcript: |-
+        ${input.transcript}
+
+        User: ${ask.output}
+
+        Assistant: ${reply.output}
+      exited: ${input.exited}
 
 nodes:
   chat:

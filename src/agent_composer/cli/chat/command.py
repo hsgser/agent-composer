@@ -7,9 +7,9 @@ tools live here; the engine sees only an ordinary flow.
 
 A single bad turn does not end the session. The reply agent can fail mid-turn (a raise,
 or hitting its tool-iteration cap), which terminates the underlying flow *run* as
-`failed`. Because the transcript is mirrored host-side off the fold node's output, the
-loop surfaces the error and RESTARTS the flow seeded with the accumulated transcript, so
-the conversation continues from where it left off.
+`failed`. Because the transcript is mirrored host-side off the turn body's terminal
+(`__end__`) output, the loop surfaces the error and RESTARTS the flow seeded with the
+accumulated transcript, so the conversation continues from where it left off.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def chat(
     ),
 ) -> None:
     """Start an interactive chat session over a chat flow."""
-    _ensure_cwd_importable()  # so a chat flow's `code: pkg.mod:fn` fold ref resolves (mirrors `ac run`)
+    _ensure_cwd_importable()  # so a chat flow's `code: pkg.mod:fn` ref resolves (mirrors `ac run`)
     chat_tools.set_workspace(workspace)
     path = flow or _BUNDLED
     text = path.read_text()
@@ -68,9 +68,13 @@ def chat(
     #                between turns, cleared once printed). The reply node lives inside the
     #                per-turn LOOP body, so its runtime id is namespaced (`chat/reply`,
     #                `chat~1/reply`) — `_last_segment` maps it back to the authored `reply`.
-    #   transcript — the fold node's latest grown transcript. Mirrored here so a FAILED turn
-    #                (the agent raised or hit its tool cap, terminating the run) can restart
-    #                the flow from the accumulated conversation instead of ending the session.
+    #   transcript — the turn body's grown transcript, read off the body's terminal
+    #                (`__end__`) record. Mirrored here so a FAILED turn (the agent raised
+    #                or hit its tool cap, terminating the run) can restart the flow from
+    #                the accumulated conversation instead of ending the session. The
+    #                per-iteration body end emits the `{transcript, exited}` dict; the
+    #                top-level flow end emits a bare str, so the `isinstance(..., dict)`
+    #                guard keeps only the body's record.
     state: dict[str, Any] = {"reply": None, "transcript": ""}
 
     def on_event(ev: Any) -> None:
@@ -79,7 +83,7 @@ def chat(
         seg = _last_segment(ev.node_id)
         if seg == "reply":
             state["reply"] = ev.output
-        elif seg == "fold" and isinstance(ev.output, dict):
+        elif seg == "__end__" and isinstance(ev.output, dict):
             state["transcript"] = ev.output.get("transcript", state["transcript"])
 
     quit_session = False
