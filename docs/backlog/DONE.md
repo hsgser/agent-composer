@@ -400,6 +400,19 @@ generation *tries*, the boundary *enforces*, retry catches the residual.
   `engine` skills, `node-env-config.yaml` template). Kind-census ratchet stays at 0.~~
   -- 1846932 (branch `dev/engine/node-env-config`)
 
+- [x] ~~**Drop the CODE fold node from the chat flows.** The `ac chat` turn body no longer folds its
+  carried `{transcript, exited}` record through a `code:` node — it builds the record directly in the
+  def `output:` via `${...}` template bindings: `transcript` is a concatenating template (literal text
+  around spans → joined to `str` by the engine), `exited` is a lone-span passthrough (stays `bool`).
+  Enabled by teaching `_output_value_type` (`compose/build.py`) to infer `str` for a concatenating
+  template output binding, so a loop body can grow a carried `str` field with no fold module. Removed
+  `examples/chat_fns.py` and `cli/chat/fns.py`; `command.py` mirrors the transcript off the body's
+  `__end__` record. Docs+skills updated in-branch (`composing-agents` skill + `chat.yaml` template,
+  `docs/syntax.md`, `docs/expressions.md`). Filed the follow-up gap: flow-side `/exit` still needs a
+  *computed* `bool` binding, which output-binding type inference can't yet produce (see
+  [TODO.md](TODO.md) → Engine). Kind-census ratchet stays at 0.~~
+  -- 8501fde (branch `dev/cli/chat-fold-inline`)
+
 ## Docs
 
 - [x] ~~**Docstring/comment sweep for CONTRIBUTING compliance + Types/Expressions internals pages.**

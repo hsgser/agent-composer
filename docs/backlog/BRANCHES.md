@@ -22,4 +22,3 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
 
 | Branch | Base | Purpose | Opened |
 |--------|------|---------|--------|
-| `dev/cli/chat-fold-inline` | `main` | drop the CODE fold node from the chat flows; build the turn's `{transcript, exited}` record directly in the def `output:` via template `${...}` bindings (string-concat in expr) | 2026-07-08 |
