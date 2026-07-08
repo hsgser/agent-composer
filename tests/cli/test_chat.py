@@ -7,6 +7,7 @@ and the session survives).
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -16,6 +17,9 @@ import agent_composer.llm_clients as llm_clients_mod
 from agent_composer.cli import app
 
 runner = CliRunner()
+
+# Matches an ANSI SGR (color/style) escape sequence, e.g. "\x1b[1;36m".
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class _FakeModel:
@@ -62,9 +66,16 @@ class _GoodModel:
 
 
 def test_chat_help():
-    r = runner.invoke(app, ["chat", "--help"])
+    # typer renders --help as a rich options table with ANSI color. Newer rich (what a
+    # fresh dependency resolve pulls, e.g. on CI) styles each leading dash of an option
+    # as its own color run, so the captured bytes split the flag apart:
+    # "\x1b[1;36m-\x1b[0m\x1b[1;36m-workspace\x1b[0m". The token renders fine on screen
+    # but "--workspace" is no longer a contiguous substring, so a raw assertion misses
+    # (green on an older local rich, red on CI). Strip the color codes before asserting;
+    # a wide width additionally keeps the option column from wrapping.
+    r = runner.invoke(app, ["chat", "--help"], env={"COLUMNS": "200"})
     assert r.exit_code == 0
-    assert "--workspace" in r.output
+    assert "--workspace" in _ANSI_SGR.sub("", r.output)
 
 
 def test_chat_two_turns(tmp_path, monkeypatch):
