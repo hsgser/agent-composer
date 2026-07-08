@@ -85,9 +85,3 @@ nav:
     - Expressions: expressions.md
   - Python API: api.md
   - API Reference: reference.md
-  - Roadmap:
-    - TODO: backlog/TODO.md
-    - Deferred: backlog/DEFER.md
-    - Future: backlog/FUTURE.md
-    - Done: backlog/DONE.md
-    - Branches: backlog/BRANCHES.md

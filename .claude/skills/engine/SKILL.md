@@ -40,7 +40,7 @@ only for one flow shape, or needs to mutate the pool — stop; that's a smell.
 Read what's relevant to the change:
 - [`src/agent_composer/README.md`](../../../src/agent_composer/README.md) — what the engine is, the layout, + the layer ladder.
 - [`docs/syntax.md`](../../../docs/syntax.md) — the flow-authoring surface (YAML shape, `${...}` refs, node kinds).
-- [`docs/backlog/TODO.md`](../../../docs/backlog/TODO.md) — the backlog (keep it current per CLAUDE.md "Zeroth rule").
+- GitHub issues (`gh issue list`) — the TODO tracker (keep it current per CLAUDE.md "Zeroth rule").
 
 ## 1. Design from the functional model — look to OCaml first
 Our north star is a *functional language of agents*. Design the feature as a
@@ -145,8 +145,8 @@ when uncertain").
 Per CLAUDE.md: bottom-up by dependency, **code + at least one test + run green**
 before moving on. Tests live in `tests/engine/`; run with
 `PYTHONPATH=src pytest tests/engine` (or `pip install -e '.[all]'` first). Keep
-the engine import-clean (no new heavy deps in the core). Update `docs/backlog/TODO.md`
-(tick items with the exact commit hash). Commit at green.
+the engine import-clean (no new heavy deps in the core). Close the tracking
+GitHub issue when the work lands (reference the commit/PR). Commit at green.
 
 ### Package layout
 Follow the **`structure` skill** for where files and folders go — package charters
