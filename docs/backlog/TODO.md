@@ -41,6 +41,37 @@ under "Roadmap".
 
 - [ ] sometimes I see Shape sometimes I see Segment. What are the differences among them? should we unify them?
 
+- [ ] **Output-binding type inference can't type a *computed* value — only passthroughs, string-concat,
+  and literals.** `_output_value_type` (`compose/build.py:585`) infers a binding's Type from its
+  **ref leaves only** — it never looks at the operators. So it recognizes exactly three shapes: a
+  single lone span with one ref (the ref's Type — a passthrough), a concatenating template (`str`),
+  and a pure literal / multi-ref span (`None`, lenient). A binding whose *result* comes from an
+  operator — a comparison, a boolean, arithmetic — cannot be typed.
+  - **Concrete failure it blocked:** flow-driven `/exit` in `ac chat`. The loop carries
+    `'a = {transcript: str, exited: bool}` and we wanted the body to compute
+    `exited: ${ask.output == "/exit"}`. But `_output_value_type` sees the one ref `ask.output` and
+    infers **`str`** (treats the whole thing as a passthrough, ignoring `== "/exit"`); the two-ref
+    form `${ask.output == "/exit" or ask.output == "/quit"}` infers **`None`**. At runtime the binding
+    produces a real `bool`, so the loop's `'a -> 'a` carried-record contract rejects it:
+    `True does not match declared type ...` → `RunFailed(TypeCheckError)`. There is no way today to
+    author a `${...}` binding that carries a computed `bool` (or num/list) for a loop field. (For now
+    `ac chat` keeps host-driven `/exit`; see DEFER.)
+  - **Fix direction (decided):** add a **third compile-time companion in `expr/`** —
+    `infer_expr_type(tree, ref_type) -> Type | None` — alongside `expr_refs` (edge inference) and
+    `rewrite_expr_refs` (child inlining); one parse tree, three walks. `_output_value_type`'s
+    single-span branch delegates to it.
+  - **Hard constraint — soundness:** the walk MUST mirror `eval_expr`'s Python value semantics and
+    return a concrete Type ONLY when provable, else `None` (stay lenient, today's safe default). Never
+    guess a wrong type. Always-provable: comparisons (`== != < > <= >= in not in`) and `not` → `bool`.
+    Conditionally provable (only when both operands infer the SAME concrete type): `cmp and/or cmp`
+    → `bool`; `num+num` → `num`, `str+str` → `str`, `list+list` → `list`; coalesce `|` / default `:-`
+    → the join. NOT provable: a bare `a or b` returns an operand (not necessarily `bool`) → `None`.
+  - **Compat risk to check:** tightening inference can make a previously-**lenient** binding suddenly
+    type-checked (e.g. `${a + b}` is `None`/accepted today; inferring `num` could fail a flow that fed
+    it to a `str` boundary). Run the full suite; stay conservative.
+  - **Open (scope decision):** minimal (comparisons + `not` → `bool`, which alone unblocks `/exit`)
+    vs. fuller (also arithmetic + same-type `and/or`/coalesce joins). Decide before implementing.
+
 
 ## Subflow-node rewrite — make graph-expansion kind-agnostic
 
