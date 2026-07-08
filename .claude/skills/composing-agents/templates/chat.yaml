@@ -1,22 +1,18 @@
 # Conversational REPL — a turn-by-turn chat, built AS a flow (this is what `ac chat` runs).
-# The turn boundary is STRUCTURAL: a LOOP body [human_input -> agent -> code-fold] fixes
-# "get the next message, reply, fold it into the transcript" as authored edges. The LLM
-# only fills the reply; the transcript grows in the fold (Python), NOT in the model.
+# The turn boundary is STRUCTURAL: a LOOP body [human_input -> agent] fixes "get the next
+# message, reply" as authored edges. The LLM only fills the reply; the transcript grows
+# deterministically in the turn's `output:` bindings (string concatenation in a `${...}`
+# template), NOT in the model — no CODE fold node needed.
 #
 # Carried record ('a): {transcript: str, exited: bool} — threaded turn to turn ('a -> 'a).
-# The loop body's `output:` MUST equal this record: re-export the fold node's whole record
-# with `output: ${fold.output}`. A bare multi-ref concat (e.g. "${transcript} ${reply}")
-# types as NONE and the loop's record contract REJECTS it — always fold into a node whose
-# declared `output:` IS the carried record, then re-export that node.
-#
-# Customize: point the fold `code:` at an importable `module:function` on your PYTHONPATH
-# (matching examples/chat_fns.py:fold_turn). It receives its bound input record and returns
-# the next carried record:
-#   def fold_turn(inputs: dict) -> dict:
-#       grown = (f"{inputs['transcript']}\n\nUser: {inputs['message']}"
-#                f"\n\nAssistant: {inputs['reply']}")
-#       return {"transcript": grown, "exited": bool(inputs["exited"])}
-# (load doesn't import the fn, so the placeholder ref below loads clean; wire your own to run.)
+# The loop body's `output:` MUST equal this record. Build each field with a binding whose
+# TYPE matches the carried field:
+#   - `transcript` — a CONCATENATING template (literal text around `${...}` spans) is joined
+#     to a `str` by the engine, so it types as `str` and satisfies the carried `str` field.
+#   - `exited` — a single lone `${input.exited}` span is a typed passthrough (stays bool).
+# (A single lone span with a MULTI-ref expression, e.g. "${a + b}", types as NONE and the
+# loop record contract rejects it — keep each output field a plain passthrough or a
+# concatenating template.)
 
 id: chat
 name: chat
@@ -49,18 +45,16 @@ defs:
           ${transcript}
 
           User: ${message}
-      fold:
-        kind: code
-        code: your_package.chat:fold_turn   # grows the transcript deterministically
-        input:
-          transcript: ${input.transcript}
-          message:    ${ask.output}
-          reply:      ${reply.output}
-          exited:     ${input.exited}
-        output:                             # MUST equal the carried record shape
-          transcript: str
-          exited: bool
-    output: ${fold.output}                  # re-export the fold's WHOLE record (the 'a)
+    # Grow the carried transcript with this turn (user message + assistant reply) via a
+    # template binding — plain string concatenation in `${...}`, no CODE node needed.
+    output:                         # MUST equal the carried record shape
+      transcript: |-
+        ${input.transcript}
+
+        User: ${ask.output}
+
+        Assistant: ${reply.output}
+      exited: ${input.exited}       # a lone span -> typed passthrough (stays bool)
 
 nodes:
   chat:

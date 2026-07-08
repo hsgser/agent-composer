@@ -28,7 +28,7 @@ from agent_composer.expr import (
     condition_refs,
     expr_refs_of,
 )
-from agent_composer.expr.template import prompt_refs
+from agent_composer.expr.template import Span, prompt_refs, scan_template, template_refs
 from agent_composer.nodes.agent import AgentNode
 from agent_composer.nodes.base import Node
 from agent_composer.nodes.binding import ParamDecl
@@ -587,17 +587,31 @@ def _output_value_type(
 ) -> Optional[Type]:
     """Resolve ONE flow-output binding `from_` to the Type of the value it carries.
 
-    Singular only: `${<id>.output[.…]}` for a node value, `${input.<name>}`
-    for a flow input. A coalesce / literal / embedded ref / opaque producer / `${system.X}`
-    -> None (lenient, codomain stays opaque). Legacy plural heads were retired."""
+    The cases:
+      - a **single lone `${…}` span** — `${<id>.output[.…]}` for a node value or
+        `${input.<name>}` for a flow input — is a typed passthrough (eval_template
+        returns the referenced value unchanged; a multi-ref span stays opaque -> None).
+      - a **template that concatenates** — one or more spans mixed with literal text, or
+        two or more spans — is joined by eval_template, so it always carries a `str`
+        (see `template.py`).
+      - a **pure literal** (no spans) stays None — lenient, so a literal call-arg can
+        still be coerced to the declared type at the boundary.
+    An opaque producer / `${system.X}` in the single-span case -> None (codomain stays
+    opaque). Legacy plural heads were retired."""
     if not isinstance(from_, str):
         return None
     try:
-        refs = expr_refs_of(from_)
+        segments = scan_template(from_)
     except ExpressionError:
         return None
+    spans = [s for s in segments if isinstance(s, Span)]
+    if not spans:
+        return None  # pure literal -> lenient (coerced at the boundary)
+    if not (len(segments) == 1 and isinstance(segments[0], Span)):
+        return Type.scalar(ValueKind.STRING)  # concatenating template -> str
+    refs = template_refs(segments)
     if len(refs) != 1:
-        return None  # coalesce / no ref -> not a single typed value
+        return None  # single span, multi-ref expr -> not a single typed value
     parts = refs[0].split(".")
     head = parts[0]
     if head == "input" and len(parts) == 2:

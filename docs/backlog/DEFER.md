@@ -64,6 +64,41 @@ This directory (`docs/backlog/`) is tracked in git and published in the doc site
   for a flow-side end — a real command (or a tool the agent can call) that SETS the carried `exited`
   field, so the loop's `while: not ${exited}` terminates from inside the flow rather than the host
   intercepting the line. Decide whether to move end-of-session into the flow. (Surfaced 2026-07-06.)
+  **The obvious pure-binding form does NOT work today** (verified 2026-07-08, correcting an earlier
+  note): computing `exited: ${ask.output == "/exit"}` in the loop body's `output:` fails at runtime
+  with `RunFailed(TypeCheckError)` — output-binding type inference (`_output_value_type`) can't type a
+  *computed* `bool`, so it mis-infers the comparison as `str`/`None` and the loop's `'a -> 'a` carried
+  record rejects the real `bool` (`True does not match declared type ...`). Flow-driven `/exit` is
+  therefore blocked on the **"Output-binding type inference can't type a computed value"** engine item
+  in [TODO.md](TODO.md) → Engine. Until that lands, `ac chat` keeps host-driven `/exit`/`/quit`
+  (EOF/Ctrl+C must stay in the host regardless — they never reach the flow).
+
+- [ ] **A `case` option to SKIP running a node → route to exit (skip the wasted `/exit` reply call).**
+  Goal: in the `ac chat` turn body, when the user types `/exit`, skip the `reply` agent entirely (no
+  wasted LLM call) and terminate the loop — the "case-gated skip-reply" shape. Blocked on two findings
+  (both verified 2026-07-08): (1) there is **no zero-dependency constant/identity node** — every
+  value-producing branch target needs an external ref (`code` module / `tool` registration) or calls an
+  LLM (`agent`/`model`) or suspends (`human_input`/`wait`); a node-less child flow for a `call(...)`
+  branch is rejected (`nodes:` is required). So a skip-reply case can't produce the exit-branch value
+  without reintroducing a module dependency (the very thing the chat-fold-inline work removed). (2)
+  Routing a branch straight to `__end__` (`then: __end__`) **loads but fails at runtime** — and it fails
+  on the *normal* (non-exit) turn, not the exit turn. Root cause is the **control-route VETO** in
+  `runtime/state_manager.py:disposition` ("a node with control edges is `dead` when ALL of them are
+  SKIPPED, overriding any TAKEN data edge"). `__end__` has one control edge (`gate → __end__`, handle
+  `then`) plus live *data* edges (`reply`/`ask`); on a normal turn the gate takes `else`, its single
+  control edge skips → all-control-skipped → `__end__` vetoed dead (`TerminalSkipped: "terminal output
+  None skipped"`), even though `reply` is live. The veto is too aggressive for a **merge** node.
+  **The design tension:** the veto is load-bearing for an *ordinary* branch target — e.g. seed 02's
+  `positive`, whose only input `${input.topic}` is route-independent (always live); the control veto is
+  the *only* thing stopping it from running on the "cautious" turn. Naively "run if any data input is
+  live" would make both branches run. So the fix is NOT to drop the veto — it is to distinguish a
+  **branch target** (needs the veto: route-gated compute) from a **merge/reconvergence** (wants OR-join:
+  run if any incoming path is live). Today the engine only supports merge via **data-coalesce**
+  (`${a | b}`, optional data edges that resolve null on a skipped branch), never via a control route.
+  Design the OR-join / merge-vs-gate distinction (a skipped control edge should not veto a node that has
+  a live non-route-gated incoming path) — that is the "case-route hard-gate veto" referenced in
+  `compose/cases.py`, seen from the other side. Ties into the "Flow-side `/exit`" item above.
+  (Surfaced 2026-07-08.)
 
 - [x] ~~**`MAX_TOOL_ITERATIONS` (8) is low for the `ac chat` composer assistant.** The composer chat wields
   five flow-op tools; a discover → read → validate → run → answer sequence can approach the cap, and a

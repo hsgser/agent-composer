@@ -1,8 +1,9 @@
 # chat — a turn-by-turn conversational REPL (plain agent; deterministic transcript).
 #
-# The turn boundary is STRUCTURAL: a LOOP body [human_input -> agent -> code-fold]
-# fixes "get the next message, reply, fold it in" as authored edges. The LLM only
-# fills the reply; the transcript grows in the fold (Python), not the model.
+# The turn boundary is STRUCTURAL: a LOOP body [human_input -> agent] fixes "get the
+# next message, reply" as authored edges. The LLM only fills the reply; the transcript
+# grows deterministically in the turn's `output:` bindings (string concatenation in a
+# `${...}` template, not a model-built fold), so no CODE node is needed.
 # Run it with:  ac chat examples/chat.yaml    (or: ac run, answering each pause)
 id: chat
 name: chat
@@ -35,18 +36,16 @@ defs:
           ${transcript}
 
           User: ${message}
-      fold:
-        kind: code
-        code: examples.chat_fns:fold_turn   # grows the transcript deterministically
-        input:
-          transcript: ${input.transcript}
-          message:    ${ask.output}
-          reply:      ${reply.output}
-          exited:     ${input.exited}
-        output:
-          transcript: str
-          exited: bool
-    output: ${fold.output}
+    # Grow the carried transcript with this turn (user message + assistant reply) via a
+    # template binding — plain string concatenation in `${...}`, no CODE node needed.
+    output:
+      transcript: |-
+        ${input.transcript}
+
+        User: ${ask.output}
+
+        Assistant: ${reply.output}
+      exited: ${input.exited}
 
 nodes:
   chat:
