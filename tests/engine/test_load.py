@@ -28,7 +28,7 @@ from agent_composer.compose import LoadedFlow, LoadError, load_flow
 _SEEDS = Path(__file__).resolve().parents[2] / "tests" / "seeds"
 
 # Each loadable seed must load to a LoadedFlow.
-_LOADABLE = ["00", "01", "02", "06", "07", "09", "10", "11", "12", "13", "14", "17", "18", "19", "20", "21", "22", "23", "27", "28", "29"]
+_LOADABLE = ["00", "01", "02", "06", "07", "09", "10", "11", "12", "13", "14", "17", "18", "19", "20", "21", "22", "23", "27", "28", "29", "30"]
 _SEED_FILES = {
     "00": "00-hello-agent.yaml",
     "01": "01-structured-agent.yaml",
@@ -61,6 +61,8 @@ _SEED_FILES = {
     "28": "28-refine-loop.yaml",
     # 29 — inline `code:` source (a bare body read as `def main(inputs)`, run in-process).
     "29": "29-inline-code.yaml",
+    # 30 — reference `code:` source (a `module:function` imported and called in-process).
+    "30": "30-reference-code.yaml",
 }
 
 

@@ -327,6 +327,7 @@ nodes:
 | `27-expr-ops.yaml` | the **unified `${...}` grammar** — arithmetic (`+ - * / % **`, unary minus, parens), string `+`, list literals + `list + list`, comparison / `and`/`or`/`not` / `in`/`not in`, `\|` / quoted `:-` / quoted `:?`, the `upper`/`lower`/`join`/`render_as_json` builtins (in bindings, a prompt, and `asserts:`), `$$` escape |
 | `28-refine-loop.yaml` | the **`loop`** node — `until:` post-check predicate + `max:` guard over an in-file `defs:` body, the `'a -> 'a` carried-record contract; reuses the new expression forms (arithmetic + a builtin) in the body; loads resolver-free |
 | `29-inline-code.yaml` | inline **`code:`** source — a bare body reading `inputs`, wrapped as `def main(inputs)` and run **in-process** (the alternative to the `module:function` reference form); same one-dict convention as reference mode |
+| `30-reference-code.yaml` | reference **`code:`** source — a `module:function` token imported and called **in-process**; the reference twin of seed 29 (same body as its inline block), showing one computation both ways |
 
 Every node kind (AGENT/CODE/MODEL/TOOL/call/case/loop) and every settled convention appears in
 at least one seed; the effects (`HUMAN_INPUT`/`WAIT`) are **pinned as a DRAFT proposal**
