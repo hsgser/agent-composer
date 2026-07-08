@@ -1,0 +1,93 @@
+name: "🔧 Setup / Installation Help"
+description: Having trouble installing or running Agent Composer? Ask here.
+title: "[Setup]: "
+labels: ["setup"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sorry you're having trouble! Please fill out the details below so we can help.
+
+        **Quick checks first:**
+        - Install with the extras you need: `pip install -e ".[all,dev]"` (see [CONTRIBUTING](https://github.com/ngocbh/agent-composer/blob/main/CONTRIBUTING.md#development-setup))
+        - The package requires **Python 3.11+** — a 3.9 interpreter cannot import it. Confirm with `python --version`.
+        - Run the engine anywhere with `PYTHONPATH=src`.
+        - Check the [README](https://github.com/ngocbh/agent-composer/blob/main/README.md).
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's Going Wrong?
+      description: Describe what you're trying to do and where it fails.
+      placeholder: |
+        I ran `pip install -e ".[all]"` and then `ac run flow.yaml`, but I get...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps Taken
+      description: What did you do? Include the exact commands you ran.
+      placeholder: |
+        1. git clone https://github.com/ngocbh/agent-composer
+        2. pip install -e ".[all,dev]"
+        3. ac run examples/....yaml
+        4. Error appears: ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation Method
+      options:
+        - pip install -e (editable, from source)
+        - conda environment
+        - PYTHONPATH=src (no install)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: Ubuntu 24.04 / macOS 15.2 / Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: Output of `python --version` (must be 3.11+)
+      placeholder: "3.11.9"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Agent Composer Version / Commit
+      description: Release version, or short commit hash (`git rev-parse --short HEAD`)
+      placeholder: "45beb62"
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Full Error Output
+      description: Paste the complete error message or traceback. This will be auto-formatted.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What I've Already Tried
+      description: List any fixes or workarounds you've already attempted.
+      placeholder: |
+        - Recreated the conda env with Python 3.11
+        - Reinstalled with `pip install -e ".[all]"`
+        - Ran with `PYTHONPATH=src`

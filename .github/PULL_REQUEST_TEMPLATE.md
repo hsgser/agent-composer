@@ -1,0 +1,51 @@
+<!--
+Follow the issue-driven workflow in CONTRIBUTING.md. A PR should map to an issue
+that already has a verified problem statement and an implementation-plan comment.
+-->
+
+## Summary
+
+<!-- One or two sentences: what changed and why. -->
+
+Fixes #<!-- issue number -->
+
+## What changed
+
+<!-- The concrete changes, grouped by area (engine / compose / cli / docs). -->
+
+-
+
+## Implementation plan
+
+<!-- Link the plan comment you posted on the issue before implementing. Note any
+     deviations from that plan and why. -->
+
+- Plan: #<!-- issue number --> (comment)
+- Deviations from the plan:
+
+## Invariants respected
+
+- [ ] Layer ladder stays acyclic (`events <- typesys <- nodes <- compile <- compose`); no new back-edge.
+- [ ] Engine core stays **kind-blind** — no new `match node.kind` in `runtime/`; `tests/engine/test_kind_census.py` still passes.
+- [ ] Nodes stay **pure** — a node returns `Output | Route | Pause | Grow` and never writes the pool.
+- [ ] No self-rewriting graph / agentic routing (structural determinism preserved).
+- [ ] No new heavy dependency in the core.
+- [ ] Docs + skills updated in this PR for any surface change (syntax / node kind / CLI / invariant).
+
+## Adversarial self-review
+
+<!-- What did you actively try to break before opening this PR? Edge cases, boundary
+     inputs, resume/concurrency paths, invariant violations. What did you find and fix? -->
+
+-
+
+## Test plan
+
+<!-- The specific tests that prove this works. Paste the command you ran. -->
+
+```bash
+PYTHONPATH=src python -m pytest tests/engine
+```
+
+- [ ] New/updated tests cover the change and would catch a regression.
+- [ ] Full suite passes locally.

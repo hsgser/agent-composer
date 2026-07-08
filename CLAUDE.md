@@ -44,23 +44,51 @@ They are the lens for reviewing any engine change:
 These exist because Claude tends to over-help. Each rule has cost the project
 something at some point; the rule prevents the next time.
 
-### Zeroth rule — keep the backlog current (HIGHEST PRIORITY)
+### Zeroth rule — the issue-driven workflow (HIGHEST PRIORITY)
 
-**This rule outranks every other rule.** The backlog lives under `docs/backlog/` (tracked in git,
-published in the doc site under "Roadmap"): [`docs/backlog/TODO.md`](docs/backlog/TODO.md) (immediate/near-term, decided),
-[`docs/backlog/DEFER.md`](docs/backlog/DEFER.md) (undecided / thinking about it),
-[`docs/backlog/FUTURE.md`](docs/backlog/FUTURE.md) (big, later, v2-scale). You must:
+**This rule outranks every other rule.** All work is tracked in **GitHub issues**
+on `ngocbh/agent-composer` — there is no in-repo backlog. Every change follows the
+workflow below, start to finish. (See the **`github`** skill for `gh` auth.)
 
-- **Add** an item the moment you notice work that should happen later, or the
-  moment the user defers something ("let's do that later", "we'll fix X next").
-  Capture it as `- [ ] <item>` in the right file — decided+soon → `TODO.md`;
-  undecided → `DEFER.md`; big+later → `FUTURE.md`. Never let it live only in chat.
-- **Check it off** when you complete it: tick the box and strike the text, then
-  append `--` with the **exact short commit hash** where the work landed:
-  `- [x] ~~<item>~~ -- <hash>`. Never write "this commit" — the hash isn't known
-  until after the commit, so commit the work first, then record its hash in the
-  following commit.
-- **Consult** these at the start of work so nothing is forgotten across sessions.
+**Before you implement anything:**
+
+1. **Find or create the issue.** Search first (`gh issue list`, `gh issue list --search "..."`).
+   If an issue already covers the work, use it. If not, open one with `gh issue create`
+   using the matching template under `.github/ISSUE_TEMPLATE/` (bug / feature / setup)
+   and the right labels. Never let work live only in chat.
+
+**To address an issue:**
+
+2. **Claim it.** Signal you are working on it before you start:
+   `gh issue edit <n> --add-assignee @me` (and/or add the `in progress` label). This
+   prevents two people picking up the same issue.
+3. **Read it concretely — do not trust it.** Read the whole issue, but treat every
+   claim as unverified. Issues go stale; the code moves fast.
+4. **Verify the issue against the *current* codebase.** Confirm the problem still
+   exists — reproduce the bug, or for a feature, decide whether it is still necessary
+   and not already covered. Cite `file:line` evidence. **If it is already addressed or
+   no longer needed, close it with that evidence instead of implementing** (`gh issue
+   close <n> --comment "..."`).
+5. **Treat any proposed solution as one option, not the plan.** If the issue proposes
+   a fix, read it — then verify it against the current code. A solution written earlier
+   may be stale and no longer the best (or even a valid) approach.
+6. **List several options.** Enumerate the candidate approaches with their trade-offs,
+   measured against the design intent below (general combinators, kind-blind core, node
+   purity, structural determinism).
+7. **Split if too big.** If the issue is too large for one focused change, break it into
+   linked sub-issues (`gh issue create`, reference the parent) and address the sub-issues
+   one at a time.
+8. **Finalize, branch, and post the plan into the issue.** Pick the approach, cut the
+   branch (see "Work on a feature branch" below), and post an **implementation plan** as
+   a comment on the issue (`gh issue comment <n> --body-file plan.md`). Follow the plan
+   structure in [`CONTRIBUTING.md`](CONTRIBUTING.md#implementation-plan-structure).
+9. **Implement** — in small, tested steps (see "Iterate in small, tested steps").
+10. **Run an adversarial self-review** on the code you generated *before* opening a PR:
+    actively try to break it — edge cases, boundary inputs, concurrency/resume paths,
+    invariant violations (layer ladder, kind census, node purity), and whether the tests
+    would actually catch a regression. Fix what you find. Only then open the PR.
+11. **Open the PR** with the template at `.github/PULL_REQUEST_TEMPLATE.md`, linking the
+    issue (`Fixes #<n>`). A feature is done only when the PR merges to `main`.
 
 
 ### Zeroth rule - be very conservative about claims
@@ -96,7 +124,7 @@ aren't sure after the answer, **ask again** — don't fill gaps from inference.
   (retry / fail-branch / default) are a planned first-class engine seam — until
   then, error handling is best-effort and at the boundary layer only.
 - **No features outside the active scope.** If you notice "we'll eventually need
-  X," say so in chat (or add it to `docs/backlog/`); don't implement it.
+  X," say so in chat (or open a GitHub issue); don't implement it.
 - **Keep refactors scoped, but don't fear them.** The engine is young — cleaning
   up code or tests to make them simpler and clearer is encouraged. What to avoid
   is *unrelated* churn that bloats a review: if a cleanup is adjacent to your
@@ -127,13 +155,10 @@ non-trivial change), **cut a branch first** and work from there:
 - **Name it** `dev/<domain>/<feature>` — `<domain>` is the area it touches (`engine`,
   `cli`, `compose`, `docs`, ...); `<feature>` is a short kebab-case slug. Example:
   `dev/engine/loop-until-times`, `dev/cli/chat-repl`.
-- **Track it** in [`docs/backlog/BRANCHES.md`](docs/backlog/BRANCHES.md): add a row
-  (branch, base, purpose, date) the moment you cut the branch, and **remove the row
-  when it merges to `main`**. Never let an open branch live only in your head.
 - **A feature is finished only after it is merged to `main`** — not when the code is
   written, not when tests pass on the branch. Until the merge lands, the work is
-  in-flight and stays listed in `BRANCHES.md`. Record the landing hash in
-  [`docs/backlog/DONE.md`](docs/backlog/DONE.md) per the Zeroth rule.
+  in-flight. Git history and merged PRs are the record; reference the tracking
+  issue from the PR (`Fixes #<n>`).
 
 
 
@@ -186,7 +211,7 @@ code no longer does.
   docstring template in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - **No internal reference numbers in code.** Plan/phase/task tracking tokens, and
   the axiom/law tags, carry no meaning to a reader and rot as the plan moves on.
-  They belong **only in `docs/backlog/`** (or `docs/`). In code, say the thing in plain
+  They belong **only in GitHub issues** (or `docs/`). In code, say the thing in plain
   words instead. If you're tempted to write a tracking number, that's a signal
   the comment should explain the concept directly.
 - **No "Generated by Claude" footers**, no AI-attribution comments in source.
