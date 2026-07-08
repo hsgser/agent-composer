@@ -34,7 +34,7 @@ nodes/        Node contract (base) + per-kind implementations
 compile/      compiled IR (CompiledFlow) + representation-neutral validation
 compose/      the Compose-YAML loader: text -> CompiledFlow
               (parser/types/build/cases/validate/asserts/loader/run)
-runtime/      state_manager, single-threaded engine, parallel worker pool
+runtime/      state_manager, single-threaded engine, parallel worker pool, node watchdog
 suspension/   pause reasons, commands, checkpoint
 llm_clients/  provider clients (lazy-imported) + LLMConfig + model_from_config
 tools/        the tool registry (TOOL_REGISTRY / register_tool / resolve_tools)

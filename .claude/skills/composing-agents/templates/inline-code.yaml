@@ -1,0 +1,29 @@
+# Inline `code:` source — a bare body run IN-PROCESS (no `module:function` reference).
+#
+# The author writes statements that read the node's inputs via the `inputs` dict and
+# `return` a value; the engine wraps them as `def main(inputs):`. This is the SAME
+# one-dict convention a `module:function` callable gets, so a body promotes to a
+# reference by copy-paste. A body must `return` (no-`return` is rejected at load), and
+# the returned value must be JSON-representable. In-process = no isolation (author ==
+# operator): a runaway is logged by a watchdog, not killed.
+
+id: inline_code_demo
+name: inline_code_demo
+description: Classify a numeric rating with an inline `code:` node (no external module).
+
+input:
+  rating: float
+  label: str
+
+nodes:
+  verdict:
+    kind: code
+    input:
+      rating: ${input.rating}
+      label:  ${input.label}
+    output: str
+    code: |
+      lean = "positive" if inputs["rating"] >= 0 else "negative"
+      return f"{inputs['label']}: {lean} ({inputs['rating']:+.2f})"
+
+output: ${verdict.output}

@@ -74,7 +74,11 @@ not rehomed onto the terminal.
 it** — `runtime/engine.py` + `runtime/eval_node.py` branch only on the closed `Outcome` sum and on
 node-owned traits/hooks (below). Any kind-specific `match` lives in a node's own `run`. A ratchet
 test (`tests/engine/test_kind_census.py`) holds the core's `NodeKind`/`*Expansion` dispatch count
-at 0.
+at 0. Even cross-cutting runtime additions stay kind-blind: the **watchdog**
+(`runtime/watchdog.py`) that logs a node whose `run()` overruns a soft budget — added for inline
+CODE, which runs source **in-process** with no way to kill a runaway — times *every* node and never
+branches on kind, so the census stays 0. (A `code:` node is either a `module:function` reference or
+inline source; both run in-process, and a killable/sandboxed runtime is a deferred later phase.)
 
 | Authorable leaves | Internal-only (loader-synthesized / runtime-expanded) |
 |-------------------|-------------------------------------------------------|

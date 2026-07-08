@@ -1,0 +1,19 @@
+# e27 — an inline CODE body that raises. RUNTIME: the node fails -> the run fails,
+# carrying the traceback (framed at the absolute YAML line) into the error. The inline
+# analogue of e20 (the reference-mode raiser). The body has a (reachable) return so it
+# passes the has-`return` load gate, then raises at runtime.
+id: err-inline-raises
+name: err_inline_raises
+input:
+  topic: str
+nodes:
+  boom:
+    kind: code
+    input:
+      topic: ${input.topic}
+    output: str
+    code: |
+      if inputs["topic"]:
+          raise RuntimeError("intentional inline failure")
+      return "ok"
+output: ${boom.output}

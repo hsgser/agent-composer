@@ -16,6 +16,7 @@ Copy, rename, and edit.
 | [`minimal.yaml`](templates/minimal.yaml) | one AGENT, `str` in/out |
 | [`compact.yaml`](templates/compact.yaml) | the SAME one-agent flow in compact form (no `nodes:` map) |
 | [`pipeline.yaml`](templates/pipeline.yaml) | AGENT → CODE (typed record) — deterministic post-processing |
+| [`inline-code.yaml`](templates/inline-code.yaml) | inline `code:` source — a bare body run in-process (no `module:function`) |
 | [`typed_output.yaml`](templates/typed_output.yaml) | AGENT with a record `output:` — structured generation + `retries:` |
 | [`branching.yaml`](templates/branching.yaml) | classify → `case` route → `\|` join |
 | [`tool-use.yaml`](templates/tool-use.yaml) | a `tool` node (no LLM) feeding an AGENT |

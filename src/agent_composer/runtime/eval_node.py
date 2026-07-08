@@ -44,6 +44,7 @@ from agent_composer.expr import resolve_reference
 from agent_composer.expr.expressions import ExpressionError, _evaluate, _resolve_in_record
 from agent_composer.nodes.base import Grow, Output, Pause, Route
 from agent_composer.nodes.binding import bind_params
+from agent_composer.runtime.watchdog import node_watchdog
 from agent_composer.typesys.pool import VariablePool
 
 
@@ -148,15 +149,18 @@ def eval_node(node, flow, pool: VariablePool, llm=_default_llm):
         # (e.g. a CODE function transforming in place), which must not corrupt the contract
         # check — restores the isolation an earlier double-bind gave. Only paid when declared.
         post_input = copy.deepcopy(record) if node.post_asserts else None
-        outcome = node.run(record, **caps)
-        if isinstance(outcome, (Output, Route, Pause, Grow)):
-            result = outcome
-        elif inspect.isgenerator(outcome):  # a streaming kind: yields StreamChunk, returns a NodeResult
-            result = yield from node._drain_node_generator(outcome)
-        else:
-            raise RuntimeError(
-                f"node {node.id!r} run() returned {type(outcome).__name__}, not a NodeResult"
-            )
+        # A kind-blind watchdog logs (does not kill) a node whose run overruns a soft
+        # budget — so a runaway in-process CODE body is diagnosed, not a silent hang.
+        with node_watchdog(node.id):
+            outcome = node.run(record, **caps)
+            if isinstance(outcome, (Output, Route, Pause, Grow)):
+                result = outcome
+            elif inspect.isgenerator(outcome):  # a streaming kind: yields StreamChunk, returns a NodeResult
+                result = yield from node._drain_node_generator(outcome)
+            else:
+                raise RuntimeError(
+                    f"node {node.id!r} run() returned {type(outcome).__name__}, not a NodeResult"
+                )
         if isinstance(result, Grow):
             # A spawner grows the live graph: hand the self-describing `Grow` to the dispatcher's
             # `_apply_grow` via NodeExpanded. Any non-spawner kind returning a Grow is a clear error

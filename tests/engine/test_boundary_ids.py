@@ -21,7 +21,7 @@ def test_compiledflow_start_end_id_accessors():
     from agent_composer.compile.model import CompiledFlow, Edge, FlowOutput
     from agent_composer.nodes.code.node import CodeNode
 
-    n = CodeNode("a", ref="tests.engine._compose_codefns:echo")
+    n = CodeNode("a", code="tests.engine._compose_codefns:echo")
     flow = CompiledFlow.from_parts({"a": n}, [Edge("s", START_ID, "a"), Edge("t", "a", END_ID)])
     assert flow.start_id == START_ID
     assert flow.end_id == END_ID

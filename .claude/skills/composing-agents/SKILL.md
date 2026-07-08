@@ -161,13 +161,17 @@ per-node override, node wins): e.g. `env: {max_tool_iterations: 300}` bounds an
 agent's tool-calling loop (default `-1` = no cap).
 
 ### `code` — deterministic Python
+`code:` is either a **`module:function`** reference (import + call) or **inline source** —
+a bare body that reads the `inputs` dict and `return`s a value (the engine wraps it as
+`def main(inputs)` and runs it in-process; same one-dict convention, so a body promotes to
+a reference by copy-paste). See [`templates/inline-code.yaml`](templates/inline-code.yaml).
 ```yaml
 verdict:
   kind: code
   input:
     s: ${score.output.signal}
   output: Signal               # unlike an agent, ANY type
-  code: pkg.mod:fn             # module:function
+  code: pkg.mod:fn             # a reference — OR an inline `code: |` body that returns
 ```
 
 ### `tool` — a registered tool (no LLM)
@@ -361,6 +365,6 @@ result. For a *guaranteed* gate use `human_input`; for "ask only if needed" use
 - [ ] Every `agent` `output:` is typed — `str`/`Literal[...]` for text, or a record/number/bool/list for structured generation.
 - [ ] Every prompt references only the node's own local input names.
 - [ ] Each `case` has an `else:` (or its `Literal` cases are exhaustive); branches are joined with `|`.
-- [ ] `tool` ids are registered; `code` `module:function` is importable; `call`/`uses:` targets resolve on the search path.
+- [ ] `tool` ids are registered; a `code` `module:function` is importable (or an inline `code: |` body `return`s a value); `call`/`uses:` targets resolve on the search path.
 - [ ] A child-flow call is written `call(f, ...)` as a whole value, never `${flow(args)}`; string `:-` defaults and `:?` messages are quoted.
 - [ ] It loads cleanly (`ac run` / `load_flow`) before you wire a model.

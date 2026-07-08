@@ -221,6 +221,10 @@ def test_e06_cross_flow_type_mismatch_is_loud():
         ("e15-prompt-undeclared-input.yaml", "is not a declared input", 7),
         ("e16-bad-typedef-name.yaml", "shadows", 4),
         ("e17-case-nonexhaustive.yaml", "non-exhaustive", 13),
+        # inline CODE load-time gates — all located at the `code:` content / field line.
+        ("e30-inline-syntax-error.yaml", "never closed", 15),   # padded compile -> real line
+        ("e31-inline-no-return.yaml", "must return a value", 15),  # has-`return` gate
+        ("e32-malformed-code-ref.yaml", "did you mean", 15),    # reject bucket
     ],
 )
 def test_compile_error_gallery(filename, substr, line):
@@ -245,6 +249,11 @@ def test_compile_error_gallery(filename, substr, line):
         # e08 — input type enforcement at the flow boundary: a non-coercible string for an
         # `int` input fails BEFORE any node runs (no LLM creds needed).
         ("e08-input-type-mismatch.yaml", {"topic": "X", "window": "soon"}, "int"),
+        # inline CODE runtime failures — a raise, a wrong-typed return (write boundary),
+        # and a nested non-serializable return (the node's deep serialize-once check).
+        ("e27-inline-code-raises.yaml", {"topic": "X"}, "intentional inline failure"),
+        ("e28-inline-wrong-type.yaml", {"topic": "X"}, "int"),
+        ("e29-inline-nonserializable.yaml", {"topic": "X"}, "non-serializable"),
     ],
 )
 def test_runtime_error_gallery(filename, inputs, substr):
