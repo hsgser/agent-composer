@@ -480,7 +480,11 @@ turn:
 - **`call:`** names the body. The body's `output:` must be the **same shape** as
   the carried record (`'a -> 'a`), and the fields the body reads (`${input.X}`)
   must be a subset of the carried names. This contract is checked twice: field
-  **names** at build, field **types** at load.
+  **names** at build, field **types** at load. Each output field's type is inferred
+  from its binding shape (see [expressions](expressions.md)): a lone `${...}` span is
+  a typed passthrough, while a **concatenating template** (literal text around spans)
+  is a `str` — so a carried `str` field (e.g. a chat transcript) can be grown with a
+  plain `${...}` template binding, no CODE fold node required.
 - **Exactly one** of `while:` / `until:` / `times:` per loop node selects the
   driver. Zero or more than one is a load-time error (`exactly one of
   while:/until:/times: is required`).
